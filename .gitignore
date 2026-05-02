@@ -1,0 +1,9 @@
+*.o
+*.tmp
+cache/
+prebuild/
+dist/
+stage0/build/
+stage0/out/
+stage0/src/
+stage0/dist/

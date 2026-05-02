@@ -1,0 +1,73 @@
+name: stage0-rootfs
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/stage0-rootfs.yml"
+      - "stage0/**"
+      - ".gitignore"
+      - "README.md"
+  pull_request:
+    paths:
+      - ".github/workflows/stage0-rootfs.yml"
+      - "stage0/**"
+      - ".gitignore"
+      - "README.md"
+
+jobs:
+  build-rootfs:
+    name: rootfs-${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - x86_64
+          - aarch64
+          - riscv64
+          - loongarch64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache stage0 archives
+        uses: actions/cache@v4
+        with:
+          path: cache
+          key: ${{ runner.os }}-stage0-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-stage0-cache-
+
+      - name: Prepare tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils \
+            bzip2 \
+            ca-certificates \
+            cmake \
+            make \
+            tar \
+            xz-utils
+
+      - name: Build stage0 rootfs
+        run: |
+          bash ./stage0/build.sh \
+            --arch="${{ matrix.arch }}" \
+            --clean \
+            --jobs=4
+
+      - name: Pack rootfs
+        run: |
+          mkdir -p artifacts
+          tar -C dist/sysroot -czf "artifacts/stage0-rootfs-${{ matrix.arch }}.tar.gz" "${{ matrix.arch }}"
+
+      - name: Upload rootfs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage0-rootfs-${{ matrix.arch }}
+          path: artifacts/stage0-rootfs-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
