@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+set -eu
+
+want_link=1
+for arg in "$@"; do
+  case "$arg" in
+    -c|-E|-S)
+      want_link=0
+      ;;
+  esac
+done
+
+if [ "$want_link" -eq 1 ]; then
+  exec "@STAGE1_CLANG_EXECUTABLE@" \
+    "--target=@STAGE1_TARGET_TRIPLE@" \
+    "--sysroot=@STAGE1_ROOTFS_DIR@" \
+    "-fuse-ld=lld" \
+    @STAGE1_TARGET_WRAPPER_EXTRA_ARGS@ \
+    "$@"
+else
+  exec "@STAGE1_CLANG_EXECUTABLE@" \
+    "--target=@STAGE1_TARGET_TRIPLE@" \
+    "--sysroot=@STAGE1_ROOTFS_DIR@" \
+    "$@"
+fi
