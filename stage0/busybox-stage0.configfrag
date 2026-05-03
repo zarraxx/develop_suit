@@ -6,3 +6,10 @@ CONFIG_TC=n
 # BusyBox's newer CAN-specific "ip link" support does not compile cleanly.
 # Keep the regular ip/iproute applets, but drop the CAN extension.
 CONFIG_FEATURE_IP_LINK_CAN=n
+
+# BusyBox's SHA hardware acceleration hooks only provide x86 SHA-NI
+# implementations in this source release. Defconfig enables them broadly,
+# which breaks non-x86 targets such as aarch64. Stage0 does not need these
+# optional fast paths, so keep them disabled across all architectures.
+CONFIG_SHA1_HWACCEL=n
+CONFIG_SHA256_HWACCEL=n
