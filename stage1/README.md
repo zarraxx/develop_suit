@@ -46,6 +46,14 @@
 
 `dist/stage1/<arch>`
 
+staging 过程中还会补齐少量基础运行目录：
+
+- `/root`
+- `/tmp`
+- `/var/tmp`
+
+其中 `/tmp` 和 `/var/tmp` 会设置为标准的 `1777` 权限。
+
 目标机内的默认安装前缀是：
 
 `/usr`

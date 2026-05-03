@@ -23,13 +23,21 @@ echo "-- perl version"
 perl -v | sed -n '1,3p'
 
 echo "-- perl hello world"
-cat >/tmp/stage1-perl-smoke.pl <<'EOF'
+tmp_root="/tmp"
+if ! mkdir -p "$tmp_root" 2>/dev/null; then
+  tmp_root="/root/.tmp-smoke"
+  mkdir -p "$tmp_root"
+fi
+
+perl_smoke_script="${tmp_root}/stage1-perl-smoke.pl"
+
+cat >"${perl_smoke_script}" <<'EOF'
 use strict;
 use warnings;
 
 print "hello world\n";
 EOF
-perl /tmp/stage1-perl-smoke.pl
+perl "${perl_smoke_script}"
 
 echo "-- perl basic test"
 perl -e 'use strict; use warnings; my $sum = 20 + 22; print "$sum\n"; die "bad math\n" unless $sum == 42;'
