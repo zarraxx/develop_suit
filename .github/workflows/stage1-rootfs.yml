@@ -9,7 +9,7 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: "Release tag, defaults to stage1-rootfs-YYYY-MM-DD"
+        description: "Release and image tag, defaults to stage1-YYYY-MM-DD"
         required: false
         type: string
       release_name:
@@ -34,6 +34,7 @@ jobs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
       release_name: ${{ steps.meta.outputs.release_name }}
       image_repo: ${{ steps.meta.outputs.image_repo }}
+      image_temp_tag_prefix: ${{ steps.meta.outputs.image_temp_tag_prefix }}
 
     steps:
       - name: Resolve release and image metadata
@@ -46,7 +47,7 @@ jobs:
         run: |
           release_tag="${INPUT_RELEASE_TAG}"
           if [[ -z "${release_tag}" ]]; then
-            release_tag="stage1-rootfs-$(date -u +%F)"
+            release_tag="stage1-$(date -u +%F)"
           fi
 
           release_name="${INPUT_RELEASE_NAME}"
@@ -57,12 +58,14 @@ jobs:
           owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           repo_name="${GITHUB_REPOSITORY#*/}"
           repo_name_lc="$(printf '%s' "${repo_name}" | tr '[:upper:]' '[:lower:]')"
-          image_repo="ghcr.io/${owner_lc}/${repo_name_lc}-stage1-rootfs"
+          image_repo="ghcr.io/${owner_lc}/${repo_name_lc}"
+          image_temp_tag_prefix="tmp-${GITHUB_RUN_ID}"
 
           {
             echo "release_tag=${release_tag}"
             echo "release_name=${release_name}"
             echo "image_repo=${image_repo}"
+            echo "image_temp_tag_prefix=${image_temp_tag_prefix}"
           } >> "${GITHUB_OUTPUT}"
 
   build-rootfs:
@@ -123,7 +126,7 @@ jobs:
           bash ./stage1/image.sh \
             --arch="${{ matrix.arch }}" \
             --push \
-            --tag="${{ needs.resolve-meta.outputs.image_repo }}:${{ needs.resolve-meta.outputs.release_tag }}-${{ matrix.arch }}"
+            --tag="${{ needs.resolve-meta.outputs.image_repo }}:${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}-${{ matrix.arch }}"
 
       - name: Pack rootfs
         run: |
@@ -161,13 +164,14 @@ jobs:
         run: |
           image_repo="${{ needs.resolve-meta.outputs.image_repo }}"
           release_tag="${{ needs.resolve-meta.outputs.release_tag }}"
+          image_temp_tag_prefix="${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}"
 
           docker buildx imagetools create \
             --tag "${image_repo}:${release_tag}" \
-            "${image_repo}:${release_tag}-x86_64" \
-            "${image_repo}:${release_tag}-aarch64" \
-            "${image_repo}:${release_tag}-riscv64" \
-            "${image_repo}:${release_tag}-loongarch64"
+            "${image_repo}:${image_temp_tag_prefix}-x86_64" \
+            "${image_repo}:${image_temp_tag_prefix}-aarch64" \
+            "${image_repo}:${image_temp_tag_prefix}-riscv64" \
+            "${image_repo}:${image_temp_tag_prefix}-loongarch64"
 
   publish-release:
     name: publish-release

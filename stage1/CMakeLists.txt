@@ -182,6 +182,7 @@ add_custom_command(
   COMMAND "${CMAKE_COMMAND}" -E rm -rf "${STAGE1_ROOTFS_DIR}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${STAGE1_ROOTFS_DIR}"
   COMMAND "${CMAKE_COMMAND}" -E copy_directory "${STAGE1_INPUT_ROOTFS_DIR}" "${STAGE1_ROOTFS_DIR}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${STAGE1_ROOTFS_DIR}/root"
   COMMAND "${CMAKE_COMMAND}" -E touch "${_stage1_sysroot_stage_stamp}"
   DEPENDS "${STAGE1_INPUT_ROOTFS_DIR}/usr"
   COMMENT "Staging stage0 rootfs into ${STAGE1_ROOTFS_DIR}"

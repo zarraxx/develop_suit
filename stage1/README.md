@@ -214,7 +214,7 @@ https://curl.se/download/curl-8.20.0.tar.gz
 ./stage1/image.sh \
   --arch=aarch64 \
   --push \
-  --tag=ghcr.io/<owner>/<repo>-stage1-rootfs:stage1-rootfs-2026-05-03-aarch64
+  --tag=ghcr.io/<owner>/<repo>:stage1-2026-05-03
 ```
 
 常用参数：
@@ -251,10 +251,11 @@ https://curl.se/download/curl-8.20.0.tar.gz
 当前 workflow 会：
 
 - 先用 `build.sh` 分别构建 `x86_64 / aarch64 / riscv64 / loongarch64` 四套 rootfs
-- 每个架构单独推送一个 GHCR 镜像 tag：
-  `ghcr.io/<owner>/<repo>-stage1-rootfs:stage1-rootfs-YYYY-MM-DD-<arch>`
-- 最后再合并出一个多架构 manifest tag：
-  `ghcr.io/<owner>/<repo>-stage1-rootfs:stage1-rootfs-YYYY-MM-DD`
+- 最终只发布一个给客户端使用的多架构 GHCR tag：
+  `ghcr.io/<owner>/<repo>:stage1-YYYY-MM-DD`
+- `docker` / `podman` 客户端会按自身架构自动拉取对应镜像
+
+workflow 内部仍会使用一次性的临时架构 tag 来拼 multi-arch manifest，但这不是对外约定的最终 tag。
 
 如果勾选 `publish_release`，workflow 仍然会把四套 `rootfs` 压缩包发布到 GitHub Release。
 
