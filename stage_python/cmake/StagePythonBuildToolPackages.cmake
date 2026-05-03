@@ -21,12 +21,12 @@ set(STAGE_PYTHON_FLEX_URL
   CACHE STRING
   "Download URL for flex")
 
-option(STAGE_PYTHON_ENABLE_BUILD_TOOL_PACKAGES "Enable stage_python build-tool package source resolution" ON)
+option(STAGE_PYTHON_ENABLE_BUILD_TOOL_PACKAGES "Build build-tool packages in stage_python" ON)
 option(STAGE_PYTHON_ENABLE_NINJA "Enable ninja in stage_python" ON)
 option(STAGE_PYTHON_ENABLE_BISON "Enable bison in stage_python" ON)
 option(STAGE_PYTHON_ENABLE_FLEX "Enable flex in stage_python" ON)
 
-function(stage_python_register_build_tool_packages out_var)
+function(stage_python_register_build_tool_packages out_var sysroot_stage_dep)
   if(NOT STAGE_PYTHON_ENABLE_BUILD_TOOL_PACKAGES)
     set(${out_var} "" PARENT_SCOPE)
     return()
@@ -34,20 +34,23 @@ function(stage_python_register_build_tool_packages out_var)
 
   file(MAKE_DIRECTORY "${STAGE_PYTHON_SOURCE_DIR}")
 
+  set(_stage_python_any_enabled FALSE)
+  foreach(_stage_python_opt IN ITEMS
+      STAGE_PYTHON_ENABLE_NINJA
+      STAGE_PYTHON_ENABLE_BISON
+      STAGE_PYTHON_ENABLE_FLEX)
+    if(${_stage_python_opt})
+      set(_stage_python_any_enabled TRUE)
+      break()
+    endif()
+  endforeach()
+
+  if(NOT _stage_python_any_enabled)
+    set(${out_var} "" PARENT_SCOPE)
+    return()
+  endif()
+
   set(_stage_python_targets "")
-  set(_stage_python_common_autotools_env
-    "CONFIG_SHELL=/bin/sh"
-    "SHELL=/bin/sh"
-    "MAKEINFO=true"
-    "HELP2MAN=true")
-
-  if(STAGE_PYTHON_HOST_M4)
-    list(APPEND _stage_python_common_autotools_env "M4=${STAGE_PYTHON_HOST_M4}")
-  endif()
-
-  if(STAGE_PYTHON_HOST_PERL)
-    list(APPEND _stage_python_common_autotools_env "PERL=${STAGE_PYTHON_HOST_PERL}")
-  endif()
 
   if(STAGE_PYTHON_ENABLE_NINJA)
     stage_python_resolve_archive_source(
@@ -63,11 +66,12 @@ function(stage_python_register_build_tool_packages out_var)
       GLOB_PATTERNS
         "${STAGE_PYTHON_CACHE_DIR}/ninja-*.tar.gz"
         "${STAGE_PYTHON_CACHE_DIR}/ninja-*.tar.xz")
-    stage_python_add_cmake_host_package(
+    stage_python_add_cmake_package(
       stage-python-ninja
       PACKAGE_NAME "ninja"
       SOURCE_DIR "${STAGE_PYTHON_NINJA_SOURCE_DIR}"
-      INSTALL_PREFIX "${STAGE_PYTHON_INSTALL_DIR}"
+      INSTALL_PREFIX "${STAGE_PYTHON_INSTALL_PREFIX}"
+      DEPENDS "${sysroot_stage_dep}"
       CMAKE_ARGS
         "-DBUILD_TESTING=OFF")
     list(APPEND _stage_python_targets stage-python-ninja)
@@ -87,12 +91,14 @@ function(stage_python_register_build_tool_packages out_var)
       GLOB_PATTERNS
         "${STAGE_PYTHON_CACHE_DIR}/bison-*.tar.xz"
         "${STAGE_PYTHON_CACHE_DIR}/bison-*.tar.gz")
-    stage_python_add_autotools_host_package(
+    stage_python_add_autotools_package(
       stage-python-bison
       PACKAGE_NAME "bison"
       SOURCE_DIR "${STAGE_PYTHON_BISON_SOURCE_DIR}"
-      INSTALL_PREFIX "${STAGE_PYTHON_INSTALL_DIR}"
-      ENV ${_stage_python_common_autotools_env}
+      INSTALL_PREFIX "${STAGE_PYTHON_INSTALL_PREFIX}"
+      DEPENDS "${sysroot_stage_dep}"
+      POST_INSTALL_COMMANDS
+        ${STAGE_PYTHON_NO_DOC_INSTALL_COMMANDS}
       CONFIGURE_ARGS
         "--disable-nls"
         "--disable-dependency-tracking")
@@ -113,13 +119,22 @@ function(stage_python_register_build_tool_packages out_var)
       GLOB_PATTERNS
         "${STAGE_PYTHON_CACHE_DIR}/flex-*.tar.gz"
         "${STAGE_PYTHON_CACHE_DIR}/flex-*.tar.xz")
-    stage_python_add_autotools_host_package(
+    stage_python_add_autotools_package(
       stage-python-flex
       PACKAGE_NAME "flex"
       SOURCE_DIR "${STAGE_PYTHON_FLEX_SOURCE_DIR}"
-      INSTALL_PREFIX "${STAGE_PYTHON_INSTALL_DIR}"
-      ENV ${_stage_python_common_autotools_env}
+      INSTALL_PREFIX "${STAGE_PYTHON_INSTALL_PREFIX}"
+      DEPENDS "${sysroot_stage_dep}"
+      ENV
+        "ac_cv_func_malloc_0_nonnull=yes"
+        "ac_cv_func_realloc_0_nonnull=yes"
+        "gl_cv_func_malloc_0_nonnull=yes"
+        "gl_cv_func_realloc_0_nonnull=yes"
+        "CFLAGS=-std=gnu17"
+      POST_INSTALL_COMMANDS
+        ${STAGE_PYTHON_NO_DOC_INSTALL_COMMANDS}
       CONFIGURE_ARGS
+        "--disable-bootstrap"
         "--disable-nls"
         "--disable-dependency-tracking")
     list(APPEND _stage_python_targets stage-python-flex)

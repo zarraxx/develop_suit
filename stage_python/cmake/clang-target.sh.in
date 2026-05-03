@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+set -eu
+
+want_link=1
+for arg in "$@"; do
+  case "$arg" in
+    -c|-E|-S)
+      want_link=0
+      ;;
+  esac
+done
+
+if [ "$want_link" -eq 1 ]; then
+  exec "@STAGE_PYTHON_CLANG_EXECUTABLE@" \
+    "--target=@STAGE_PYTHON_TARGET_TRIPLE@" \
+    "--sysroot=@STAGE_PYTHON_ROOTFS_DIR@" \
+    @STAGE_PYTHON_TARGET_WRAPPER_ALWAYS_ARGS@ \
+    "-fuse-ld=lld" \
+    @STAGE_PYTHON_TARGET_WRAPPER_LINK_ARGS@ \
+    "$@"
+else
+  exec "@STAGE_PYTHON_CLANG_EXECUTABLE@" \
+    "--target=@STAGE_PYTHON_TARGET_TRIPLE@" \
+    "--sysroot=@STAGE_PYTHON_ROOTFS_DIR@" \
+    @STAGE_PYTHON_TARGET_WRAPPER_ALWAYS_ARGS@ \
+    "$@"
+fi

@@ -15,6 +15,7 @@ Options:
   --arch=<arch>             Target arch: x86_64, aarch64, riscv64, loongarch64
   --tag=<name>              Docker image tag, repeatable
                             (default: stage1-rootfs:<arch>)
+  --skip-test               Skip the post-build container smoke test
   --push                    Push image directly to registry instead of writing a tar
   --output=<path>           Output Docker archive path
                             (default: <repo>/dist/images/stage1-image-<arch>.tar)
@@ -77,10 +78,12 @@ docker_platform_for_arch() {
 
 ARCH=""
 TAGS=()
+SKIP_TEST=0
 PUSH=0
 OUTPUT=""
 DOCKERFILE_PATH="${ROOT_DIR}/Dockerfile"
 CONTEXT_PATH="${PROJECT_ROOT}"
+SMOKE_TEST_SCRIPT="${ROOT_DIR}/smoke-test.sh"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -102,6 +105,9 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || die "--tag requires a value"
       TAGS+=("$1")
+      ;;
+    --skip-test)
+      SKIP_TEST=1
       ;;
     --push)
       PUSH=1
@@ -152,6 +158,7 @@ ROOTFS_DIR="${PROJECT_ROOT}/dist/stage1/${ARCH}"
 [[ -d "$ROOTFS_DIR" ]] || die "stage1 rootfs directory does not exist: $ROOTFS_DIR"
 [[ -f "$DOCKERFILE_PATH" ]] || die "Dockerfile does not exist: $DOCKERFILE_PATH"
 [[ -d "$CONTEXT_PATH" ]] || die "docker build context does not exist: $CONTEXT_PATH"
+[[ -f "$SMOKE_TEST_SCRIPT" ]] || die "smoke test script does not exist: $SMOKE_TEST_SCRIPT"
 
 if [[ ${#TAGS[@]} -eq 0 ]]; then
   TAGS=("stage1-rootfs:${ARCH}")
@@ -197,4 +204,17 @@ if [[ "$PUSH" -eq 1 ]]; then
   echo "Docker image push finished"
 else
   echo "Docker archive is ready at ${OUTPUT}"
+fi
+
+if [[ "$SKIP_TEST" -eq 0 ]]; then
+  test_tag="${TAGS[0]}"
+
+  if [[ "$PUSH" -eq 0 ]]; then
+    echo "Loading image archive for smoke test: ${OUTPUT}"
+    docker load -i "${OUTPUT}"
+  fi
+
+  echo "Running smoke test for image: ${test_tag}"
+  docker run --rm -i --platform "${PLATFORM}" --entrypoint /bin/sh "${test_tag}" < "${SMOKE_TEST_SCRIPT}"
+  echo "Smoke test finished"
 fi

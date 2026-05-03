@@ -193,3 +193,136 @@ function(stage_python_resolve_archive_source out_var description cache_dir extra
 
   set(${out_var} "${_source_dir}" PARENT_SCOPE)
 endfunction()
+
+function(stage_python_normalize_host_arch input_arch out_var)
+  string(TOLOWER "${input_arch}" _arch)
+  if(_arch STREQUAL "amd64")
+    set(_arch "x86_64")
+  elseif(_arch STREQUAL "arm64")
+    set(_arch "aarch64")
+  endif()
+  set(${out_var} "${_arch}" PARENT_SCOPE)
+endfunction()
+
+function(stage_python_default_llvm_download_info out_filename_var out_url_var)
+  stage_python_normalize_host_arch("${CMAKE_HOST_SYSTEM_PROCESSOR}" _host_arch)
+  if(_host_arch STREQUAL "x86_64")
+    set(_archive_name "compiler-llvm-18.1.8-linux-x86_64.tar.gz")
+    set(_archive_url "${STAGE_PYTHON_LLVM_X86_64_URL}")
+  elseif(_host_arch STREQUAL "aarch64")
+    set(_archive_name "compiler-llvm-18.1.8-linux-aarch64.tar.gz")
+    set(_archive_url "${STAGE_PYTHON_LLVM_AARCH64_URL}")
+  else()
+    message(FATAL_ERROR
+      "Automatic LLVM host toolchain download is not configured for host arch "
+      "${CMAKE_HOST_SYSTEM_PROCESSOR}. Set STAGE_PYTHON_LLVM_ARCHIVE or STAGE_PYTHON_CLANG_ROOT explicitly.")
+  endif()
+
+  set(${out_filename_var} "${_archive_name}" PARENT_SCOPE)
+  set(${out_url_var} "${_archive_url}" PARENT_SCOPE)
+endfunction()
+
+function(stage_python_resolve_default_llvm_archive out_var cache_dir)
+  stage_python_normalize_host_arch("${CMAKE_HOST_SYSTEM_PROCESSOR}" _host_arch)
+  file(GLOB _all_archives LIST_DIRECTORIES FALSE "${cache_dir}/compiler-llvm-*-linux-*.tar.gz")
+  if(NOT _all_archives)
+    stage_python_default_llvm_download_info(_default_llvm_name _default_llvm_url)
+    stage_python_ensure_default_archive(
+      _downloaded_llvm_archive
+      "LLVM host toolchain archive for ${_host_arch}"
+      "${cache_dir}"
+      "${_default_llvm_name}"
+      "${_default_llvm_url}")
+    set(${out_var} "${_downloaded_llvm_archive}" PARENT_SCOPE)
+    return()
+  endif()
+
+  set(_filtered "")
+  foreach(_archive IN LISTS _all_archives)
+    if(_archive MATCHES "-linux-${_host_arch}\\.tar\\.gz$")
+      list(APPEND _filtered "${_archive}")
+    endif()
+  endforeach()
+
+  list(LENGTH _filtered _filtered_count)
+  if(_filtered_count EQUAL 1)
+    list(GET _filtered 0 _selected)
+    set(${out_var} "${_selected}" PARENT_SCOPE)
+    return()
+  endif()
+
+  if(_filtered_count GREATER 1)
+    message(FATAL_ERROR
+      "Found multiple LLVM archives matching host arch ${_host_arch}: ${_filtered}\n"
+      "Please set STAGE_PYTHON_LLVM_ARCHIVE explicitly.")
+  endif()
+
+  stage_python_default_llvm_download_info(_default_llvm_name _default_llvm_url)
+  set(_expected_default_archive "${cache_dir}/${_default_llvm_name}")
+  if(EXISTS "${_expected_default_archive}")
+    set(${out_var} "${_expected_default_archive}" PARENT_SCOPE)
+    return()
+  endif()
+
+  if(STAGE_PYTHON_DOWNLOAD_MISSING)
+    stage_python_ensure_default_archive(
+      _downloaded_llvm_archive
+      "LLVM host toolchain archive for ${_host_arch}"
+      "${cache_dir}"
+      "${_default_llvm_name}"
+      "${_default_llvm_url}")
+    set(${out_var} "${_downloaded_llvm_archive}" PARENT_SCOPE)
+    return()
+  endif()
+
+  message(FATAL_ERROR
+    "Found LLVM archives (${_all_archives}) but none matched host arch ${_host_arch}.\n"
+    "Set STAGE_PYTHON_LLVM_ARCHIVE explicitly or enable automatic download.")
+endfunction()
+
+function(stage_python_default_host_triple out_var)
+  stage_python_normalize_host_arch("${CMAKE_HOST_SYSTEM_PROCESSOR}" _host_arch)
+  set(_host_os "linux")
+  if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+    set(_host_os "apple-darwin")
+  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+    set(_host_os "unknown-linux-gnu")
+  endif()
+  set(${out_var} "${_host_arch}-${_host_os}" PARENT_SCOPE)
+endfunction()
+
+function(stage_python_get_no_doc_install_commands rootfs_dir install_prefix out_var)
+  set(${out_var}
+    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${rootfs_dir}${install_prefix}/share/doc"
+    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${rootfs_dir}${install_prefix}/share/man"
+    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${rootfs_dir}${install_prefix}/man"
+    PARENT_SCOPE)
+endfunction()
+
+function(stage_python_collect_triplet_refresh_commands source_dir out_var)
+  set(_stage_python_commands "")
+
+  if((NOT DEFINED STAGE_PYTHON_HOST_CONFIG_SUB OR STAGE_PYTHON_HOST_CONFIG_SUB STREQUAL "" OR NOT EXISTS "${STAGE_PYTHON_HOST_CONFIG_SUB}")
+      AND (NOT DEFINED STAGE_PYTHON_HOST_CONFIG_GUESS OR STAGE_PYTHON_HOST_CONFIG_GUESS STREQUAL "" OR NOT EXISTS "${STAGE_PYTHON_HOST_CONFIG_GUESS}"))
+    set(${out_var} "${_stage_python_commands}" PARENT_SCOPE)
+    return()
+  endif()
+
+  file(GLOB_RECURSE _stage_python_source_files LIST_DIRECTORIES FALSE "${source_dir}/*")
+  foreach(_stage_python_path IN LISTS _stage_python_source_files)
+    get_filename_component(_stage_python_name "${_stage_python_path}" NAME)
+    if(_stage_python_name STREQUAL "config.sub")
+      if(DEFINED STAGE_PYTHON_HOST_CONFIG_SUB AND NOT STAGE_PYTHON_HOST_CONFIG_SUB STREQUAL "" AND EXISTS "${STAGE_PYTHON_HOST_CONFIG_SUB}")
+        list(APPEND _stage_python_commands
+          COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STAGE_PYTHON_HOST_CONFIG_SUB}" "${_stage_python_path}")
+      endif()
+    elseif(_stage_python_name STREQUAL "config.guess")
+      if(DEFINED STAGE_PYTHON_HOST_CONFIG_GUESS AND NOT STAGE_PYTHON_HOST_CONFIG_GUESS STREQUAL "" AND EXISTS "${STAGE_PYTHON_HOST_CONFIG_GUESS}")
+        list(APPEND _stage_python_commands
+          COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STAGE_PYTHON_HOST_CONFIG_GUESS}" "${_stage_python_path}")
+      endif()
+    endif()
+  endforeach()
+
+  set(${out_var} "${_stage_python_commands}" PARENT_SCOPE)
+endfunction()

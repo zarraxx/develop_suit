@@ -208,6 +208,24 @@ https://curl.se/download/curl-8.20.0.tar.gz
 
 `dist/images/stage1-image-<arch>.tar`
 
+镜像构建成功后，`image.sh` 会自动拉起一个容器做 smoke test，当前覆盖：
+
+- `make --version`
+- `autoconf --version`
+- `automake --version`
+- `pkg-config --version`
+- `pkg-config --cflags --libs openssl zlib libcurl`
+- `curl https://api.ipify.org`
+- `perl -v`
+- `perl hello world`
+- 一个基础 Perl 算术脚本测试
+
+如果只想构建镜像、不跑测试：
+
+```bash
+./stage1/image.sh --arch=aarch64 --skip-test
+```
+
 如果要直接推送到 GHCR 或其他 registry：
 
 ```bash
