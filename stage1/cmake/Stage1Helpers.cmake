@@ -305,6 +305,34 @@ function(stage1_get_no_doc_install_commands rootfs_dir install_prefix out_var)
     PARENT_SCOPE)
 endfunction()
 
+function(stage1_collect_triplet_refresh_commands source_dir out_var)
+  set(_stage1_commands "")
+
+  if((NOT DEFINED STAGE1_HOST_CONFIG_SUB OR STAGE1_HOST_CONFIG_SUB STREQUAL "" OR NOT EXISTS "${STAGE1_HOST_CONFIG_SUB}")
+      AND (NOT DEFINED STAGE1_HOST_CONFIG_GUESS OR STAGE1_HOST_CONFIG_GUESS STREQUAL "" OR NOT EXISTS "${STAGE1_HOST_CONFIG_GUESS}"))
+    set(${out_var} "${_stage1_commands}" PARENT_SCOPE)
+    return()
+  endif()
+
+  file(GLOB_RECURSE _stage1_source_files LIST_DIRECTORIES FALSE "${source_dir}/*")
+  foreach(_stage1_path IN LISTS _stage1_source_files)
+    get_filename_component(_stage1_name "${_stage1_path}" NAME)
+    if(_stage1_name STREQUAL "config.sub")
+      if(DEFINED STAGE1_HOST_CONFIG_SUB AND NOT STAGE1_HOST_CONFIG_SUB STREQUAL "" AND EXISTS "${STAGE1_HOST_CONFIG_SUB}")
+        list(APPEND _stage1_commands
+          COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STAGE1_HOST_CONFIG_SUB}" "${_stage1_path}")
+      endif()
+    elseif(_stage1_name STREQUAL "config.guess")
+      if(DEFINED STAGE1_HOST_CONFIG_GUESS AND NOT STAGE1_HOST_CONFIG_GUESS STREQUAL "" AND EXISTS "${STAGE1_HOST_CONFIG_GUESS}")
+        list(APPEND _stage1_commands
+          COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${STAGE1_HOST_CONFIG_GUESS}" "${_stage1_path}")
+      endif()
+    endif()
+  endforeach()
+
+  set(${out_var} "${_stage1_commands}" PARENT_SCOPE)
+endfunction()
+
 function(stage1_get_lib_only_install_commands rootfs_dir install_prefix out_var)
   stage1_get_no_doc_install_commands("${rootfs_dir}" "${install_prefix}" _stage1_no_doc_commands)
   set(${out_var}

@@ -4,10 +4,12 @@ project(stage1_tools LANGUAGES NONE)
 
 include(ProcessorCount)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/Stage1Helpers.cmake)
-#include(${CMAKE_CURRENT_LIST_DIR}/cmake/Stage1Autotools.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/Stage1Autotools.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/Stage1CompressionPackages.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/Stage1CryptoPackages.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/Stage1ScriptingPackages.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/Stage1TerminalPackages.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/Stage1UtilityPackages.cmake)
 
 set(STAGE1_CACHE_DIR "${CMAKE_CURRENT_LIST_DIR}/../cache" CACHE PATH "Directory containing downloaded archives")
 set(STAGE1_WORK_DIR "${CMAKE_BINARY_DIR}/stage1-work" CACHE PATH "Working directory used by the stage1 build")
@@ -23,20 +25,9 @@ set(STAGE1_INSTALL_PREFIX "/usr" CACHE STRING "Install prefix inside the target 
 set(STAGE1_LLVM_ARCHIVE "" CACHE FILEPATH "Path to the LLVM/Clang host toolchain archive")
 set(STAGE1_CLANG_ROOT "" CACHE PATH "Pre-extracted clang root containing bin/clang")
 
-set(STAGE1_MAKE_ARCHIVE "" CACHE FILEPATH "Path to the GNU make source archive")
-set(STAGE1_AUTOCONF_ARCHIVE "" CACHE FILEPATH "Path to the autoconf source archive")
-set(STAGE1_AUTOMAKE_ARCHIVE "" CACHE FILEPATH "Path to the automake source archive")
-
-set(STAGE1_MAKE_SOURCE_DIR "" CACHE PATH "Direct path to the GNU make source tree")
-set(STAGE1_AUTOCONF_SOURCE_DIR "" CACHE PATH "Direct path to the autoconf source tree")
-set(STAGE1_AUTOMAKE_SOURCE_DIR "" CACHE PATH "Direct path to the automake source tree")
-
 option(STAGE1_DOWNLOAD_MISSING "Automatically download missing archives into STAGE1_CACHE_DIR during configure" ON)
 set(STAGE1_LLVM_X86_64_URL "https://github.com/zarraxx/package_builder/releases/download/compiler-llvm-18.1.8/compiler-llvm-18.1.8-linux-x86_64.tar.gz" CACHE STRING "Download URL for the x86_64 host LLVM toolchain archive")
 set(STAGE1_LLVM_AARCH64_URL "https://github.com/zarraxx/package_builder/releases/download/compiler-llvm-18.1.8/compiler-llvm-18.1.8-linux-aarch64.tar.gz" CACHE STRING "Download URL for the aarch64 host LLVM toolchain archive")
-set(STAGE1_MAKE_URL "https://ftp.gnu.org/gnu/make/make-4.3.tar.gz" CACHE STRING "Download URL for GNU make")
-set(STAGE1_AUTOCONF_URL "https://ftp.gnu.org/gnu/autoconf/autoconf-2.73.tar.xz" CACHE STRING "Download URL for GNU autoconf")
-set(STAGE1_AUTOMAKE_URL "https://ftp.gnu.org/gnu/automake/automake-1.18.tar.xz" CACHE STRING "Download URL for GNU automake")
 
 ProcessorCount(_stage1_default_jobs)
 if(NOT _stage1_default_jobs)
@@ -92,13 +83,6 @@ stage1_default_host_triple(STAGE1_BUILD_TRIPLE)
 set(STAGE1_TARGET_ARCH "${STAGE1_TARGET_TRIPLE}")
 string(REGEX REPLACE "-.*$" "" STAGE1_TARGET_ARCH "${STAGE1_TARGET_ARCH}")
 
-set(STAGE1_ENV_PROFILE_SOURCE "${CMAKE_CURRENT_LIST_DIR}/cmake/stage1-env.sh.in")
-set(STAGE1_ENV_PROFILE_OUTPUT "${CMAKE_BINARY_DIR}/stage1-env.sh")
-configure_file(
-  "${STAGE1_ENV_PROFILE_SOURCE}"
-  "${STAGE1_ENV_PROFILE_OUTPUT}"
-  @ONLY)
-
 set(STAGE1_NESTED_CMAKE_GENERATOR_ARGS "")
 if(CMAKE_GENERATOR)
   list(APPEND STAGE1_NESTED_CMAKE_GENERATOR_ARGS -G "${CMAKE_GENERATOR}")
@@ -140,10 +124,11 @@ file(CREATE_LINK
   SYMBOLIC)
 
 set(STAGE1_CLANG_EXECUTABLE "${STAGE1_LLVM_BIN_DIR}/clang")
-string(CONCAT STAGE1_TARGET_WRAPPER_EXTRA_ARGS
+string(CONCAT STAGE1_TARGET_WRAPPER_ALWAYS_ARGS
+  "\"-resource-dir=${STAGE1_TARGET_CLANG_RESOURCE_DIR}\" ")
+string(CONCAT STAGE1_TARGET_WRAPPER_LINK_ARGS
   "\"--rtlib=compiler-rt\" "
   "\"--unwindlib=libunwind\" "
-  "\"-resource-dir=${STAGE1_TARGET_CLANG_RESOURCE_DIR}\" "
   "\"-L${STAGE1_TARGET_RUNTIME_LIBDIR}\"")
 configure_file(
   "${CMAKE_CURRENT_LIST_DIR}/cmake/clang-target.sh.in"
@@ -151,11 +136,15 @@ configure_file(
   @ONLY)
 
 set(STAGE1_CLANG_EXECUTABLE "${STAGE1_LLVM_BIN_DIR}/clang++")
-string(CONCAT STAGE1_TARGET_WRAPPER_EXTRA_ARGS
-  "\"--rtlib=compiler-rt\" "
-  "\"--unwindlib=libunwind\" "
+string(CONCAT STAGE1_TARGET_WRAPPER_ALWAYS_ARGS
   "\"-stdlib=libc++\" "
   "\"-resource-dir=${STAGE1_TARGET_CLANG_RESOURCE_DIR}\" "
+  "\"-nostdinc++\" "
+  "\"-isystem${STAGE1_ROOTFS_DIR}/usr/include/c++/v1\" "
+  "\"-isystem${STAGE1_ROOTFS_DIR}/usr/include/${STAGE1_TARGET_TRIPLE}/c++/v1\" ")
+string(CONCAT STAGE1_TARGET_WRAPPER_LINK_ARGS
+  "\"--rtlib=compiler-rt\" "
+  "\"--unwindlib=libunwind\" "
   "\"-L${STAGE1_TARGET_RUNTIME_LIBDIR}\"")
 configure_file(
   "${CMAKE_CURRENT_LIST_DIR}/cmake/clang-target.sh.in"
@@ -193,10 +182,6 @@ add_custom_command(
   COMMAND "${CMAKE_COMMAND}" -E rm -rf "${STAGE1_ROOTFS_DIR}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${STAGE1_ROOTFS_DIR}"
   COMMAND "${CMAKE_COMMAND}" -E copy_directory "${STAGE1_INPUT_ROOTFS_DIR}" "${STAGE1_ROOTFS_DIR}"
-  COMMAND "${CMAKE_COMMAND}" -E make_directory "${STAGE1_ROOTFS_DIR}/etc/profile.d"
-  COMMAND "${CMAKE_COMMAND}" -E copy
-    "${STAGE1_ENV_PROFILE_OUTPUT}"
-    "${STAGE1_ROOTFS_DIR}/etc/profile.d/stage1-env.sh"
   COMMAND "${CMAKE_COMMAND}" -E touch "${_stage1_sysroot_stage_stamp}"
   DEPENDS "${STAGE1_INPUT_ROOTFS_DIR}/usr"
   COMMENT "Staging stage0 rootfs into ${STAGE1_ROOTFS_DIR}"
@@ -207,110 +192,11 @@ add_custom_target(stage1-sysroot-staged
 
 set(_stage1_rootfs_deps stage1-sysroot-staged)
 
-if(COMMAND stage1_add_autotools_package)
-  stage1_resolve_archive_source(
-    STAGE1_MAKE_SOURCE_DIR
-    "GNU make"
-    "${STAGE1_CACHE_DIR}"
-    "${STAGE1_SOURCE_DIR}/make"
-    "configure"
-    SOURCE_DIR "${STAGE1_MAKE_SOURCE_DIR}"
-    ARCHIVE "${STAGE1_MAKE_ARCHIVE}"
-    DEFAULT_ARCHIVE "make-4.3.tar.gz"
-    URL "${STAGE1_MAKE_URL}"
-    GLOB_PATTERNS
-      "${STAGE1_CACHE_DIR}/make-*.tar.gz"
-      "${STAGE1_CACHE_DIR}/make-*.tar.xz")
-
-  stage1_resolve_archive_source(
-    STAGE1_AUTOCONF_SOURCE_DIR
-    "GNU autoconf"
-    "${STAGE1_CACHE_DIR}"
-    "${STAGE1_SOURCE_DIR}/autoconf"
-    "configure"
-    SOURCE_DIR "${STAGE1_AUTOCONF_SOURCE_DIR}"
-    ARCHIVE "${STAGE1_AUTOCONF_ARCHIVE}"
-    DEFAULT_ARCHIVE "autoconf-2.73.tar.xz"
-    URL "${STAGE1_AUTOCONF_URL}"
-    GLOB_PATTERNS
-      "${STAGE1_CACHE_DIR}/autoconf-*.tar.xz"
-      "${STAGE1_CACHE_DIR}/autoconf-*.tar.gz")
-
-  stage1_resolve_archive_source(
-    STAGE1_AUTOMAKE_SOURCE_DIR
-    "GNU automake"
-    "${STAGE1_CACHE_DIR}"
-    "${STAGE1_SOURCE_DIR}/automake"
-    "configure"
-    SOURCE_DIR "${STAGE1_AUTOMAKE_SOURCE_DIR}"
-    ARCHIVE "${STAGE1_AUTOMAKE_ARCHIVE}"
-    DEFAULT_ARCHIVE "automake-1.18.tar.xz"
-    URL "${STAGE1_AUTOMAKE_URL}"
-    GLOB_PATTERNS
-      "${STAGE1_CACHE_DIR}/automake-*.tar.xz"
-      "${STAGE1_CACHE_DIR}/automake-*.tar.gz")
-
-  find_program(STAGE1_MAKE_PROGRAM NAMES gmake make REQUIRED)
-  find_program(STAGE1_HOST_PERL NAMES perl REQUIRED)
-  find_program(STAGE1_HOST_M4 NAMES gm4 m4)
-
-  set(STAGE1_COMMON_AUTOTOOLS_ENV
-    "TMPDIR=${STAGE1_TMP_DIR}"
-    "TMP=${STAGE1_TMP_DIR}"
-    "TEMP=${STAGE1_TMP_DIR}"
-    "TEMPDIR=${STAGE1_TMP_DIR}"
-    "PATH=${STAGE1_LLVM_BIN_DIR}:$ENV{PATH}"
-    "CONFIG_SHELL=/bin/sh"
-    "SHELL=/bin/sh"
-    "CC=${STAGE1_TARGET_CC_WRAPPER}"
-    "CXX=${STAGE1_TARGET_CXX_WRAPPER}"
-    "AR=${STAGE1_LLVM_BIN_DIR}/llvm-ar"
-    "NM=${STAGE1_LLVM_BIN_DIR}/llvm-nm"
-    "OBJCOPY=${STAGE1_LLVM_BIN_DIR}/llvm-objcopy"
-    "RANLIB=${STAGE1_LLVM_BIN_DIR}/llvm-ranlib"
-    "STRIP=${STAGE1_LLVM_BIN_DIR}/llvm-strip"
-    "CC_FOR_BUILD=${STAGE1_HOST_CC}"
-    "CXX_FOR_BUILD=${STAGE1_HOST_CXX}"
-    "CPP_FOR_BUILD=${STAGE1_HOST_CC} -E"
-    "PERL=${STAGE1_HOST_PERL}"
-    "MAKEINFO=true"
-    "HELP2MAN=true")
-
-  if(STAGE1_HOST_M4)
-    list(APPEND STAGE1_COMMON_AUTOTOOLS_ENV "M4=${STAGE1_HOST_M4}")
-  else()
-    message(WARNING
-      "Host m4 was not found. Building autoconf/automake will likely fail until you "
-      "install m4 or pass -DSTAGE1_HOST_M4=/path/to/m4.")
+if(COMMAND stage1_register_autotools_packages)
+  stage1_register_autotools_packages(_stage1_autotools_targets stage1-sysroot-staged)
+  if(_stage1_autotools_targets)
+    list(APPEND _stage1_rootfs_deps ${_stage1_autotools_targets})
   endif()
-
-  stage1_add_autotools_package(
-    stage1-make
-    PACKAGE_NAME "gnu-make"
-    SOURCE_DIR "${STAGE1_MAKE_SOURCE_DIR}"
-    INSTALL_PREFIX "${STAGE1_INSTALL_PREFIX}"
-    DEPENDS stage1-sysroot-staged)
-
-  stage1_add_autotools_package(
-    stage1-autoconf
-    PACKAGE_NAME "autoconf"
-    SOURCE_DIR "${STAGE1_AUTOCONF_SOURCE_DIR}"
-    INSTALL_PREFIX "${STAGE1_INSTALL_PREFIX}"
-    DEPENDS stage1-sysroot-staged)
-
-  stage1_add_autotools_package(
-    stage1-automake
-    PACKAGE_NAME "automake"
-    SOURCE_DIR "${STAGE1_AUTOMAKE_SOURCE_DIR}"
-    INSTALL_PREFIX "${STAGE1_INSTALL_PREFIX}"
-    DEPENDS
-      stage1-sysroot-staged
-      stage1-autoconf)
-
-  list(APPEND _stage1_rootfs_deps
-    stage1-make
-    stage1-autoconf
-    stage1-automake)
 endif()
 
 if(COMMAND stage1_register_compression_packages)
@@ -327,10 +213,24 @@ if(COMMAND stage1_register_crypto_packages)
   endif()
 endif()
 
+if(COMMAND stage1_register_scripting_packages)
+  stage1_register_scripting_packages(_stage1_scripting_targets stage1-sysroot-staged)
+  if(_stage1_scripting_targets)
+    list(APPEND _stage1_rootfs_deps ${_stage1_scripting_targets})
+  endif()
+endif()
+
 if(COMMAND stage1_register_terminal_packages)
   stage1_register_terminal_packages(_stage1_terminal_targets stage1-sysroot-staged)
   if(_stage1_terminal_targets)
     list(APPEND _stage1_rootfs_deps ${_stage1_terminal_targets})
+  endif()
+endif()
+
+if(COMMAND stage1_register_utility_packages)
+  stage1_register_utility_packages(_stage1_utility_targets stage1-sysroot-staged)
+  if(_stage1_utility_targets)
+    list(APPEND _stage1_rootfs_deps ${_stage1_utility_targets})
   endif()
 endif()
 
@@ -346,10 +246,17 @@ message(STATUS "stage1 output rootfs   : ${STAGE1_ROOTFS_DIR}")
 message(STATUS "stage1 install prefix  : ${STAGE1_INSTALL_PREFIX}")
 message(STATUS "stage1 runtime lib dir : ${STAGE1_TARGET_RUNTIME_LIBDIR}")
 message(STATUS "stage1 resource dir    : ${STAGE1_TARGET_CLANG_RESOURCE_DIR}")
-if(COMMAND stage1_add_autotools_package)
+if(COMMAND stage1_register_autotools_packages)
   message(STATUS "stage1 make source     : ${STAGE1_MAKE_SOURCE_DIR}")
+  message(STATUS "stage1 m4 source       : ${STAGE1_M4_SOURCE_DIR}")
   message(STATUS "stage1 autoconf source : ${STAGE1_AUTOCONF_SOURCE_DIR}")
   message(STATUS "stage1 automake source : ${STAGE1_AUTOMAKE_SOURCE_DIR}")
+  message(STATUS "stage1 libtool source  : ${STAGE1_LIBTOOL_SOURCE_DIR}")
+  message(STATUS "stage1 pkgconf source  : ${STAGE1_PKGCONF_SOURCE_DIR}")
 else()
   message(STATUS "stage1 autotools       : disabled")
+endif()
+if(COMMAND stage1_register_utility_packages)
+  message(STATUS "stage1 patchelf source : ${STAGE1_PATCHELF_SOURCE_DIR}")
+  message(STATUS "stage1 curl source     : ${STAGE1_CURL_SOURCE_DIR}")
 endif()

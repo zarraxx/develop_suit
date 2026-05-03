@@ -14,12 +14,14 @@ if [ "$want_link" -eq 1 ]; then
   exec "@STAGE1_CLANG_EXECUTABLE@" \
     "--target=@STAGE1_TARGET_TRIPLE@" \
     "--sysroot=@STAGE1_ROOTFS_DIR@" \
+    @STAGE1_TARGET_WRAPPER_ALWAYS_ARGS@ \
     "-fuse-ld=lld" \
-    @STAGE1_TARGET_WRAPPER_EXTRA_ARGS@ \
+    @STAGE1_TARGET_WRAPPER_LINK_ARGS@ \
     "$@"
 else
   exec "@STAGE1_CLANG_EXECUTABLE@" \
     "--target=@STAGE1_TARGET_TRIPLE@" \
     "--sysroot=@STAGE1_ROOTFS_DIR@" \
+    @STAGE1_TARGET_WRAPPER_ALWAYS_ARGS@ \
     "$@"
 fi

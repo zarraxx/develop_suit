@@ -1,0 +1,36 @@
+#!/bin/sh
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p)
+      shift
+      ;;
+    -l)
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      ;;
+    *)
+      shift
+      break
+      ;;
+  esac
+  shift
+done
+
+cmd="$1"
+
+if [ -n "@STAGE1_PERL_LOCAL_SSH_WRAPPER_QEMU_LD_PREFIX@" ]; then
+  export QEMU_LD_PREFIX="@STAGE1_PERL_LOCAL_SSH_WRAPPER_QEMU_LD_PREFIX@"
+fi
+
+if [ -n "@STAGE1_PERL_LOCAL_SSH_WRAPPER_PRELUDE@" ]; then
+  exec @STAGE1_PERL_LOCAL_SSH_WRAPPER_SHELL@ -lc "@STAGE1_PERL_LOCAL_SSH_WRAPPER_PRELUDE@
+$cmd"
+fi
+
+exec @STAGE1_PERL_LOCAL_SSH_WRAPPER_SHELL@ -lc "$cmd"

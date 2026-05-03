@@ -150,6 +150,8 @@ function(stage1_add_configure_make_package target_name)
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${_stage1_build_dir}")
   endif()
 
+  stage1_collect_triplet_refresh_commands("${PKG_SOURCE_DIR}" _stage1_triplet_refresh_commands)
+
   set(_stage1_stamp_file "${STAGE1_ROOTFS_DIR}/.${PKG_PACKAGE_NAME}-installed")
   set(_stage1_env
     ${STAGE1_COMMON_TARGET_BUILD_ENV}
@@ -160,6 +162,7 @@ function(stage1_add_configure_make_package target_name)
   add_custom_command(
     OUTPUT "${_stage1_stamp_file}"
     ${_stage1_clean_build_dir_commands}
+    ${_stage1_triplet_refresh_commands}
     COMMAND "${CMAKE_COMMAND}" -E chdir "${_stage1_build_dir}"
       "${CMAKE_COMMAND}" -E env
       ${_stage1_env}
@@ -254,6 +257,22 @@ function(stage1_register_compression_packages out_targets_var sysroot_stage_dep)
   endif()
 
   find_program(STAGE1_MAKE_PROGRAM NAMES gmake make REQUIRED)
+  find_file(STAGE1_HOST_CONFIG_SUB
+    NAMES config.sub
+    PATHS
+      /usr/share/misc
+      /usr/share/automake-1.18
+      /usr/share/automake-1.17
+      /usr/share/automake-1.16
+    NO_DEFAULT_PATH)
+  find_file(STAGE1_HOST_CONFIG_GUESS
+    NAMES config.guess
+    PATHS
+      /usr/share/misc
+      /usr/share/automake-1.18
+      /usr/share/automake-1.17
+      /usr/share/automake-1.16
+    NO_DEFAULT_PATH)
 
   stage1_resolve_archive_source(
     STAGE1_ZLIB_SOURCE_DIR

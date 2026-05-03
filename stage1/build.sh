@@ -21,11 +21,22 @@ Options:
   --llvm-archive=<path>        Override LLVM archive path instead of auto-downloading
   --clang-root=<path>          Use a pre-extracted clang root
   --make-archive=<path>        Override GNU make archive path
+  --m4-archive=<path>          Override GNU m4 archive path
   --autoconf-archive=<path>    Override autoconf archive path
   --automake-archive=<path>    Override automake archive path
+  --libtool-archive=<path>     Override GNU libtool archive path
+  --pkg-config-archive=<path>  Override pkgconf archive path
+  --patchelf-archive=<path>    Override patchelf archive path
+  --curl-archive=<path>        Override curl archive path
   --make-source-dir=<path>     Use a pre-extracted GNU make source tree
+  --m4-source-dir=<path>       Use a pre-extracted GNU m4 source tree
   --autoconf-source-dir=<path> Use a pre-extracted autoconf source tree
   --automake-source-dir=<path> Use a pre-extracted automake source tree
+  --libtool-source-dir=<path>  Use a pre-extracted GNU libtool source tree
+  --pkg-config-source-dir=<path>
+                               Use a pre-extracted pkgconf source tree
+  --patchelf-source-dir=<path> Use a pre-extracted patchelf source tree
+  --curl-source-dir=<path>     Use a pre-extracted curl source tree
   --cmake-arg=<arg>            Forward an extra argument to CMake configure (repeatable)
   -h, --help                   Show this help
 EOF
@@ -101,11 +112,21 @@ INSTALL_PREFIX="/usr"
 LLVM_ARCHIVE=""
 CLANG_ROOT=""
 MAKE_ARCHIVE=""
+M4_ARCHIVE=""
 AUTOCONF_ARCHIVE=""
 AUTOMAKE_ARCHIVE=""
+LIBTOOL_ARCHIVE=""
+PKG_CONFIG_ARCHIVE=""
+PATCHELF_ARCHIVE=""
+CURL_ARCHIVE=""
 MAKE_SOURCE_DIR=""
+M4_SOURCE_DIR=""
 AUTOCONF_SOURCE_DIR=""
 AUTOMAKE_SOURCE_DIR=""
+LIBTOOL_SOURCE_DIR=""
+PKG_CONFIG_SOURCE_DIR=""
+PATCHELF_SOURCE_DIR=""
+CURL_SOURCE_DIR=""
 CMAKE_EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -185,6 +206,14 @@ while [[ $# -gt 0 ]]; do
       [[ $# -gt 0 ]] || die "--make-archive requires a value"
       MAKE_ARCHIVE="$1"
       ;;
+    --m4-archive=*)
+      M4_ARCHIVE="${1#*=}"
+      ;;
+    --m4-archive)
+      shift
+      [[ $# -gt 0 ]] || die "--m4-archive requires a value"
+      M4_ARCHIVE="$1"
+      ;;
     --autoconf-archive=*)
       AUTOCONF_ARCHIVE="${1#*=}"
       ;;
@@ -201,6 +230,38 @@ while [[ $# -gt 0 ]]; do
       [[ $# -gt 0 ]] || die "--automake-archive requires a value"
       AUTOMAKE_ARCHIVE="$1"
       ;;
+    --libtool-archive=*)
+      LIBTOOL_ARCHIVE="${1#*=}"
+      ;;
+    --libtool-archive)
+      shift
+      [[ $# -gt 0 ]] || die "--libtool-archive requires a value"
+      LIBTOOL_ARCHIVE="$1"
+      ;;
+    --pkg-config-archive=*)
+      PKG_CONFIG_ARCHIVE="${1#*=}"
+      ;;
+    --pkg-config-archive)
+      shift
+      [[ $# -gt 0 ]] || die "--pkg-config-archive requires a value"
+      PKG_CONFIG_ARCHIVE="$1"
+      ;;
+    --patchelf-archive=*)
+      PATCHELF_ARCHIVE="${1#*=}"
+      ;;
+    --patchelf-archive)
+      shift
+      [[ $# -gt 0 ]] || die "--patchelf-archive requires a value"
+      PATCHELF_ARCHIVE="$1"
+      ;;
+    --curl-archive=*)
+      CURL_ARCHIVE="${1#*=}"
+      ;;
+    --curl-archive)
+      shift
+      [[ $# -gt 0 ]] || die "--curl-archive requires a value"
+      CURL_ARCHIVE="$1"
+      ;;
     --make-source-dir=*)
       MAKE_SOURCE_DIR="${1#*=}"
       ;;
@@ -208,6 +269,14 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || die "--make-source-dir requires a value"
       MAKE_SOURCE_DIR="$1"
+      ;;
+    --m4-source-dir=*)
+      M4_SOURCE_DIR="${1#*=}"
+      ;;
+    --m4-source-dir)
+      shift
+      [[ $# -gt 0 ]] || die "--m4-source-dir requires a value"
+      M4_SOURCE_DIR="$1"
       ;;
     --autoconf-source-dir=*)
       AUTOCONF_SOURCE_DIR="${1#*=}"
@@ -224,6 +293,38 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || die "--automake-source-dir requires a value"
       AUTOMAKE_SOURCE_DIR="$1"
+      ;;
+    --libtool-source-dir=*)
+      LIBTOOL_SOURCE_DIR="${1#*=}"
+      ;;
+    --libtool-source-dir)
+      shift
+      [[ $# -gt 0 ]] || die "--libtool-source-dir requires a value"
+      LIBTOOL_SOURCE_DIR="$1"
+      ;;
+    --pkg-config-source-dir=*)
+      PKG_CONFIG_SOURCE_DIR="${1#*=}"
+      ;;
+    --pkg-config-source-dir)
+      shift
+      [[ $# -gt 0 ]] || die "--pkg-config-source-dir requires a value"
+      PKG_CONFIG_SOURCE_DIR="$1"
+      ;;
+    --patchelf-source-dir=*)
+      PATCHELF_SOURCE_DIR="${1#*=}"
+      ;;
+    --patchelf-source-dir)
+      shift
+      [[ $# -gt 0 ]] || die "--patchelf-source-dir requires a value"
+      PATCHELF_SOURCE_DIR="$1"
+      ;;
+    --curl-source-dir=*)
+      CURL_SOURCE_DIR="${1#*=}"
+      ;;
+    --curl-source-dir)
+      shift
+      [[ $# -gt 0 ]] || die "--curl-source-dir requires a value"
+      CURL_SOURCE_DIR="$1"
       ;;
     --cmake-arg=*)
       CMAKE_EXTRA_ARGS+=("${1#*=}")
@@ -297,6 +398,10 @@ if [[ -n "$MAKE_ARCHIVE" ]]; then
   cmake_args+=("-DSTAGE1_MAKE_ARCHIVE=${MAKE_ARCHIVE}")
 fi
 
+if [[ -n "$M4_ARCHIVE" ]]; then
+  cmake_args+=("-DSTAGE1_M4_ARCHIVE=${M4_ARCHIVE}")
+fi
+
 if [[ -n "$AUTOCONF_ARCHIVE" ]]; then
   cmake_args+=("-DSTAGE1_AUTOCONF_ARCHIVE=${AUTOCONF_ARCHIVE}")
 fi
@@ -305,8 +410,28 @@ if [[ -n "$AUTOMAKE_ARCHIVE" ]]; then
   cmake_args+=("-DSTAGE1_AUTOMAKE_ARCHIVE=${AUTOMAKE_ARCHIVE}")
 fi
 
+if [[ -n "$LIBTOOL_ARCHIVE" ]]; then
+  cmake_args+=("-DSTAGE1_LIBTOOL_ARCHIVE=${LIBTOOL_ARCHIVE}")
+fi
+
+if [[ -n "$PKG_CONFIG_ARCHIVE" ]]; then
+  cmake_args+=("-DSTAGE1_PKGCONF_ARCHIVE=${PKG_CONFIG_ARCHIVE}")
+fi
+
+if [[ -n "$PATCHELF_ARCHIVE" ]]; then
+  cmake_args+=("-DSTAGE1_PATCHELF_ARCHIVE=${PATCHELF_ARCHIVE}")
+fi
+
+if [[ -n "$CURL_ARCHIVE" ]]; then
+  cmake_args+=("-DSTAGE1_CURL_ARCHIVE=${CURL_ARCHIVE}")
+fi
+
 if [[ -n "$MAKE_SOURCE_DIR" ]]; then
   cmake_args+=("-DSTAGE1_MAKE_SOURCE_DIR=${MAKE_SOURCE_DIR}")
+fi
+
+if [[ -n "$M4_SOURCE_DIR" ]]; then
+  cmake_args+=("-DSTAGE1_M4_SOURCE_DIR=${M4_SOURCE_DIR}")
 fi
 
 if [[ -n "$AUTOCONF_SOURCE_DIR" ]]; then
@@ -315,6 +440,22 @@ fi
 
 if [[ -n "$AUTOMAKE_SOURCE_DIR" ]]; then
   cmake_args+=("-DSTAGE1_AUTOMAKE_SOURCE_DIR=${AUTOMAKE_SOURCE_DIR}")
+fi
+
+if [[ -n "$LIBTOOL_SOURCE_DIR" ]]; then
+  cmake_args+=("-DSTAGE1_LIBTOOL_SOURCE_DIR=${LIBTOOL_SOURCE_DIR}")
+fi
+
+if [[ -n "$PKG_CONFIG_SOURCE_DIR" ]]; then
+  cmake_args+=("-DSTAGE1_PKGCONF_SOURCE_DIR=${PKG_CONFIG_SOURCE_DIR}")
+fi
+
+if [[ -n "$PATCHELF_SOURCE_DIR" ]]; then
+  cmake_args+=("-DSTAGE1_PATCHELF_SOURCE_DIR=${PATCHELF_SOURCE_DIR}")
+fi
+
+if [[ -n "$CURL_SOURCE_DIR" ]]; then
+  cmake_args+=("-DSTAGE1_CURL_SOURCE_DIR=${CURL_SOURCE_DIR}")
 fi
 
 if [[ ${#CMAKE_EXTRA_ARGS[@]} -gt 0 ]]; then
