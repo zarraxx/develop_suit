@@ -490,6 +490,9 @@ endforeach()
 list(JOIN _stage0_cxx_runtime_components ";" _stage0_cxx_runtime_components_value)
 string(REPLACE ";" "\\;" _stage0_cxx_runtime_components_value_escaped "${_stage0_cxx_runtime_components_value}")
 set(_stage0_cxx_phase_runtime_components ${_stage0_cxx_runtime_components})
+if(_stage0_has_libunwind_runtime AND _stage0_cxx_runtime_components)
+  list(INSERT _stage0_cxx_phase_runtime_components 0 "libunwind")
+endif()
 list(JOIN _stage0_cxx_phase_runtime_components ";" _stage0_cxx_phase_runtime_components_value)
 string(REPLACE ";" "\\;" _stage0_cxx_phase_runtime_components_value_escaped "${_stage0_cxx_phase_runtime_components_value}")
 
@@ -622,7 +625,7 @@ set(_stage0_cxx_runtime_cmake_args
   "-DLLVM_ENABLE_RUNTIMES=${_stage0_cxx_runtime_components_value_escaped}"
   "-DLIBUNWIND_USE_COMPILER_RT=OFF"
   "-DLIBCXXABI_USE_COMPILER_RT=OFF"
-  "-DLIBCXXABI_USE_LLVM_UNWIND=ON"
+  "-DLIBCXXABI_USE_LLVM_UNWINDER=ON"
   "-DLIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL=${_stage0_cxa_thread_atexit_value}"
   "-DLIBCXX_USE_COMPILER_RT=OFF")
 
@@ -665,15 +668,15 @@ if(_stage0_cxx_runtime_components)
     "-DLLVM_ENABLE_RUNTIMES=${_stage0_cxx_phase_runtime_components_value_escaped}"
     "-DLIBUNWIND_USE_COMPILER_RT=${_stage0_cxx_runtimes_use_compiler_rt}"
     "-DLIBCXXABI_USE_COMPILER_RT=${_stage0_cxx_runtimes_use_compiler_rt}"
-    "-DLIBCXXABI_USE_LLVM_UNWIND=ON"
+    "-DLIBCXXABI_USE_LLVM_UNWINDER=ON"
     "-DLIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL=${_stage0_cxa_thread_atexit_value}"
     "-DLIBCXX_USE_COMPILER_RT=${_stage0_cxx_runtimes_use_compiler_rt}"
     "-DCMAKE_C_FLAGS=${_stage0_target_wrapper_always_flags_value}"
     "-DCMAKE_CXX_FLAGS=${_stage0_target_wrapper_always_flags_value}"
     "-DCMAKE_ASM_FLAGS=${_stage0_target_wrapper_always_flags_value}"
-    "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}"
-    "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}"
-    "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}")
+    "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_value}"
+    "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_value}"
+    "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_value}")
 endif()
 
 set(STAGE0_TARGET_WRAPPER_ALWAYS_ARGS "")
