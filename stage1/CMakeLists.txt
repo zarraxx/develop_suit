@@ -59,6 +59,7 @@ endif()
 
 find_program(STAGE1_HOST_CC NAMES cc clang gcc REQUIRED)
 find_program(STAGE1_HOST_CXX NAMES c++ clang++ g++ REQUIRED)
+find_program(STAGE1_HOST_LDCONFIG NAMES ldconfig REQUIRED)
 find_program(STAGE1_MAKE_PROGRAM NAMES gmake make REQUIRED)
 find_program(STAGE1_CP_PROGRAM NAMES cp REQUIRED)
 find_program(STAGE1_READELF NAMES llvm-readelf readelf REQUIRED)
@@ -237,8 +238,21 @@ if(COMMAND stage1_register_utility_packages)
   endif()
 endif()
 
+set(_stage1_ldso_cache_stamp "${STAGE1_ROOTFS_DIR}/.ldso-cache-generated")
+add_custom_command(
+  OUTPUT "${_stage1_ldso_cache_stamp}"
+  COMMAND "${CMAKE_COMMAND}"
+    "-DROOTFS_DIR=${STAGE1_ROOTFS_DIR}"
+    "-DTARGET_TRIPLE=${STAGE1_TARGET_TRIPLE}"
+    -P "${CMAKE_CURRENT_LIST_DIR}/cmake/stage_ldso_cache.cmake"
+  COMMAND "${STAGE1_HOST_LDCONFIG}" -r "${STAGE1_ROOTFS_DIR}"
+  COMMAND "${CMAKE_COMMAND}" -E touch "${_stage1_ldso_cache_stamp}"
+  DEPENDS ${_stage1_rootfs_deps}
+  COMMENT "Generating ld.so cache for ${STAGE1_TARGET_TRIPLE}"
+  VERBATIM)
+
 add_custom_target(stage1-rootfs ALL
-  DEPENDS ${_stage1_rootfs_deps})
+  DEPENDS "${_stage1_ldso_cache_stamp}")
 
 message(STATUS "stage1 target triple   : ${STAGE1_TARGET_TRIPLE}")
 message(STATUS "stage1 build triple    : ${STAGE1_BUILD_TRIPLE}")

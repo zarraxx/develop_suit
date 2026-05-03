@@ -387,6 +387,7 @@ if(STAGE0_LLVM_SOURCE_DIR STREQUAL "")
 endif()
 
 find_program(STAGE0_MAKE_PROGRAM NAMES gmake make REQUIRED)
+find_program(STAGE0_CP_PROGRAM NAMES cp REQUIRED)
 find_program(STAGE0_HOST_CC NAMES cc clang gcc REQUIRED)
 find_program(STAGE0_HOST_CXX NAMES c++ clang++ g++ REQUIRED)
 find_program(STAGE0_READELF NAMES llvm-readelf readelf REQUIRED)
@@ -497,26 +498,46 @@ list(JOIN _stage0_cxx_phase_runtime_components ";" _stage0_cxx_phase_runtime_com
 string(REPLACE ";" "\\;" _stage0_cxx_phase_runtime_components_value_escaped "${_stage0_cxx_phase_runtime_components_value}")
 
 set(_stage0_runtime_root_libdirs "")
+set(_stage0_runtime_root_libdir_realpaths "")
 foreach(_stage0_root_lib_candidate IN ITEMS lib64 lib)
   if(EXISTS "${STAGE0_TARGET_SYSROOT_DIR}/${_stage0_root_lib_candidate}")
-    list(APPEND _stage0_runtime_root_libdirs "${_stage0_root_lib_candidate}")
+    file(REAL_PATH
+      "${STAGE0_TARGET_SYSROOT_DIR}/${_stage0_root_lib_candidate}"
+      _stage0_root_lib_candidate_realpath)
+    list(FIND
+      _stage0_runtime_root_libdir_realpaths
+      "${_stage0_root_lib_candidate_realpath}"
+      _stage0_root_lib_candidate_realpath_index)
+    if(_stage0_root_lib_candidate_realpath_index EQUAL -1)
+      list(APPEND _stage0_runtime_root_libdirs "${_stage0_root_lib_candidate}")
+      list(APPEND _stage0_runtime_root_libdir_realpaths "${_stage0_root_lib_candidate_realpath}")
+    endif()
   endif()
 endforeach()
 if(NOT _stage0_runtime_root_libdirs)
   list(APPEND _stage0_runtime_root_libdirs "lib")
 endif()
-list(REMOVE_DUPLICATES _stage0_runtime_root_libdirs)
 
 set(_stage0_runtime_usr_libdirs "")
+set(_stage0_runtime_usr_libdir_realpaths "")
 foreach(_stage0_usr_lib_candidate IN ITEMS usr/lib64 usr/lib)
   if(EXISTS "${STAGE0_TARGET_SYSROOT_DIR}/${_stage0_usr_lib_candidate}")
-    list(APPEND _stage0_runtime_usr_libdirs "${_stage0_usr_lib_candidate}")
+    file(REAL_PATH
+      "${STAGE0_TARGET_SYSROOT_DIR}/${_stage0_usr_lib_candidate}"
+      _stage0_usr_lib_candidate_realpath)
+    list(FIND
+      _stage0_runtime_usr_libdir_realpaths
+      "${_stage0_usr_lib_candidate_realpath}"
+      _stage0_usr_lib_candidate_realpath_index)
+    if(_stage0_usr_lib_candidate_realpath_index EQUAL -1)
+      list(APPEND _stage0_runtime_usr_libdirs "${_stage0_usr_lib_candidate}")
+      list(APPEND _stage0_runtime_usr_libdir_realpaths "${_stage0_usr_lib_candidate_realpath}")
+    endif()
   endif()
 endforeach()
 if(NOT _stage0_runtime_usr_libdirs)
   list(APPEND _stage0_runtime_usr_libdirs "usr/lib")
 endif()
-list(REMOVE_DUPLICATES _stage0_runtime_usr_libdirs)
 
 string(TOUPPER "${STAGE0_CXX_RUNTIMES_USE_COMPILER_RT}" _stage0_cxx_runtimes_use_compiler_rt_mode)
 if(_stage0_cxx_runtimes_use_compiler_rt_mode STREQUAL "AUTO")
@@ -800,7 +821,7 @@ add_custom_command(
   OUTPUT "${_sysroot_stage_stamp}"
   COMMAND "${CMAKE_COMMAND}" -E rm -rf "${STAGE0_ROOTFS_DIR}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${STAGE0_ROOTFS_DIR}"
-  COMMAND "${CMAKE_COMMAND}" -E copy_directory "${STAGE0_TARGET_SYSROOT_DIR}" "${STAGE0_ROOTFS_DIR}"
+  COMMAND "${STAGE0_CP_PROGRAM}" -a "${STAGE0_TARGET_SYSROOT_DIR}/." "${STAGE0_ROOTFS_DIR}/"
   COMMAND "${CMAKE_COMMAND}" -E touch "${_sysroot_stage_stamp}"
   DEPENDS "${STAGE0_TARGET_SYSROOT_DIR}/usr"
   COMMENT "Staging sysroot into ${STAGE0_ROOTFS_DIR}"

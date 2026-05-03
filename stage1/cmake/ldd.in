@@ -7,8 +7,9 @@ self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root_dir=$(CDPATH= cd -- "$self_dir/../.." && pwd)
 rtld_exec="$rtld"
 library_path="$lib_dirs"
+use_library_path=0
 
-if [ -x "$root_dir$rtld" ]; then
+if [ "$root_dir" != "/" ] && [ -x "$root_dir$rtld" ]; then
   rtld_exec="$root_dir$rtld"
   local_library_path=""
   old_ifs=${IFS}
@@ -21,6 +22,7 @@ if [ -x "$root_dir$rtld" ]; then
   done
   IFS=${old_ifs}
   library_path="$local_library_path"
+  use_library_path=1
 fi
 
 usage() {
@@ -60,8 +62,14 @@ for target in "$@"; do
     continue
   fi
 
-  if ! env LD_TRACE_LOADED_OBJECTS=1 "$rtld_exec" --library-path "$library_path" "$target"; then
-    status=1
+  if [ "$use_library_path" -eq 1 ]; then
+    if ! env LD_TRACE_LOADED_OBJECTS=1 "$rtld_exec" --library-path "$library_path" "$target"; then
+      status=1
+    fi
+  else
+    if ! env LD_TRACE_LOADED_OBJECTS=1 "$rtld_exec" "$target"; then
+      status=1
+    fi
   fi
 done
 

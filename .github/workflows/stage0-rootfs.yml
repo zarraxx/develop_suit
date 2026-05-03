@@ -1,5 +1,8 @@
 name: stage0-rootfs
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 on:
   workflow_dispatch:
     inputs:
@@ -52,10 +55,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Cache stage0 archives
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: cache
           key: ${{ runner.os }}-stage0-cache-v1
@@ -88,7 +91,7 @@ jobs:
           tar -C dist/sysroot -cJf "artifacts/stage0-rootfs-${{ matrix.arch }}.tar.xz" "${{ matrix.arch }}"
 
       - name: Upload rootfs artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stage0-rootfs-${{ matrix.arch }}
           path: artifacts/stage0-rootfs-${{ matrix.arch }}.tar.xz
@@ -103,7 +106,7 @@ jobs:
 
     steps:
       - name: Download rootfs artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-artifacts
           merge-multiple: true
