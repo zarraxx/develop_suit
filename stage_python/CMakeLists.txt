@@ -98,7 +98,7 @@ foreach(_stage_python_required_tool IN ITEMS clang clang++ ld.lld llvm-ar llvm-n
   endif()
 endforeach()
 
-stage_python_default_host_triple(STAGE_PYTHON_BUILD_TRIPLE)
+stage_python_detect_build_triple(STAGE_PYTHON_BUILD_TRIPLE)
 
 set(STAGE_PYTHON_TARGET_ARCH "${STAGE_PYTHON_TARGET_TRIPLE}")
 string(REGEX REPLACE "-.*$" "" STAGE_PYTHON_TARGET_ARCH "${STAGE_PYTHON_TARGET_ARCH}")
@@ -258,6 +258,10 @@ if(COMMAND stage_python_register_interpreter_packages)
   if(_stage_python_interpreter_targets)
     list(APPEND _stage_python_rootfs_deps ${_stage_python_interpreter_targets})
   endif()
+endif()
+
+if(TARGET stage-python-bison AND TARGET stage-python-libiconv)
+  add_dependencies(stage-python-bison stage-python-libiconv)
 endif()
 
 add_custom_target(stage-python-rootfs ALL

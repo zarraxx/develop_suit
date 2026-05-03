@@ -81,7 +81,6 @@ function(stage_python_register_build_tool_packages out_var sysroot_stage_dep)
     set(_stage_python_bison_depends "${sysroot_stage_dep}")
     set(_stage_python_bison_env "")
     if(STAGE_PYTHON_ENABLE_LIBICONV)
-      list(APPEND _stage_python_bison_depends "${STAGE_PYTHON_ROOTFS_DIR}/.libiconv-installed")
       list(APPEND _stage_python_bison_env
         "CPPFLAGS=-D_GNU_SOURCE -I${STAGE_PYTHON_PREFIX_ROOT}/include"
         "LDFLAGS=-L${STAGE_PYTHON_PREFIX_ROOT}/lib -L${STAGE_PYTHON_PREFIX_ROOT}/lib/${STAGE_PYTHON_TARGET_TRIPLE} -L${STAGE_PYTHON_TARGET_RUNTIME_LIBDIR}"

@@ -5,7 +5,7 @@ include(CMakeParseArguments)
 function(stage_python_add_autotools_package target_name)
   set(options BUILD_IN_SOURCE)
   set(oneValueArgs PACKAGE_NAME SOURCE_DIR INSTALL_PREFIX CONFIGURE_PATH BUILD_TRIPLE HOST_TRIPLE)
-  set(multiValueArgs CONFIGURE_ARGS ENV DEPENDS POST_INSTALL_COMMANDS)
+  set(multiValueArgs CONFIGURE_ARGS ENV DEPENDS POST_CONFIGURE_COMMANDS POST_INSTALL_COMMANDS)
   cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
   if(NOT DEFINED PKG_PACKAGE_NAME OR "${PKG_PACKAGE_NAME}" STREQUAL "")
@@ -75,6 +75,7 @@ function(stage_python_add_autotools_package target_name)
       "--build=${PKG_BUILD_TRIPLE}"
       "--prefix=${PKG_INSTALL_PREFIX}"
       ${PKG_CONFIGURE_ARGS}
+    ${PKG_POST_CONFIGURE_COMMANDS}
     COMMAND "${CMAKE_COMMAND}" -E env
       ${_stage_python_env}
       "${STAGE_PYTHON_MAKE_PROGRAM}"

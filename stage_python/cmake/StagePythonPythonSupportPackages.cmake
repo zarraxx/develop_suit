@@ -61,6 +61,8 @@ option(STAGE_PYTHON_ENABLE_LIBICONV "Enable libiconv in stage_python" ON)
 option(STAGE_PYTHON_ENABLE_LIBXML2 "Enable libxml2 in stage_python" ON)
 option(STAGE_PYTHON_ENABLE_LIBXSLT "Enable libxslt in stage_python" ON)
 
+set(STAGE_PYTHON_CMAKE_MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+
 function(stage_python_register_python_support_packages out_var sysroot_stage_dep)
   if(NOT STAGE_PYTHON_ENABLE_PYTHON_SUPPORT_PACKAGES)
     set(${out_var} "" PARENT_SCOPE)
@@ -267,12 +269,22 @@ function(stage_python_register_python_support_packages out_var sysroot_stage_dep
       URL "${STAGE_PYTHON_LIBICONV_URL}"
       GLOB_PATTERNS
         "${STAGE_PYTHON_CACHE_DIR}/libiconv-*.tar.gz")
+    set(_stage_python_libiconv_post_configure_commands "")
+    if(STAGE_PYTHON_TARGET_ARCH STREQUAL "loongarch64")
+      list(APPEND _stage_python_libiconv_post_configure_commands
+        COMMAND "${CMAKE_COMMAND}"
+          "-DINPUT=${STAGE_PYTHON_LIBICONV_SOURCE_DIR}/config.h"
+          -P "${STAGE_PYTHON_CMAKE_MODULE_DIR}/StagePythonPatchLibiconvConfig.cmake")
+    endif()
     stage_python_add_autotools_package(
       stage-python-libiconv
       PACKAGE_NAME "libiconv"
       SOURCE_DIR "${STAGE_PYTHON_LIBICONV_SOURCE_DIR}"
       INSTALL_PREFIX "${STAGE_PYTHON_INSTALL_PREFIX}"
+      BUILD_IN_SOURCE
       DEPENDS "${sysroot_stage_dep}"
+      POST_CONFIGURE_COMMANDS
+        ${_stage_python_libiconv_post_configure_commands}
       POST_INSTALL_COMMANDS
         ${STAGE_PYTHON_NO_DOC_INSTALL_COMMANDS}
       CONFIGURE_ARGS

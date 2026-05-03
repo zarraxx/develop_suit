@@ -291,6 +291,27 @@ function(stage_python_default_host_triple out_var)
   set(${out_var} "${_host_arch}-${_host_os}" PARENT_SCOPE)
 endfunction()
 
+function(stage_python_detect_build_triple out_var)
+  if(DEFINED STAGE_PYTHON_HOST_CONFIG_GUESS
+      AND NOT STAGE_PYTHON_HOST_CONFIG_GUESS STREQUAL ""
+      AND EXISTS "${STAGE_PYTHON_HOST_CONFIG_GUESS}")
+    execute_process(
+      COMMAND /bin/sh "${STAGE_PYTHON_HOST_CONFIG_GUESS}"
+      RESULT_VARIABLE _stage_python_guess_status
+      OUTPUT_VARIABLE _stage_python_guess_output
+      ERROR_VARIABLE _stage_python_guess_error
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_STRIP_TRAILING_WHITESPACE)
+    if(_stage_python_guess_status EQUAL 0 AND NOT _stage_python_guess_output STREQUAL "")
+      set(${out_var} "${_stage_python_guess_output}" PARENT_SCOPE)
+      return()
+    endif()
+  endif()
+
+  stage_python_default_host_triple(_stage_python_default_build_triple)
+  set(${out_var} "${_stage_python_default_build_triple}" PARENT_SCOPE)
+endfunction()
+
 function(stage_python_get_no_doc_install_commands rootfs_dir install_prefix out_var)
   set(${out_var}
     COMMAND "${CMAKE_COMMAND}" -E rm -rf "${rootfs_dir}${install_prefix}/share/doc"
