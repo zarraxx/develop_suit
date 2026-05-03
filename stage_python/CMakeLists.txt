@@ -6,6 +6,8 @@ include(ProcessorCount)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/StagePythonHelpers.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/StagePythonTargetBuild.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/StagePythonBuildToolPackages.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/StagePythonPythonSupportPackages.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/StagePythonInterpreterPackages.cmake)
 
 set(STAGE_PYTHON_CACHE_DIR "${CMAKE_CURRENT_LIST_DIR}/../cache" CACHE PATH "Directory containing downloaded archives")
 set(STAGE_PYTHON_WORK_DIR "${CMAKE_BINARY_DIR}/stage-python-work" CACHE PATH "Working directory used by the stage_python build")
@@ -79,6 +81,7 @@ find_file(STAGE_PYTHON_HOST_CONFIG_GUESS
 
 set(STAGE_PYTHON_LLVM_BIN_DIR "${STAGE_PYTHON_CLANG_ROOT}/bin")
 set(STAGE_PYTHON_ROOTFS_DIR "${STAGE_PYTHON_OUTPUT_DIR}/${STAGE_PYTHON_TARGET_TRIPLE}/rootfs")
+set(STAGE_PYTHON_PREFIX_ROOT "${STAGE_PYTHON_ROOTFS_DIR}${STAGE_PYTHON_INSTALL_PREFIX}")
 set(STAGE_PYTHON_TOOLCHAIN_DIR "${CMAKE_BINARY_DIR}/toolchain/${STAGE_PYTHON_TARGET_TRIPLE}")
 set(STAGE_PYTHON_PACKAGE_BUILD_ROOT "${CMAKE_BINARY_DIR}/packages/${STAGE_PYTHON_TARGET_TRIPLE}")
 set(STAGE_PYTHON_TARGET_CC_WRAPPER "${STAGE_PYTHON_TOOLCHAIN_DIR}/clang-target.sh")
@@ -87,6 +90,7 @@ set(STAGE_PYTHON_TARGET_RUNTIME_LIBDIR "${STAGE_PYTHON_ROOTFS_DIR}/usr/lib/${STA
 set(STAGE_PYTHON_TARGET_CLANG_RESOURCE_DIR "${STAGE_PYTHON_TOOLCHAIN_DIR}/clang-resource")
 set(STAGE_PYTHON_TARGET_CLANG_RESOURCE_INCLUDE_DIR "${STAGE_PYTHON_TARGET_CLANG_RESOURCE_DIR}/include")
 set(STAGE_PYTHON_TARGET_CLANG_RESOURCE_LIB_DIR "${STAGE_PYTHON_TARGET_CLANG_RESOURCE_DIR}/lib/${STAGE_PYTHON_TARGET_TRIPLE}")
+set(STAGE_PYTHON_TARGET_CLANG_RESOURCE_PROFILE_LIB_DIR "${STAGE_PYTHON_TARGET_CLANG_RESOURCE_DIR}/lib/linux")
 
 foreach(_stage_python_required_tool IN ITEMS clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-ranlib llvm-strip)
   if(NOT EXISTS "${STAGE_PYTHON_LLVM_BIN_DIR}/${_stage_python_required_tool}")
@@ -98,6 +102,7 @@ stage_python_default_host_triple(STAGE_PYTHON_BUILD_TRIPLE)
 
 set(STAGE_PYTHON_TARGET_ARCH "${STAGE_PYTHON_TARGET_TRIPLE}")
 string(REGEX REPLACE "-.*$" "" STAGE_PYTHON_TARGET_ARCH "${STAGE_PYTHON_TARGET_ARCH}")
+set(STAGE_PYTHON_TARGET_CLANG_PROFILE_RUNTIME "${STAGE_PYTHON_TARGET_CLANG_RESOURCE_PROFILE_LIB_DIR}/libclang_rt.profile-${STAGE_PYTHON_TARGET_ARCH}.a")
 
 set(STAGE_PYTHON_NESTED_CMAKE_GENERATOR_ARGS "")
 if(CMAKE_GENERATOR)
@@ -130,6 +135,7 @@ file(MAKE_DIRECTORY "${STAGE_PYTHON_TMP_DIR}")
 file(MAKE_DIRECTORY "${STAGE_PYTHON_TARGET_CLANG_RESOURCE_DIR}/lib")
 file(REMOVE_RECURSE "${STAGE_PYTHON_TARGET_CLANG_RESOURCE_INCLUDE_DIR}")
 file(REMOVE_RECURSE "${STAGE_PYTHON_TARGET_CLANG_RESOURCE_LIB_DIR}")
+file(REMOVE_RECURSE "${STAGE_PYTHON_TARGET_CLANG_RESOURCE_PROFILE_LIB_DIR}")
 file(CREATE_LINK
   "${STAGE_PYTHON_HOST_CLANG_RESOURCE_DIR}/include"
   "${STAGE_PYTHON_TARGET_CLANG_RESOURCE_INCLUDE_DIR}"
@@ -138,6 +144,13 @@ file(CREATE_LINK
   "${STAGE_PYTHON_TARGET_RUNTIME_LIBDIR}"
   "${STAGE_PYTHON_TARGET_CLANG_RESOURCE_LIB_DIR}"
   SYMBOLIC)
+file(MAKE_DIRECTORY "${STAGE_PYTHON_TARGET_CLANG_RESOURCE_PROFILE_LIB_DIR}")
+if(EXISTS "${STAGE_PYTHON_HOST_CLANG_RESOURCE_DIR}/lib/${STAGE_PYTHON_BUILD_TRIPLE}/libclang_rt.profile.a")
+  file(CREATE_LINK
+    "${STAGE_PYTHON_HOST_CLANG_RESOURCE_DIR}/lib/${STAGE_PYTHON_BUILD_TRIPLE}/libclang_rt.profile.a"
+    "${STAGE_PYTHON_TARGET_CLANG_PROFILE_RUNTIME}"
+    SYMBOLIC)
+endif()
 
 set(STAGE_PYTHON_CLANG_EXECUTABLE "${STAGE_PYTHON_LLVM_BIN_DIR}/clang")
 string(CONCAT STAGE_PYTHON_TARGET_WRAPPER_ALWAYS_ARGS
@@ -233,6 +246,20 @@ if(COMMAND stage_python_register_build_tool_packages)
   endif()
 endif()
 
+if(COMMAND stage_python_register_python_support_packages)
+  stage_python_register_python_support_packages(_stage_python_python_support_targets stage-python-sysroot-staged)
+  if(_stage_python_python_support_targets)
+    list(APPEND _stage_python_rootfs_deps ${_stage_python_python_support_targets})
+  endif()
+endif()
+
+if(COMMAND stage_python_register_interpreter_packages)
+  stage_python_register_interpreter_packages(_stage_python_interpreter_targets stage-python-sysroot-staged)
+  if(_stage_python_interpreter_targets)
+    list(APPEND _stage_python_rootfs_deps ${_stage_python_interpreter_targets})
+  endif()
+endif()
+
 add_custom_target(stage-python-rootfs ALL
   DEPENDS ${_stage_python_rootfs_deps})
 
@@ -253,4 +280,23 @@ if(COMMAND stage_python_register_build_tool_packages)
   message(STATUS "stage_python flex source     : ${STAGE_PYTHON_FLEX_SOURCE_DIR}")
 else()
   message(STATUS "stage_python build tools     : disabled")
+endif()
+if(COMMAND stage_python_register_python_support_packages)
+  message(STATUS "stage_python python libs     : ${_stage_python_python_support_targets}")
+  message(STATUS "stage_python libffi source   : ${STAGE_PYTHON_LIBFFI_SOURCE_DIR}")
+  message(STATUS "stage_python uuid source     : ${STAGE_PYTHON_UTIL_LINUX_SOURCE_DIR}")
+  message(STATUS "stage_python expat source    : ${STAGE_PYTHON_LIBEXPAT_SOURCE_DIR}")
+  message(STATUS "stage_python sqlite source   : ${STAGE_PYTHON_SQLITE_SOURCE_DIR}")
+  message(STATUS "stage_python gdbm source     : ${STAGE_PYTHON_GDBM_SOURCE_DIR}")
+  message(STATUS "stage_python iconv source    : ${STAGE_PYTHON_LIBICONV_SOURCE_DIR}")
+  message(STATUS "stage_python libxml2 source  : ${STAGE_PYTHON_LIBXML2_SOURCE_DIR}")
+  message(STATUS "stage_python libxslt source  : ${STAGE_PYTHON_LIBXSLT_SOURCE_DIR}")
+else()
+  message(STATUS "stage_python python libs     : disabled")
+endif()
+if(COMMAND stage_python_register_interpreter_packages)
+  message(STATUS "stage_python interpreters    : ${_stage_python_interpreter_targets}")
+  message(STATUS "stage_python python source   : ${STAGE_PYTHON_PYTHON_SOURCE_DIR}")
+else()
+  message(STATUS "stage_python interpreters    : disabled")
 endif()

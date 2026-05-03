@@ -24,9 +24,11 @@ Options:
   --ninja-archive=<path>       Override ninja source archive
   --bison-archive=<path>       Override bison source archive
   --flex-archive=<path>        Override flex source archive
+  --python-archive=<path>      Override Python source archive
   --ninja-source-dir=<path>    Use a pre-extracted ninja source tree
   --bison-source-dir=<path>    Use a pre-extracted bison source tree
   --flex-source-dir=<path>     Use a pre-extracted flex source tree
+  --python-source-dir=<path>   Use a pre-extracted Python source tree
   --cmake-arg=<arg>            Forward an extra argument to CMake configure (repeatable)
   -h, --help                   Show this help
 EOF
@@ -105,9 +107,11 @@ CLANG_ROOT=""
 NINJA_ARCHIVE=""
 BISON_ARCHIVE=""
 FLEX_ARCHIVE=""
+PYTHON_ARCHIVE=""
 NINJA_SOURCE_DIR=""
 BISON_SOURCE_DIR=""
 FLEX_SOURCE_DIR=""
+PYTHON_SOURCE_DIR=""
 CMAKE_EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -206,6 +210,14 @@ while [[ $# -gt 0 ]]; do
       [[ $# -gt 0 ]] || die "--flex-archive requires a value"
       FLEX_ARCHIVE="$1"
       ;;
+    --python-archive=*)
+      PYTHON_ARCHIVE="${1#*=}"
+      ;;
+    --python-archive)
+      shift
+      [[ $# -gt 0 ]] || die "--python-archive requires a value"
+      PYTHON_ARCHIVE="$1"
+      ;;
     --ninja-source-dir=*)
       NINJA_SOURCE_DIR="${1#*=}"
       ;;
@@ -229,6 +241,14 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || die "--flex-source-dir requires a value"
       FLEX_SOURCE_DIR="$1"
+      ;;
+    --python-source-dir=*)
+      PYTHON_SOURCE_DIR="${1#*=}"
+      ;;
+    --python-source-dir)
+      shift
+      [[ $# -gt 0 ]] || die "--python-source-dir requires a value"
+      PYTHON_SOURCE_DIR="$1"
       ;;
     --cmake-arg=*)
       CMAKE_EXTRA_ARGS+=("${1#*=}")
@@ -314,6 +334,10 @@ if [[ -n "$FLEX_ARCHIVE" ]]; then
   cmake_args+=("-DSTAGE_PYTHON_FLEX_ARCHIVE=${FLEX_ARCHIVE}")
 fi
 
+if [[ -n "$PYTHON_ARCHIVE" ]]; then
+  cmake_args+=("-DSTAGE_PYTHON_PYTHON_ARCHIVE=${PYTHON_ARCHIVE}")
+fi
+
 if [[ -n "$NINJA_SOURCE_DIR" ]]; then
   cmake_args+=("-DSTAGE_PYTHON_NINJA_SOURCE_DIR=${NINJA_SOURCE_DIR}")
 fi
@@ -324,6 +348,10 @@ fi
 
 if [[ -n "$FLEX_SOURCE_DIR" ]]; then
   cmake_args+=("-DSTAGE_PYTHON_FLEX_SOURCE_DIR=${FLEX_SOURCE_DIR}")
+fi
+
+if [[ -n "$PYTHON_SOURCE_DIR" ]]; then
+  cmake_args+=("-DSTAGE_PYTHON_PYTHON_SOURCE_DIR=${PYTHON_SOURCE_DIR}")
 fi
 
 if [[ ${#CMAKE_EXTRA_ARGS[@]} -gt 0 ]]; then
