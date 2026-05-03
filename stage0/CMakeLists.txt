@@ -490,9 +490,6 @@ endforeach()
 list(JOIN _stage0_cxx_runtime_components ";" _stage0_cxx_runtime_components_value)
 string(REPLACE ";" "\\;" _stage0_cxx_runtime_components_value_escaped "${_stage0_cxx_runtime_components_value}")
 set(_stage0_cxx_phase_runtime_components ${_stage0_cxx_runtime_components})
-if(_stage0_has_libunwind_runtime AND _stage0_cxx_runtime_components)
-  list(INSERT _stage0_cxx_phase_runtime_components 0 "libunwind")
-endif()
 list(JOIN _stage0_cxx_phase_runtime_components ";" _stage0_cxx_phase_runtime_components_value)
 string(REPLACE ";" "\\;" _stage0_cxx_phase_runtime_components_value_escaped "${_stage0_cxx_phase_runtime_components_value}")
 
@@ -640,6 +637,10 @@ if(_stage0_cxx_runtimes_use_compiler_rt)
 endif()
 list(JOIN _stage0_target_runtime_link_args " " _stage0_target_runtime_link_flags_value)
 
+set(_stage0_target_runtime_library_search_args
+  "-L${STAGE0_LLVM_RUNTIMES_TRIPLE_LIBDIR}")
+list(JOIN _stage0_target_runtime_library_search_args " " _stage0_target_runtime_library_search_flags_value)
+
 set(_stage0_target_runtime_link_args_with_unwind ${_stage0_target_runtime_link_args})
 if(_stage0_has_libunwind_runtime)
   list(APPEND _stage0_target_runtime_link_args_with_unwind "--unwindlib=libunwind")
@@ -654,9 +655,9 @@ set(_stage0_unwind_runtime_cmake_args
   "-DCMAKE_C_FLAGS=${_stage0_target_wrapper_always_flags_value}"
   "-DCMAKE_CXX_FLAGS=${_stage0_target_wrapper_always_flags_value}"
   "-DCMAKE_ASM_FLAGS=${_stage0_target_wrapper_always_flags_value}"
-  "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_value}"
-  "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_value}"
-  "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_value}")
+  "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_value}"
+  "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_value}"
+  "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_value}")
 
 if(_stage0_cxx_runtime_components)
   set(_stage0_cxx_runtime_cmake_args
@@ -670,9 +671,9 @@ if(_stage0_cxx_runtime_components)
     "-DCMAKE_C_FLAGS=${_stage0_target_wrapper_always_flags_value}"
     "-DCMAKE_CXX_FLAGS=${_stage0_target_wrapper_always_flags_value}"
     "-DCMAKE_ASM_FLAGS=${_stage0_target_wrapper_always_flags_value}"
-    "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}"
-    "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}"
-    "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}")
+    "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}"
+    "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}"
+    "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_library_search_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}")
 endif()
 
 set(STAGE0_TARGET_WRAPPER_ALWAYS_ARGS "")
@@ -1033,6 +1034,8 @@ message(STATUS "stage0 root lib dirs      : ${_stage0_runtime_root_libdirs}")
 message(STATUS "stage0 usr lib dirs       : ${_stage0_runtime_usr_libdirs}")
 message(STATUS "stage0 cxx rt uses crt    : ${_stage0_cxx_runtimes_use_compiler_rt}")
 message(STATUS "stage0 libcxxabi tls dtor : ${_stage0_cxa_thread_atexit_value}")
+message(STATUS "stage0 cxx phase runtimes : ${_stage0_cxx_phase_runtime_components_value}")
+message(STATUS "stage0 runtime lib search : ${STAGE0_LLVM_RUNTIMES_TRIPLE_LIBDIR}")
 message(STATUS "stage0 verbose build      : ${STAGE0_VERBOSE_BUILD}")
 message(STATUS "stage0 target sysroot     : ${STAGE0_TARGET_SYSROOT_DIR}")
 message(STATUS "stage0 sysroot archive    : ${STAGE0_SYSROOT_ARCHIVE}")
