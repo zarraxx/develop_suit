@@ -79,7 +79,8 @@ jobs:
           bash ./stage0/build.sh \
             --arch="${{ matrix.arch }}" \
             --clean \
-            --jobs=4
+            --jobs=4 \
+            --verbose
 
       - name: Pack rootfs
         run: |

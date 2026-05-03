@@ -14,6 +14,7 @@ Options:
   --arch=<arch>                  Target arch: x86_64, aarch64, riscv64, loongarch64
   --clean                        Remove the per-arch build directory before configuring
   --jobs=<n>                     Parallel build jobs passed to CMake and BusyBox
+  --verbose                      Enable verbose CMake/Ninja/Make output for debugging
   --build-dir=<path>             Override per-arch CMake build directory
   --dist-dir=<path>              Override final output directory (default: <repo>/dist/sysroot/<arch>)
   --config-fragment=<path>       Override BusyBox config fragment
@@ -93,6 +94,7 @@ copy_tree_clean() {
 ARCH=""
 CLEAN=0
 JOBS=""
+VERBOSE=0
 BUILD_DIR=""
 DIST_DIR=""
 CONFIG_FRAGMENT=""
@@ -118,6 +120,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --clean)
       CLEAN=1
+      ;;
+    --verbose)
+      VERBOSE=1
       ;;
     --jobs=*)
       JOBS="${1#*=}"
@@ -268,6 +273,13 @@ if [[ -n "$JOBS" ]]; then
   cmake_args+=("-DSTAGE0_JOBS=${JOBS}")
 fi
 
+if [[ "$VERBOSE" -eq 1 ]]; then
+  cmake_args+=(
+    "-DSTAGE0_VERBOSE_BUILD=ON"
+    "-DCMAKE_VERBOSE_MAKEFILE=ON"
+  )
+fi
+
 if [[ -n "$CONFIG_FRAGMENT" ]]; then
   cmake_args+=("-DSTAGE0_BUSYBOX_CONFIG_FRAGMENT=$(realpath -m "$CONFIG_FRAGMENT")")
 fi
@@ -318,6 +330,10 @@ build_args=(
 
 if [[ -n "$JOBS" ]]; then
   build_args+=(--parallel "$JOBS")
+fi
+
+if [[ "$VERBOSE" -eq 1 ]]; then
+  build_args+=(--verbose)
 fi
 
 echo "Building stage0 BusyBox rootfs"

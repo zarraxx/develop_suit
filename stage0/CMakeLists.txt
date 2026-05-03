@@ -286,6 +286,7 @@ set(STAGE0_LLVM_RUNTIME_BUILD_TYPE "Release" CACHE STRING "Build type used for L
 set(STAGE0_LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL "AUTO" CACHE STRING "Whether target libc exports __cxa_thread_atexit_impl. Supported values: AUTO, ON, OFF")
 set(STAGE0_CXX_RUNTIMES_USE_COMPILER_RT "AUTO" CACHE STRING "Whether libunwind/libcxxabi/libcxx should link against compiler-rt. Supported values: AUTO, ON, OFF")
 option(STAGE0_DOWNLOAD_MISSING "Automatically download missing archives into STAGE0_CACHE_DIR during configure" ON)
+option(STAGE0_VERBOSE_BUILD "Enable verbose nested build output for LLVM runtimes and BusyBox" OFF)
 set(STAGE0_LLVM_SOURCE_URL "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/llvm-project-18.1.8.src.tar.xz" CACHE STRING "Download URL for the llvm-project source archive")
 set(STAGE0_SYSROOT_URL "https://github.com/zarraxx/package_builder/releases/download/sysroot-15.2.0/sysroot-15.2.0-linux.tar.xz" CACHE STRING "Download URL for the target sysroot archive")
 set(STAGE0_BUSYBOX_URL "https://busybox.net/downloads/busybox-1.37.0.tar.bz2" CACHE STRING "Download URL for the BusyBox source archive")
@@ -575,6 +576,7 @@ endif()
 
 set(_stage0_runtime_common_cmake_args
   "-DCMAKE_BUILD_TYPE=${STAGE0_LLVM_RUNTIME_BUILD_TYPE}"
+  "-DCMAKE_VERBOSE_MAKEFILE=${STAGE0_VERBOSE_BUILD}"
   "-DCMAKE_INSTALL_PREFIX=${STAGE0_LLVM_RUNTIMES_INSTALL_PREFIX}"
   "-DCMAKE_C_COMPILER=${STAGE0_LLVM_BIN_DIR}/clang"
   "-DCMAKE_CXX_COMPILER=${STAGE0_LLVM_BIN_DIR}/clang++"
@@ -771,6 +773,13 @@ if(STAGE0_JOBS)
   list(APPEND _busybox_parallel_args "-j${STAGE0_JOBS}")
 endif()
 
+set(_busybox_verbose_args "")
+set(_llvm_runtime_build_verbose_args "")
+if(STAGE0_VERBOSE_BUILD)
+  list(APPEND _busybox_verbose_args "V=1")
+  list(APPEND _llvm_runtime_build_verbose_args --verbose)
+endif()
+
 set(_llvm_runtime_parallel_args "")
 if(STAGE0_JOBS)
   list(APPEND _llvm_runtime_parallel_args --parallel "${STAGE0_JOBS}")
@@ -812,11 +821,13 @@ if(_stage0_has_compiler_rt_runtime)
       --build "${STAGE0_LLVM_COMPILER_RT_BUILD_DIR}"
       --target install
       ${_llvm_runtime_parallel_args}
+      ${_llvm_runtime_build_verbose_args}
     COMMAND "${CMAKE_COMMAND}" -E touch "${_llvm_compiler_rt_stamp}"
     DEPENDS
       "${_sysroot_stage_stamp}"
       "${STAGE0_LLVM_SOURCE_DIR}/llvm/CMakeLists.txt"
     COMMENT "Building compiler-rt for ${STAGE0_TARGET_TRIPLE}"
+    USES_TERMINAL
     VERBATIM)
 else()
   add_custom_command(
@@ -872,11 +883,13 @@ if(_stage0_has_libunwind_runtime)
       --build "${STAGE0_LLVM_UNWIND_BUILD_DIR}"
       --target install
       ${_llvm_runtime_parallel_args}
+      ${_llvm_runtime_build_verbose_args}
     COMMAND "${CMAKE_COMMAND}" -E touch "${_llvm_unwind_stamp}"
     DEPENDS
       "${_llvm_compiler_rt_driver_overlay_stamp}"
       "${STAGE0_LLVM_SOURCE_DIR}/llvm/CMakeLists.txt"
     COMMENT "Building libunwind for ${STAGE0_TARGET_TRIPLE}"
+    USES_TERMINAL
     VERBATIM)
 else()
   add_custom_command(
@@ -906,11 +919,13 @@ if(_stage0_cxx_runtime_components)
       --build "${STAGE0_LLVM_CXX_RUNTIMES_BUILD_DIR}"
       --target install
       ${_llvm_runtime_parallel_args}
+      ${_llvm_runtime_build_verbose_args}
     COMMAND "${CMAKE_COMMAND}" -E touch "${_llvm_cxx_runtimes_stamp}"
     DEPENDS
       "${_llvm_unwind_stamp}"
       "${STAGE0_LLVM_SOURCE_DIR}/llvm/CMakeLists.txt"
     COMMENT "Building C/C++ runtimes for ${STAGE0_TARGET_TRIPLE}"
+    USES_TERMINAL
     VERBATIM)
 else()
   add_custom_command(
@@ -950,6 +965,7 @@ add_custom_command(
     ${_busybox_env}
     "${STAGE0_MAKE_PROGRAM}"
     ${_busybox_make_args}
+    ${_busybox_verbose_args}
     "${STAGE0_BUSYBOX_CONFIG_TARGET}"
   COMMAND "${CMAKE_COMMAND}"
     "-DCONFIG_FILE=${STAGE0_BUSYBOX_BUILD_DIR}/.config"
@@ -961,9 +977,11 @@ add_custom_command(
     ${_busybox_env}
     "${STAGE0_MAKE_PROGRAM}"
     ${_busybox_make_args}
+    ${_busybox_verbose_args}
     silentoldconfig
   DEPENDS "${STAGE0_BUSYBOX_SOURCE_DIR}/Makefile" "${_sysroot_stage_stamp}"
   COMMENT "Configuring BusyBox for ${STAGE0_TARGET_TRIPLE}"
+  USES_TERMINAL
   VERBATIM)
 
 add_custom_command(
@@ -972,9 +990,11 @@ add_custom_command(
     ${_busybox_env}
     "${STAGE0_MAKE_PROGRAM}"
     ${_busybox_make_args}
+    ${_busybox_verbose_args}
     ${_busybox_parallel_args}
   DEPENDS "${STAGE0_BUSYBOX_BUILD_DIR}/.config" "${_llvm_runtime_layout_stamp}"
   COMMENT "Building BusyBox for ${STAGE0_TARGET_TRIPLE}"
+  USES_TERMINAL
   VERBATIM)
 
 set(_busybox_install_stamp "${STAGE0_ROOTFS_DIR}/.busybox-installed")
@@ -984,11 +1004,13 @@ add_custom_command(
     ${_busybox_env}
     "${STAGE0_MAKE_PROGRAM}"
     ${_busybox_make_args}
+    ${_busybox_verbose_args}
     "CONFIG_PREFIX=${STAGE0_ROOTFS_DIR}"
     install
   COMMAND "${CMAKE_COMMAND}" -E touch "${_busybox_install_stamp}"
   DEPENDS "${STAGE0_BUSYBOX_BUILD_DIR}/busybox" "${_sysroot_stage_stamp}"
   COMMENT "Installing BusyBox into ${STAGE0_ROOTFS_DIR}"
+  USES_TERMINAL
   VERBATIM)
 
 add_custom_target(stage0-llvm-runtimes DEPENDS "${_llvm_runtime_layout_stamp}")
@@ -1011,6 +1033,7 @@ message(STATUS "stage0 root lib dirs      : ${_stage0_runtime_root_libdirs}")
 message(STATUS "stage0 usr lib dirs       : ${_stage0_runtime_usr_libdirs}")
 message(STATUS "stage0 cxx rt uses crt    : ${_stage0_cxx_runtimes_use_compiler_rt}")
 message(STATUS "stage0 libcxxabi tls dtor : ${_stage0_cxa_thread_atexit_value}")
+message(STATUS "stage0 verbose build      : ${STAGE0_VERBOSE_BUILD}")
 message(STATUS "stage0 target sysroot     : ${STAGE0_TARGET_SYSROOT_DIR}")
 message(STATUS "stage0 sysroot archive    : ${STAGE0_SYSROOT_ARCHIVE}")
 message(STATUS "stage0 busybox source     : ${STAGE0_BUSYBOX_SOURCE_DIR}")
