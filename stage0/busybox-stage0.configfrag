@@ -1,3 +1,8 @@
 # BusyBox's default tc applet currently expects CBQ traffic-control
 # definitions that are not present in the bundled sysroot headers.
 CONFIG_TC=n
+
+# The bundled glibc 2.17 era sysroot ships older Linux CAN headers, so
+# BusyBox's newer CAN-specific "ip link" support does not compile cleanly.
+# Keep the regular ip/iproute applets, but drop the CAN extension.
+CONFIG_FEATURE_IP_LINK_CAN=n

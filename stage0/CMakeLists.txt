@@ -393,8 +393,10 @@ find_program(STAGE0_READELF NAMES llvm-readelf readelf REQUIRED)
 set(STAGE0_LLVM_BIN_DIR "${STAGE0_CLANG_ROOT}/bin")
 set(STAGE0_ROOTFS_DIR "${STAGE0_OUTPUT_DIR}/${STAGE0_TARGET_TRIPLE}/rootfs")
 set(STAGE0_BUSYBOX_SYSROOT_DIR "${STAGE0_ROOTFS_DIR}")
-set(STAGE0_TARGET_CC_WRAPPER "${CMAKE_BINARY_DIR}/toolchain/${STAGE0_TARGET_TRIPLE}/clang-target.sh")
-set(STAGE0_BUSYBOX_BUILD_DIR "${CMAKE_BINARY_DIR}/busybox/${STAGE0_TARGET_TRIPLE}")
+set(STAGE0_TOOLCHAIN_DIR "${CMAKE_BINARY_DIR}/toolchain/${STAGE0_TARGET_TRIPLE}")
+set(STAGE0_TARGET_CC_WRAPPER "${STAGE0_TOOLCHAIN_DIR}/clang-target.sh")
+set(STAGE0_TARGET_CROSS_PREFIX "${STAGE0_TOOLCHAIN_DIR}/${STAGE0_TARGET_TRIPLE}-")
+set(STAGE0_BUSYBOX_BUILD_DIR "${STAGE0_BUSYBOX_SOURCE_DIR}")
 set(STAGE0_LLVM_RUNTIMES_BUILD_ROOT "${CMAKE_BINARY_DIR}/llvm-runtimes/${STAGE0_TARGET_TRIPLE}")
 set(STAGE0_LLVM_RUNTIMES_BUILD_DIR "${STAGE0_LLVM_RUNTIMES_BUILD_ROOT}/all")
 set(STAGE0_LLVM_COMPILER_RT_BUILD_DIR "${STAGE0_LLVM_RUNTIMES_BUILD_ROOT}/compiler-rt")
@@ -594,7 +596,7 @@ set(_stage0_gcc_overlay_flags "")
 set(STAGE0_TARGET_CC_WRAPPER_EXTRA_ARGS "")
 if(_stage0_uses_gcc_runtime_overlay)
   set(_stage0_gcc_overlay_flags
-    "--gcc-toolchain=${STAGE0_GCC_TOOLCHAIN_ROOT} -B${STAGE0_GCC_TOOLCHAIN_LIBDIR} -L${STAGE0_GCC_TOOLCHAIN_LIBDIR} --rtlib=libgcc")
+    "--gcc-toolchain=${STAGE0_GCC_TOOLCHAIN_ROOT} -B${STAGE0_GCC_TOOLCHAIN_LIBDIR} -L${STAGE0_GCC_TOOLCHAIN_LIBDIR} --rtlib=libgcc --unwindlib=libgcc")
   list(APPEND _stage0_cxx_runtime_cmake_args
     "-DCMAKE_C_FLAGS=${_stage0_gcc_overlay_flags}"
     "-DCMAKE_CXX_FLAGS=${_stage0_gcc_overlay_flags}"
@@ -606,10 +608,11 @@ if(_stage0_uses_gcc_runtime_overlay)
     "  \"--gcc-toolchain=${STAGE0_GCC_TOOLCHAIN_ROOT}\" \\\n"
     "  \"-B${STAGE0_GCC_TOOLCHAIN_LIBDIR}\" \\\n"
     "  \"-L${STAGE0_GCC_TOOLCHAIN_LIBDIR}\" \\\n"
-    "  \"--rtlib=libgcc\" \\\n")
+    "  \"--rtlib=libgcc\" \\\n"
+    "  \"--unwindlib=libgcc\" \\\n")
 endif()
 
-file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/toolchain/${STAGE0_TARGET_TRIPLE}")
+file(MAKE_DIRECTORY "${STAGE0_TOOLCHAIN_DIR}")
 file(MAKE_DIRECTORY "${STAGE0_TMP_DIR}")
 configure_file(
   "${CMAKE_CURRENT_LIST_DIR}/cmake/clang-target.sh.in"
@@ -621,6 +624,35 @@ file(CHMOD
     OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_EXECUTE
     WORLD_READ WORLD_EXECUTE)
+
+set(_stage0_prefixed_tool_names
+  gcc
+  cc
+  ar
+  nm
+  objcopy
+  ranlib
+  strip)
+set(_stage0_prefixed_tool_targets
+  "${STAGE0_TARGET_CC_WRAPPER}"
+  "${STAGE0_TARGET_CC_WRAPPER}"
+  "${STAGE0_LLVM_BIN_DIR}/llvm-ar"
+  "${STAGE0_LLVM_BIN_DIR}/llvm-nm"
+  "${STAGE0_LLVM_BIN_DIR}/llvm-objcopy"
+  "${STAGE0_LLVM_BIN_DIR}/llvm-ranlib"
+  "${STAGE0_LLVM_BIN_DIR}/llvm-strip")
+
+list(LENGTH _stage0_prefixed_tool_names _stage0_prefixed_tool_count)
+math(EXPR _stage0_prefixed_tool_last "${_stage0_prefixed_tool_count} - 1")
+foreach(_stage0_prefixed_tool_index RANGE ${_stage0_prefixed_tool_last})
+  list(GET _stage0_prefixed_tool_names ${_stage0_prefixed_tool_index} _stage0_tool_name)
+  list(GET _stage0_prefixed_tool_targets ${_stage0_prefixed_tool_index} _stage0_tool_target)
+  set(_stage0_prefixed_tool_path "${STAGE0_TARGET_CROSS_PREFIX}${_stage0_tool_name}")
+  if(EXISTS "${_stage0_prefixed_tool_path}" OR IS_SYMLINK "${_stage0_prefixed_tool_path}")
+    file(REMOVE "${_stage0_prefixed_tool_path}")
+  endif()
+  file(CREATE_LINK "${_stage0_tool_target}" "${_stage0_prefixed_tool_path}" SYMBOLIC)
+endforeach()
 
 set(_llvm_runtime_generator_args "")
 if(CMAKE_GENERATOR)
@@ -648,7 +680,7 @@ set(_busybox_env
   "OBJCOPY=${STAGE0_LLVM_BIN_DIR}/llvm-objcopy"
   "RANLIB=${STAGE0_LLVM_BIN_DIR}/llvm-ranlib"
   "STRIP=${STAGE0_LLVM_BIN_DIR}/llvm-strip"
-  "CROSS_COMPILE=")
+  "CROSS_COMPILE=${STAGE0_TARGET_CROSS_PREFIX}")
 
 if(NOT STAGE0_BUSYBOX_EXTRA_CFLAGS STREQUAL "")
   list(APPEND _busybox_env "EXTRA_CFLAGS=${STAGE0_BUSYBOX_EXTRA_CFLAGS}")
@@ -658,7 +690,7 @@ if(NOT STAGE0_BUSYBOX_EXTRA_LDFLAGS STREQUAL "")
   list(APPEND _busybox_env "EXTRA_LDFLAGS=${STAGE0_BUSYBOX_EXTRA_LDFLAGS}")
 endif()
 
-set(_busybox_make_args -C "${STAGE0_BUSYBOX_SOURCE_DIR}" "O=${STAGE0_BUSYBOX_BUILD_DIR}")
+set(_busybox_make_args -C "${STAGE0_BUSYBOX_SOURCE_DIR}")
 set(_busybox_parallel_args "")
 if(STAGE0_JOBS)
   list(APPEND _busybox_parallel_args "-j${STAGE0_JOBS}")
@@ -812,6 +844,8 @@ add_custom_command(
   COMMAND "${CMAKE_COMMAND}"
     "-DCONFIG_FILE=${STAGE0_BUSYBOX_BUILD_DIR}/.config"
     "-DFRAGMENT_FILE=${STAGE0_BUSYBOX_CONFIG_FRAGMENT}"
+    "-DOVERRIDE_CROSS_COMPILER_PREFIX=${STAGE0_TARGET_CROSS_PREFIX}"
+    "-DOVERRIDE_SYSROOT=${STAGE0_BUSYBOX_SYSROOT_DIR}"
     -P "${CMAKE_CURRENT_LIST_DIR}/cmake/merge_busybox_config.cmake"
   COMMAND "${CMAKE_COMMAND}" -E env
     ${_busybox_env}

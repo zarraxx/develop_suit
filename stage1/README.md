@@ -355,16 +355,7 @@ https://github.com/NixOS/patchelf/releases/download/0.15.5/patchelf-0.15.5.tar.g
 curl
 https://curl.se/download/curl-8.20.0.tar.gz
 
-- cmake 4
-  https://github.com/Kitware/CMake/releases/download/v4.3.2/cmake-4.3.2.tar.gz
-- cmake 3
-  https://cmake.org/files/v3.27/cmake-3.27.9.tar.gz
-- ninja
-  https://github.com/ninja-build/ninja/archive/refs/tags/v1.13.2.tar.gz
-- bison
-  https://ftp.gnu.org/gnu/bison/bison-3.8.tar.xz
-- flex
-  https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz
+
 - llvm + clang + lld
   https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/llvm-project-18.1.8.src.tar.xz
 

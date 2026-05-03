@@ -5,5 +5,4 @@ exec "@STAGE0_LLVM_BIN_DIR@/clang" \
   "--target=@STAGE0_TARGET_TRIPLE@" \
   "--sysroot=@STAGE0_BUSYBOX_SYSROOT_DIR@" \
   "-fuse-ld=lld" \
-@STAGE0_TARGET_CC_WRAPPER_EXTRA_ARGS@
-  "$@"
+@STAGE0_TARGET_CC_WRAPPER_EXTRA_ARGS@  "$@"
