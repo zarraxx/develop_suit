@@ -8,3 +8,5 @@ stage0/out/
 stage0/src/
 stage0/dist/
 stage1/build/
+stage_python/build/
+stage_llvm/build/

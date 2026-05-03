@@ -8,6 +8,8 @@ ARG STAGE1_ARCH
 
 COPY dist/stage1/${STAGE1_ARCH}/ /
 
+RUN ["/sbin/ldconfig"]
+
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 WORKDIR /root
