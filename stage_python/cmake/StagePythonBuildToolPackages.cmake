@@ -78,6 +78,16 @@ function(stage_python_register_build_tool_packages out_var sysroot_stage_dep)
   endif()
 
   if(STAGE_PYTHON_ENABLE_BISON)
+    set(_stage_python_bison_depends "${sysroot_stage_dep}")
+    set(_stage_python_bison_env "")
+    if(STAGE_PYTHON_ENABLE_LIBICONV)
+      list(APPEND _stage_python_bison_depends "${STAGE_PYTHON_ROOTFS_DIR}/.libiconv-installed")
+      list(APPEND _stage_python_bison_env
+        "CPPFLAGS=-D_GNU_SOURCE -I${STAGE_PYTHON_PREFIX_ROOT}/include"
+        "LDFLAGS=-L${STAGE_PYTHON_PREFIX_ROOT}/lib -L${STAGE_PYTHON_PREFIX_ROOT}/lib/${STAGE_PYTHON_TARGET_TRIPLE} -L${STAGE_PYTHON_TARGET_RUNTIME_LIBDIR}"
+        "LIBS=-liconv")
+    endif()
+
     stage_python_resolve_archive_source(
       STAGE_PYTHON_BISON_SOURCE_DIR
       "bison"
@@ -96,7 +106,9 @@ function(stage_python_register_build_tool_packages out_var sysroot_stage_dep)
       PACKAGE_NAME "bison"
       SOURCE_DIR "${STAGE_PYTHON_BISON_SOURCE_DIR}"
       INSTALL_PREFIX "${STAGE_PYTHON_INSTALL_PREFIX}"
-      DEPENDS "${sysroot_stage_dep}"
+      DEPENDS ${_stage_python_bison_depends}
+      ENV
+        ${_stage_python_bison_env}
       POST_INSTALL_COMMANDS
         ${STAGE_PYTHON_NO_DOC_INSTALL_COMMANDS}
       CONFIGURE_ARGS
