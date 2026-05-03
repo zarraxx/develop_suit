@@ -240,6 +240,39 @@ function(stage1_default_host_triple out_var)
   set(${out_var} "${_host_arch}-${_host_os}" PARENT_SCOPE)
 endfunction()
 
+function(stage1_detect_elf_interpreter elf_path out_var)
+  if(NOT EXISTS "${elf_path}")
+    message(FATAL_ERROR "Cannot detect ELF interpreter because file does not exist: ${elf_path}")
+  endif()
+
+  if(NOT DEFINED STAGE1_READELF OR STAGE1_READELF STREQUAL "")
+    message(FATAL_ERROR "STAGE1_READELF is not configured")
+  endif()
+
+  execute_process(
+    COMMAND "${STAGE1_READELF}" -lW "${elf_path}"
+    RESULT_VARIABLE _stage1_readelf_status
+    OUTPUT_VARIABLE _stage1_readelf_output
+    ERROR_VARIABLE _stage1_readelf_error
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(NOT _stage1_readelf_status EQUAL 0)
+    message(FATAL_ERROR
+      "Failed to inspect ELF interpreter for ${elf_path} with ${STAGE1_READELF}.\n"
+      "Error: ${_stage1_readelf_error}")
+  endif()
+
+  string(REGEX MATCH "\\[Requesting program interpreter: ([^]]+)\\]" _stage1_interp_match "${_stage1_readelf_output}")
+  if(NOT _stage1_interp_match)
+    message(FATAL_ERROR
+      "Could not find an ELF interpreter in ${elf_path}.\n"
+      "readelf output:\n${_stage1_readelf_output}")
+  endif()
+
+  set(${out_var} "${CMAKE_MATCH_1}" PARENT_SCOPE)
+endfunction()
+
 function(stage1_resolve_archive_source out_var description cache_dir extract_parent_dir marker_relpath)
   set(options)
   set(oneValueArgs SOURCE_DIR ARCHIVE DEFAULT_ARCHIVE URL SOURCE_SUBDIR)
@@ -336,8 +369,6 @@ endfunction()
 function(stage1_get_lib_only_install_commands rootfs_dir install_prefix out_var)
   stage1_get_no_doc_install_commands("${rootfs_dir}" "${install_prefix}" _stage1_no_doc_commands)
   set(${out_var}
-    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${rootfs_dir}${install_prefix}/bin"
-    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${rootfs_dir}${install_prefix}/sbin"
     COMMAND "${CMAKE_COMMAND}" -E rm -rf "${rootfs_dir}${install_prefix}/share/info"
     ${_stage1_no_doc_commands}
     PARENT_SCOPE)

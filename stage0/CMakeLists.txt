@@ -396,17 +396,16 @@ set(STAGE0_BUSYBOX_SYSROOT_DIR "${STAGE0_ROOTFS_DIR}")
 set(STAGE0_TOOLCHAIN_DIR "${CMAKE_BINARY_DIR}/toolchain/${STAGE0_TARGET_TRIPLE}")
 set(STAGE0_TARGET_CC_WRAPPER "${STAGE0_TOOLCHAIN_DIR}/clang-target.sh")
 set(STAGE0_TARGET_CROSS_PREFIX "${STAGE0_TOOLCHAIN_DIR}/${STAGE0_TARGET_TRIPLE}-")
+set(STAGE0_TARGET_RESOURCE_DIR "${STAGE0_TOOLCHAIN_DIR}/clang-resource")
+set(STAGE0_TARGET_CRT_DIR "${STAGE0_TOOLCHAIN_DIR}/crt")
 set(STAGE0_BUSYBOX_BUILD_DIR "${STAGE0_BUSYBOX_SOURCE_DIR}")
 set(STAGE0_LLVM_RUNTIMES_BUILD_ROOT "${CMAKE_BINARY_DIR}/llvm-runtimes/${STAGE0_TARGET_TRIPLE}")
 set(STAGE0_LLVM_RUNTIMES_BUILD_DIR "${STAGE0_LLVM_RUNTIMES_BUILD_ROOT}/all")
 set(STAGE0_LLVM_COMPILER_RT_BUILD_DIR "${STAGE0_LLVM_RUNTIMES_BUILD_ROOT}/compiler-rt")
+set(STAGE0_LLVM_UNWIND_BUILD_DIR "${STAGE0_LLVM_RUNTIMES_BUILD_ROOT}/libunwind")
 set(STAGE0_LLVM_CXX_RUNTIMES_BUILD_DIR "${STAGE0_LLVM_RUNTIMES_BUILD_ROOT}/cxx")
 set(STAGE0_LLVM_RUNTIMES_INSTALL_PREFIX "${STAGE0_ROOTFS_DIR}/usr")
 set(STAGE0_LLVM_RUNTIMES_TRIPLE_LIBDIR "${STAGE0_ROOTFS_DIR}/usr/lib/${STAGE0_TARGET_TRIPLE}")
-set(STAGE0_GCC_TOOLCHAIN_ROOT "${STAGE0_LLVM_RUNTIMES_INSTALL_PREFIX}")
-set(STAGE0_GCC_TOOLCHAIN_VERSION "0")
-set(STAGE0_GCC_TOOLCHAIN_LIBDIR
-  "${STAGE0_GCC_TOOLCHAIN_ROOT}/lib/gcc/${STAGE0_TARGET_TRIPLE}/${STAGE0_GCC_TOOLCHAIN_VERSION}")
 stage0_normalize_host_arch("${CMAKE_HOST_SYSTEM_PROCESSOR}" STAGE0_HOST_ARCH)
 
 foreach(_required_tool clang ld.lld llvm-ar llvm-nm llvm-objcopy llvm-ranlib llvm-strip)
@@ -414,6 +413,41 @@ foreach(_required_tool clang ld.lld llvm-ar llvm-nm llvm-objcopy llvm-ranlib llv
     message(FATAL_ERROR "Required LLVM tool not found: ${STAGE0_LLVM_BIN_DIR}/${_required_tool}")
   endif()
 endforeach()
+
+execute_process(
+  COMMAND "${STAGE0_LLVM_BIN_DIR}/clang" --print-resource-dir
+  RESULT_VARIABLE _stage0_resource_dir_status
+  OUTPUT_VARIABLE STAGE0_HOST_CLANG_RESOURCE_DIR
+  ERROR_VARIABLE _stage0_resource_dir_error
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _stage0_resource_dir_status EQUAL 0)
+  message(FATAL_ERROR
+    "Failed to query clang resource dir from ${STAGE0_LLVM_BIN_DIR}/clang: "
+    "${_stage0_resource_dir_error}")
+endif()
+
+execute_process(
+  COMMAND "${STAGE0_LLVM_BIN_DIR}/clang" "--target=${STAGE0_TARGET_TRIPLE}" --rtlib=compiler-rt -print-libgcc-file-name
+  RESULT_VARIABLE _stage0_builtins_probe_status
+  OUTPUT_VARIABLE _stage0_builtins_probe_output
+  ERROR_VARIABLE _stage0_builtins_probe_error
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _stage0_builtins_probe_status EQUAL 0)
+  message(FATAL_ERROR
+    "Failed to probe compiler-rt builtins path for ${STAGE0_TARGET_TRIPLE}: "
+    "${_stage0_builtins_probe_error}")
+endif()
+
+file(RELATIVE_PATH STAGE0_TARGET_BUILTINS_RELATIVE_PATH
+  "${STAGE0_HOST_CLANG_RESOURCE_DIR}"
+  "${_stage0_builtins_probe_output}")
+if(STAGE0_TARGET_BUILTINS_RELATIVE_PATH MATCHES "^\\.\\.")
+  message(FATAL_ERROR
+    "clang reported a builtins path outside its resource dir for ${STAGE0_TARGET_TRIPLE}: "
+    "${_stage0_builtins_probe_output}")
+endif()
 
 if(NOT EXISTS "${STAGE0_TARGET_SYSROOT_DIR}/usr")
   message(FATAL_ERROR "Target sysroot does not look valid: ${STAGE0_TARGET_SYSROOT_DIR}")
@@ -441,26 +475,25 @@ endif()
 
 set(_stage0_runtime_components ${STAGE0_LLVM_RUNTIME_COMPONENTS})
 set(_stage0_has_compiler_rt_runtime FALSE)
+set(_stage0_has_libunwind_runtime FALSE)
 set(_stage0_cxx_runtime_components "")
 foreach(_stage0_runtime_component IN LISTS _stage0_runtime_components)
   if(_stage0_runtime_component STREQUAL "compiler-rt")
     set(_stage0_has_compiler_rt_runtime TRUE)
+  elseif(_stage0_runtime_component STREQUAL "libunwind")
+    set(_stage0_has_libunwind_runtime TRUE)
   else()
     list(APPEND _stage0_cxx_runtime_components "${_stage0_runtime_component}")
   endif()
 endforeach()
 list(JOIN _stage0_cxx_runtime_components ";" _stage0_cxx_runtime_components_value)
 string(REPLACE ";" "\\;" _stage0_cxx_runtime_components_value_escaped "${_stage0_cxx_runtime_components_value}")
-
-set(_stage0_is_native_target FALSE)
-if(STAGE0_TARGET_TRIPLE STREQUAL "${STAGE0_HOST_ARCH}-unknown-linux-gnu")
-  set(_stage0_is_native_target TRUE)
+set(_stage0_cxx_phase_runtime_components ${_stage0_cxx_runtime_components})
+if(_stage0_has_libunwind_runtime AND _stage0_cxx_runtime_components)
+  list(INSERT _stage0_cxx_phase_runtime_components 0 "libunwind")
 endif()
-
-set(_stage0_uses_gcc_runtime_overlay FALSE)
-if(_stage0_has_compiler_rt_runtime)
-  set(_stage0_uses_gcc_runtime_overlay TRUE)
-endif()
+list(JOIN _stage0_cxx_phase_runtime_components ";" _stage0_cxx_phase_runtime_components_value)
+string(REPLACE ";" "\\;" _stage0_cxx_phase_runtime_components_value_escaped "${_stage0_cxx_phase_runtime_components_value}")
 
 set(_stage0_runtime_root_libdirs "")
 foreach(_stage0_root_lib_candidate IN ITEMS lib64 lib)
@@ -486,17 +519,19 @@ list(REMOVE_DUPLICATES _stage0_runtime_usr_libdirs)
 
 string(TOUPPER "${STAGE0_CXX_RUNTIMES_USE_COMPILER_RT}" _stage0_cxx_runtimes_use_compiler_rt_mode)
 if(_stage0_cxx_runtimes_use_compiler_rt_mode STREQUAL "AUTO")
-  if(STAGE0_TARGET_TRIPLE STREQUAL "${STAGE0_HOST_ARCH}-unknown-linux-gnu")
-    set(_stage0_cxx_runtimes_use_compiler_rt ON)
-  else()
-    set(_stage0_cxx_runtimes_use_compiler_rt OFF)
-  endif()
+  set(_stage0_cxx_runtimes_use_compiler_rt "${_stage0_has_compiler_rt_runtime}")
 elseif(_stage0_cxx_runtimes_use_compiler_rt_mode STREQUAL "ON" OR _stage0_cxx_runtimes_use_compiler_rt_mode STREQUAL "OFF")
   set(_stage0_cxx_runtimes_use_compiler_rt "${_stage0_cxx_runtimes_use_compiler_rt_mode}")
 else()
   message(FATAL_ERROR
     "STAGE0_CXX_RUNTIMES_USE_COMPILER_RT must be AUTO, ON, or OFF. "
     "Got: ${STAGE0_CXX_RUNTIMES_USE_COMPILER_RT}")
+endif()
+
+if(_stage0_cxx_runtimes_use_compiler_rt AND NOT _stage0_has_compiler_rt_runtime)
+  message(FATAL_ERROR
+    "STAGE0_CXX_RUNTIMES_USE_COMPILER_RT=${STAGE0_CXX_RUNTIMES_USE_COMPILER_RT}, "
+    "but compiler-rt is not present in STAGE0_LLVM_RUNTIME_COMPONENTS.")
 endif()
 
 string(TOUPPER "${STAGE0_LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL}" _stage0_cxa_thread_atexit_mode)
@@ -531,10 +566,10 @@ else()
     "Got: ${STAGE0_LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL}")
 endif()
 
-if(NOT _stage0_is_native_target AND NOT _stage0_has_compiler_rt_runtime)
+if(_stage0_cxx_runtime_components AND NOT _stage0_has_compiler_rt_runtime)
   message(WARNING
-    "Cross target ${STAGE0_TARGET_TRIPLE} is building without compiler-rt in "
-    "STAGE0_LLVM_RUNTIME_COMPONENTS. Host clang may not provide builtins/crt "
+    "Target ${STAGE0_TARGET_TRIPLE} is building C/C++ runtimes without compiler-rt "
+    "in STAGE0_LLVM_RUNTIME_COMPONENTS. clang may not have the required builtins/crt "
     "objects for this target.")
 endif()
 
@@ -592,27 +627,67 @@ set(_stage0_cxx_runtime_cmake_args
   "-DLIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL=${_stage0_cxa_thread_atexit_value}"
   "-DLIBCXX_USE_COMPILER_RT=OFF")
 
-set(_stage0_gcc_overlay_flags "")
-set(STAGE0_TARGET_CC_WRAPPER_EXTRA_ARGS "")
-if(_stage0_uses_gcc_runtime_overlay)
-  set(_stage0_gcc_overlay_flags
-    "--gcc-toolchain=${STAGE0_GCC_TOOLCHAIN_ROOT} -B${STAGE0_GCC_TOOLCHAIN_LIBDIR} -L${STAGE0_GCC_TOOLCHAIN_LIBDIR} --rtlib=libgcc --unwindlib=libgcc")
-  list(APPEND _stage0_cxx_runtime_cmake_args
-    "-DCMAKE_C_FLAGS=${_stage0_gcc_overlay_flags}"
-    "-DCMAKE_CXX_FLAGS=${_stage0_gcc_overlay_flags}"
-    "-DCMAKE_ASM_FLAGS=${_stage0_gcc_overlay_flags}"
-    "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_gcc_overlay_flags}"
-    "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld ${_stage0_gcc_overlay_flags}"
-    "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_gcc_overlay_flags}")
-  string(CONCAT STAGE0_TARGET_CC_WRAPPER_EXTRA_ARGS
-    "  \"--gcc-toolchain=${STAGE0_GCC_TOOLCHAIN_ROOT}\" \\\n"
-    "  \"-B${STAGE0_GCC_TOOLCHAIN_LIBDIR}\" \\\n"
-    "  \"-L${STAGE0_GCC_TOOLCHAIN_LIBDIR}\" \\\n"
-    "  \"--rtlib=libgcc\" \\\n"
-    "  \"--unwindlib=libgcc\" \\\n")
+set(_stage0_target_wrapper_always_flags
+  "-resource-dir=${STAGE0_TARGET_RESOURCE_DIR}"
+  "-B${STAGE0_TARGET_CRT_DIR}")
+list(JOIN _stage0_target_wrapper_always_flags " " _stage0_target_wrapper_always_flags_value)
+
+set(_stage0_target_runtime_link_args "")
+if(_stage0_cxx_runtimes_use_compiler_rt)
+  list(APPEND _stage0_target_runtime_link_args "--rtlib=compiler-rt")
+endif()
+list(JOIN _stage0_target_runtime_link_args " " _stage0_target_runtime_link_flags_value)
+
+set(_stage0_target_runtime_link_args_with_unwind ${_stage0_target_runtime_link_args})
+if(_stage0_has_libunwind_runtime)
+  list(APPEND _stage0_target_runtime_link_args_with_unwind "--unwindlib=libunwind")
+endif()
+list(JOIN _stage0_target_runtime_link_args_with_unwind " " _stage0_target_runtime_link_flags_with_unwind_value)
+
+set(_stage0_unwind_runtime_cmake_args
+  ${_stage0_runtime_common_cmake_args}
+  "-DLLVM_ENABLE_RUNTIMES=libunwind"
+  "-DLIBUNWIND_USE_COMPILER_RT=${_stage0_cxx_runtimes_use_compiler_rt}"
+  "-DLIBUNWIND_INCLUDE_TESTS=OFF"
+  "-DCMAKE_C_FLAGS=${_stage0_target_wrapper_always_flags_value}"
+  "-DCMAKE_CXX_FLAGS=${_stage0_target_wrapper_always_flags_value}"
+  "-DCMAKE_ASM_FLAGS=${_stage0_target_wrapper_always_flags_value}"
+  "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_value}"
+  "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_value}"
+  "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_value}")
+
+if(_stage0_cxx_runtime_components)
+  set(_stage0_cxx_runtime_cmake_args
+    ${_stage0_runtime_common_cmake_args}
+    "-DLLVM_ENABLE_RUNTIMES=${_stage0_cxx_phase_runtime_components_value_escaped}"
+    "-DLIBUNWIND_USE_COMPILER_RT=${_stage0_cxx_runtimes_use_compiler_rt}"
+    "-DLIBCXXABI_USE_COMPILER_RT=${_stage0_cxx_runtimes_use_compiler_rt}"
+    "-DLIBCXXABI_USE_LLVM_UNWIND=ON"
+    "-DLIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL=${_stage0_cxa_thread_atexit_value}"
+    "-DLIBCXX_USE_COMPILER_RT=${_stage0_cxx_runtimes_use_compiler_rt}"
+    "-DCMAKE_C_FLAGS=${_stage0_target_wrapper_always_flags_value}"
+    "-DCMAKE_CXX_FLAGS=${_stage0_target_wrapper_always_flags_value}"
+    "-DCMAKE_ASM_FLAGS=${_stage0_target_wrapper_always_flags_value}"
+    "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}"
+    "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}"
+    "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld ${_stage0_target_wrapper_always_flags_value} ${_stage0_target_runtime_link_flags_with_unwind_value}")
 endif()
 
+set(STAGE0_TARGET_WRAPPER_ALWAYS_ARGS "")
+foreach(_stage0_wrapper_arg IN LISTS _stage0_target_wrapper_always_flags)
+  string(APPEND STAGE0_TARGET_WRAPPER_ALWAYS_ARGS
+    "    \"${_stage0_wrapper_arg}\" \\\n")
+endforeach()
+
+set(STAGE0_TARGET_WRAPPER_LINK_ARGS "")
+foreach(_stage0_wrapper_arg IN LISTS _stage0_target_runtime_link_args_with_unwind)
+  string(APPEND STAGE0_TARGET_WRAPPER_LINK_ARGS
+    "    \"${_stage0_wrapper_arg}\" \\\n")
+endforeach()
+
 file(MAKE_DIRECTORY "${STAGE0_TOOLCHAIN_DIR}")
+file(MAKE_DIRECTORY "${STAGE0_TARGET_RESOURCE_DIR}")
+file(MAKE_DIRECTORY "${STAGE0_TARGET_CRT_DIR}")
 file(MAKE_DIRECTORY "${STAGE0_TMP_DIR}")
 configure_file(
   "${CMAKE_CURRENT_LIST_DIR}/cmake/clang-target.sh.in"
@@ -752,28 +827,63 @@ else()
     VERBATIM)
 endif()
 
-set(_llvm_gcc_overlay_stamp "${STAGE0_ROOTFS_DIR}/.llvm-gcc-overlay-staged")
-if(_stage0_uses_gcc_runtime_overlay)
+set(_llvm_compiler_rt_driver_overlay_stamp "${STAGE0_ROOTFS_DIR}/.llvm-compiler-rt-driver-overlay-staged")
+if(_stage0_has_compiler_rt_runtime)
   add_custom_command(
-    OUTPUT "${_llvm_gcc_overlay_stamp}"
+    OUTPUT "${_llvm_compiler_rt_driver_overlay_stamp}"
     COMMAND "${CMAKE_COMMAND}"
-      "-DROOTFS_DIR=${STAGE0_ROOTFS_DIR}"
-      "-DSOURCE_LIBDIR=${STAGE0_LLVM_RUNTIMES_TRIPLE_LIBDIR}"
-      "-DGCC_TOOLCHAIN_ROOT=${STAGE0_GCC_TOOLCHAIN_ROOT}"
-      "-DTARGET_TRIPLE=${STAGE0_TARGET_TRIPLE}"
-      "-DGCC_TOOLCHAIN_VERSION=${STAGE0_GCC_TOOLCHAIN_VERSION}"
-      "-DROOT_SHARED_LIB_DIRS=${_stage0_runtime_root_libdirs}"
-      -P "${CMAKE_CURRENT_LIST_DIR}/cmake/stage_gcc_runtime_overlay.cmake"
-    COMMAND "${CMAKE_COMMAND}" -E touch "${_llvm_gcc_overlay_stamp}"
+      "-DCLANG_RESOURCE_DIR=${STAGE0_TARGET_RESOURCE_DIR}"
+      "-DHOST_CLANG_RESOURCE_DIR=${STAGE0_HOST_CLANG_RESOURCE_DIR}"
+      "-DBUILTINS_SOURCE=${STAGE0_LLVM_RUNTIMES_TRIPLE_LIBDIR}/libclang_rt.builtins.a"
+      "-DBUILTINS_RELATIVE_PATH=${STAGE0_TARGET_BUILTINS_RELATIVE_PATH}"
+      "-DCRT_DIR=${STAGE0_TARGET_CRT_DIR}"
+      "-DCRTBEGIN_SOURCE=${STAGE0_LLVM_RUNTIMES_TRIPLE_LIBDIR}/clang_rt.crtbegin.o"
+      "-DCRTEND_SOURCE=${STAGE0_LLVM_RUNTIMES_TRIPLE_LIBDIR}/clang_rt.crtend.o"
+      -P "${CMAKE_CURRENT_LIST_DIR}/cmake/stage_clang_runtime_overlay.cmake"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${_llvm_compiler_rt_driver_overlay_stamp}"
     DEPENDS "${_llvm_compiler_rt_stamp}"
-    COMMENT "Staging GCC-compatible compiler-rt overlay for ${STAGE0_TARGET_TRIPLE}"
+    COMMENT "Staging clang compiler-rt driver overlay for ${STAGE0_TARGET_TRIPLE}"
     VERBATIM)
 else()
   add_custom_command(
-    OUTPUT "${_llvm_gcc_overlay_stamp}"
-    COMMAND "${CMAKE_COMMAND}" -E touch "${_llvm_gcc_overlay_stamp}"
+    OUTPUT "${_llvm_compiler_rt_driver_overlay_stamp}"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${_llvm_compiler_rt_driver_overlay_stamp}"
     DEPENDS "${_llvm_compiler_rt_stamp}"
-    COMMENT "Skipping GCC-compatible compiler-rt overlay for ${STAGE0_TARGET_TRIPLE}"
+    COMMENT "Skipping clang compiler-rt driver overlay for ${STAGE0_TARGET_TRIPLE}"
+    VERBATIM)
+endif()
+
+set(_llvm_unwind_stamp "${STAGE0_ROOTFS_DIR}/.llvm-libunwind-installed")
+if(_stage0_has_libunwind_runtime)
+  add_custom_command(
+    OUTPUT "${_llvm_unwind_stamp}"
+    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${STAGE0_LLVM_UNWIND_BUILD_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${STAGE0_LLVM_UNWIND_BUILD_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E env
+      ${_stage0_runtime_configure_env}
+      "${CMAKE_COMMAND}"
+      ${_llvm_runtime_generator_args}
+      -S "${STAGE0_LLVM_SOURCE_DIR}/runtimes"
+      -B "${STAGE0_LLVM_UNWIND_BUILD_DIR}"
+      ${_stage0_unwind_runtime_cmake_args}
+    COMMAND "${CMAKE_COMMAND}" -E env
+      ${_stage0_runtime_configure_env}
+      "${CMAKE_COMMAND}"
+      --build "${STAGE0_LLVM_UNWIND_BUILD_DIR}"
+      --target install
+      ${_llvm_runtime_parallel_args}
+    COMMAND "${CMAKE_COMMAND}" -E touch "${_llvm_unwind_stamp}"
+    DEPENDS
+      "${_llvm_compiler_rt_driver_overlay_stamp}"
+      "${STAGE0_LLVM_SOURCE_DIR}/llvm/CMakeLists.txt"
+    COMMENT "Building libunwind for ${STAGE0_TARGET_TRIPLE}"
+    VERBATIM)
+else()
+  add_custom_command(
+    OUTPUT "${_llvm_unwind_stamp}"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${_llvm_unwind_stamp}"
+    DEPENDS "${_llvm_compiler_rt_driver_overlay_stamp}"
+    COMMENT "Skipping libunwind for ${STAGE0_TARGET_TRIPLE}"
     VERBATIM)
 endif()
 
@@ -798,7 +908,7 @@ if(_stage0_cxx_runtime_components)
       ${_llvm_runtime_parallel_args}
     COMMAND "${CMAKE_COMMAND}" -E touch "${_llvm_cxx_runtimes_stamp}"
     DEPENDS
-      "${_llvm_gcc_overlay_stamp}"
+      "${_llvm_unwind_stamp}"
       "${STAGE0_LLVM_SOURCE_DIR}/llvm/CMakeLists.txt"
     COMMENT "Building C/C++ runtimes for ${STAGE0_TARGET_TRIPLE}"
     VERBATIM)
@@ -806,7 +916,7 @@ else()
   add_custom_command(
     OUTPUT "${_llvm_cxx_runtimes_stamp}"
     COMMAND "${CMAKE_COMMAND}" -E touch "${_llvm_cxx_runtimes_stamp}"
-    DEPENDS "${_llvm_gcc_overlay_stamp}"
+    DEPENDS "${_llvm_unwind_stamp}"
     COMMENT "Skipping C/C++ runtimes for ${STAGE0_TARGET_TRIPLE}"
     VERBATIM)
 endif()
@@ -893,11 +1003,12 @@ message(STATUS "stage0 llvm archive       : ${STAGE0_LLVM_ARCHIVE}")
 message(STATUS "stage0 llvm source        : ${STAGE0_LLVM_SOURCE_DIR}")
 message(STATUS "stage0 llvm runtimes      : ${STAGE0_LLVM_RUNTIME_COMPONENTS}")
 message(STATUS "stage0 llvm lib source    : ${STAGE0_LLVM_RUNTIMES_TRIPLE_LIBDIR}")
+message(STATUS "stage0 clang resource dir : ${STAGE0_HOST_CLANG_RESOURCE_DIR}")
+message(STATUS "stage0 target resource dir: ${STAGE0_TARGET_RESOURCE_DIR}")
+message(STATUS "stage0 target crt dir     : ${STAGE0_TARGET_CRT_DIR}")
 message(STATUS "stage0 host arch          : ${STAGE0_HOST_ARCH}")
 message(STATUS "stage0 root lib dirs      : ${_stage0_runtime_root_libdirs}")
 message(STATUS "stage0 usr lib dirs       : ${_stage0_runtime_usr_libdirs}")
-message(STATUS "stage0 gcc overlay        : ${_stage0_uses_gcc_runtime_overlay}")
-message(STATUS "stage0 gcc overlay dir    : ${STAGE0_GCC_TOOLCHAIN_LIBDIR}")
 message(STATUS "stage0 cxx rt uses crt    : ${_stage0_cxx_runtimes_use_compiler_rt}")
 message(STATUS "stage0 libcxxabi tls dtor : ${_stage0_cxa_thread_atexit_value}")
 message(STATUS "stage0 target sysroot     : ${STAGE0_TARGET_SYSROOT_DIR}")

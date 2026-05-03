@@ -14,10 +14,11 @@
 
 1. 使用一个已经能在宿主机运行的 `clang/lld` 作为外部工具链输入。
 2. 解包目标架构的基础 `glibc sysroot`。
-3. 从 `llvm-project` 源码为目标 triple 分两阶段构建 LLVM runtimes。
+3. 从 `llvm-project` 源码为目标 triple 分三阶段构建 LLVM runtimes。
 4. 先安装 `compiler-rt`，产出 `libclang_rt.builtins.a` 和 `clang_rt.crtbegin/crtend.o`。
-5. 再把这些文件映射成 clang 更容易消费的 GCC 兼容名字，例如 `libgcc.a`、`crtbeginS.o`、`crtendS.o`。
-6. 最后再构建 `libunwind/libc++abi/libc++`，并继续使用同一个 `clang --target=... --sysroot=...` 构建安装 `busybox`。
+5. 把这些文件整理成 clang 自己能识别的 target resource/crt 布局，而不是伪造 `lib/gcc/<triple>/...`。
+6. 第二轮只构建 `libunwind`。
+7. 第三轮再构建 `libc++abi/libc++`，并继续使用同一个 `clang --target=... --sysroot=...` 构建安装 `busybox`。
 
 这里有一个重要边界：
 
@@ -35,7 +36,7 @@
 
 - `clang/lld` 必须先是 host 可执行程序，否则它无法驱动交叉编译。
 - `compiler-rt/libc++/libc++abi/libunwind` 如果要进入 target sysroot，就必须按 target triple 单独构建。
-- 真正的交叉场景里，`libunwind/libc++abi/libc++` 不能假设 host clang 自带对应 target 的 `crtbeginS.o/crtendS.o/libclang_rt.builtins.a`，所以这里统一走两阶段。
+- 真正的交叉场景里，`libunwind/libc++abi/libc++` 不能假设 host clang 自带对应 target 的 `crtbeginS.o/crtendS.o/libclang_rt.builtins.a`，所以这里先用 `compiler-rt` 补齐 target startup/builtins，再继续后两轮。
 - `busybox` 是 target 产物，应当在 target sysroot 已就绪之后再编译安装。
 
 所以对 `stage0` 而言，更合适的模型不是“先在这里完整自举一套 LLVM”，而是：
@@ -102,28 +103,27 @@
    - busybox archive / source dir
 2. 把 sysroot 先复制到 staged rootfs。
 3. 先用 host clang 通过 `llvm-project/runtimes` 的 standalone 入口单独构建并安装 `compiler-rt`。
-4. 把 `compiler-rt` 的 builtins/crt 对象映射成 GCC 兼容 overlay，让 clang 后续链接能稳定找到：
-   - `libgcc.a`
-   - `libgcc_eh.a`
-   - `crtbegin.o`
-   - `crtbeginS.o`
-   - `crtbeginT.o`
-   - `crtend.o`
-   - `crtendS.o`
-5. 再单独构建并安装 `libunwind/libc++abi/libc++`。
-6. 把这些运行库按 LLVM 默认布局安装到 staged rootfs 的 triple 目录下。
-7. 再把这些运行库补充链接到 sysroot 的发行版风格库目录里，例如 `lib` / `lib64` 和 `usr/lib` / `usr/lib64`。
-8. 生成目标专用 clang wrapper，统一带上：
+4. 把 `compiler-rt` 的 builtins/crt 对象整理成 clang driver 能直接消费的 resource/crt overlay：
+   - 保留 `libclang_rt.builtins.a`
+   - 生成 `crtbegin.o/crtbeginS.o/crtbeginT.o`
+   - 生成 `crtend.o/crtendS.o`
+   - 不再向最终 rootfs 写入假的 `lib/gcc/<triple>/0`
+5. 再单独构建并安装 `libunwind`。
+6. 最后再构建并安装 `libc++abi/libc++`。
+7. 把这些运行库按 LLVM 默认布局安装到 staged rootfs 的 triple 目录下。
+8. 再把这些运行库补充链接到 sysroot 的发行版风格库目录里，例如 `lib` / `lib64` 和 `usr/lib` / `usr/lib64`。
+9. 生成目标专用 clang wrapper，统一带上：
    - `--target=<triple>`
    - `--sysroot=<staged-rootfs>`
-   - `-fuse-ld=lld`
-   - 如果启用了 `compiler-rt`，还会额外带上 GCC 兼容 overlay 参数
-9. 使用这个 wrapper 构建 BusyBox。
-10. 把 BusyBox 安装进同一个 staged rootfs。
+   - `-resource-dir=<target-resource-dir>`
+   - `-B<target-crt-dir>`
+   - 链接时再补 `--rtlib=compiler-rt` 和 `--unwindlib=libunwind`
+10. 使用这个 wrapper 构建 BusyBox。
+11. 把 BusyBox 安装进同一个 staged rootfs。
 
 现在的依赖顺序是：
 
-`stage sysroot -> install compiler-rt -> stage gcc-compatible overlay -> install cxx runtimes -> build/install busybox`
+`stage sysroot -> install compiler-rt -> stage clang resource/crt overlay -> install libunwind -> install libc++abi/libc++ -> build/install busybox`
 
 这也是当前 `stage0` 最重要的约束。
 

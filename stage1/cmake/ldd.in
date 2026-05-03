@@ -1,0 +1,68 @@
+#!/usr/bin/env sh
+set -eu
+
+rtld="@_stage1_target_dynamic_linker@"
+lib_dirs="@_stage1_ldd_library_dirs@"
+self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root_dir=$(CDPATH= cd -- "$self_dir/../.." && pwd)
+rtld_exec="$rtld"
+library_path="$lib_dirs"
+
+if [ -x "$root_dir$rtld" ]; then
+  rtld_exec="$root_dir$rtld"
+  local_library_path=""
+  old_ifs=${IFS}
+  IFS=:
+  for dir in $lib_dirs; do
+    if [ -n "$local_library_path" ]; then
+      local_library_path="${local_library_path}:"
+    fi
+    local_library_path="${local_library_path}${root_dir}${dir}"
+  done
+  IFS=${old_ifs}
+  library_path="$local_library_path"
+fi
+
+usage() {
+  cat <<'EOF'
+Usage: ldd FILE...
+
+Print the shared libraries required by each FILE.
+EOF
+}
+
+if [ "$#" -eq 0 ]; then
+  usage >&2
+  exit 1
+fi
+
+case "${1-}" in
+  --help)
+    usage
+    exit 0
+    ;;
+  --version)
+    echo "stage1 ldd wrapper"
+    echo "dynamic linker: $rtld_exec"
+    exit 0
+    ;;
+esac
+
+status=0
+for target in "$@"; do
+  if [ "$#" -gt 1 ]; then
+    echo "$target:"
+  fi
+
+  if [ ! -e "$target" ]; then
+    echo "ldd: $target: No such file or directory" >&2
+    status=1
+    continue
+  fi
+
+  if ! env LD_TRACE_LOADED_OBJECTS=1 "$rtld_exec" --library-path "$library_path" "$target"; then
+    status=1
+  fi
+done
+
+exit "$status"

@@ -131,14 +131,14 @@ jobs:
       - name: Pack rootfs
         run: |
           mkdir -p artifacts
-          tar -C dist/stage1 -czf "artifacts/stage1-rootfs-${{ matrix.arch }}.tar.gz" "${{ matrix.arch }}"
+          tar -C dist/stage1 -cJf "artifacts/stage1-rootfs-${{ matrix.arch }}.tar.xz" "${{ matrix.arch }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: stage1-${{ matrix.arch }}
           path: |
-            artifacts/stage1-rootfs-${{ matrix.arch }}.tar.gz
+            artifacts/stage1-rootfs-${{ matrix.arch }}.tar.xz
           if-no-files-found: error
           retention-days: 14
 
@@ -192,7 +192,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd release-artifacts
-          sha256sum ./*.tar.gz > SHA256SUMS
+          sha256sum ./*.tar.xz > SHA256SUMS
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -202,5 +202,5 @@ jobs:
           prerelease: ${{ inputs.prerelease }}
           generate_release_notes: true
           files: |
-            release-artifacts/*.tar.gz
+            release-artifacts/*.tar.xz
             release-artifacts/SHA256SUMS

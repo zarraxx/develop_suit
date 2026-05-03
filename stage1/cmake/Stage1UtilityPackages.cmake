@@ -1,5 +1,7 @@
 include_guard(GLOBAL)
 
+set(STAGE1_UTILITY_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+
 set(STAGE1_PATCHELF_ARCHIVE "" CACHE FILEPATH "Path to the patchelf source archive")
 set(STAGE1_CURL_ARCHIVE "" CACHE FILEPATH "Path to the curl source archive")
 
@@ -16,10 +18,12 @@ set(STAGE1_CURL_URL
   "Download URL for curl")
 
 option(STAGE1_ENABLE_UTILITY_PACKAGES "Build utility packages in stage1" ON)
+option(STAGE1_ENABLE_LDD "Install an ldd helper script in stage1" ON)
 option(STAGE1_ENABLE_PATCHELF "Build patchelf in stage1" ON)
 option(STAGE1_ENABLE_CURL "Build curl in stage1" ON)
 
 set(STAGE1_UTILITY_PACKAGE_NAMES
+  ldd
   patchelf
   curl)
 
@@ -29,7 +33,7 @@ function(stage1_register_utility_packages out_targets_var sysroot_stage_dep)
     return()
   endif()
 
-  if(NOT STAGE1_ENABLE_PATCHELF AND NOT STAGE1_ENABLE_CURL)
+  if(NOT STAGE1_ENABLE_LDD AND NOT STAGE1_ENABLE_PATCHELF AND NOT STAGE1_ENABLE_CURL)
     set(${out_targets_var} "" PARENT_SCOPE)
     return()
   endif()
@@ -93,6 +97,31 @@ function(stage1_register_utility_packages out_targets_var sysroot_stage_dep)
   set(_stage1_targets "")
   set(_stage1_prefix_root "${STAGE1_ROOTFS_DIR}${STAGE1_INSTALL_PREFIX}")
   stage1_get_no_doc_install_commands("${STAGE1_ROOTFS_DIR}" "${STAGE1_INSTALL_PREFIX}" _stage1_no_doc_install_commands)
+
+  if(STAGE1_ENABLE_LDD)
+    stage1_detect_elf_interpreter(
+      "${STAGE1_INPUT_ROOTFS_DIR}/bin/busybox"
+      _stage1_target_dynamic_linker)
+    set(_stage1_ldd_library_dirs
+      "/lib64:/lib:/usr/lib64:/usr/lib:/usr/lib/${STAGE1_TARGET_TRIPLE}")
+    set(_stage1_ldd_output "${STAGE1_ROOTFS_DIR}${STAGE1_INSTALL_PREFIX}/bin/ldd")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
+    configure_file(
+      "${STAGE1_UTILITY_CMAKE_DIR}/ldd.in"
+      "${CMAKE_BINARY_DIR}/generated/stage1-ldd-${STAGE1_TARGET_TRIPLE}.sh"
+      @ONLY)
+    set(_stage1_ldd_source "${CMAKE_BINARY_DIR}/generated/stage1-ldd-${STAGE1_TARGET_TRIPLE}.sh")
+    add_custom_command(
+      OUTPUT "${_stage1_ldd_output}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${STAGE1_ROOTFS_DIR}${STAGE1_INSTALL_PREFIX}/bin"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${_stage1_ldd_source}" "${_stage1_ldd_output}"
+      COMMAND chmod 755 "${_stage1_ldd_output}"
+      DEPENDS "${sysroot_stage_dep}" "${_stage1_ldd_source}"
+      COMMENT "Installing stage1 ldd helper"
+      VERBATIM)
+    add_custom_target(stage1-ldd DEPENDS "${_stage1_ldd_output}")
+    list(APPEND _stage1_targets stage1-ldd)
+  endif()
 
   if(STAGE1_ENABLE_PATCHELF)
     stage1_add_configure_make_package(

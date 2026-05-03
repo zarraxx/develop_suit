@@ -13,3 +13,7 @@ CONFIG_FEATURE_IP_LINK_CAN=n
 # optional fast paths, so keep them disabled across all architectures.
 CONFIG_SHA1_HWACCEL=n
 CONFIG_SHA256_HWACCEL=n
+
+# Stage0 links through compiler-rt/libunwind instead of libgcc, so the
+# GCC-specific static libgcc toggle only adds noisy unused-argument warnings.
+CONFIG_STATIC_LIBGCC=n

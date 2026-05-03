@@ -1,8 +1,27 @@
 #!/usr/bin/env sh
 set -eu
 
-exec "@STAGE0_LLVM_BIN_DIR@/clang" \
-  "--target=@STAGE0_TARGET_TRIPLE@" \
-  "--sysroot=@STAGE0_BUSYBOX_SYSROOT_DIR@" \
-  "-fuse-ld=lld" \
-@STAGE0_TARGET_CC_WRAPPER_EXTRA_ARGS@  "$@"
+want_link=1
+for arg in "$@"; do
+  case "$arg" in
+    -c|-E|-S)
+      want_link=0
+      ;;
+  esac
+done
+
+if [ "$want_link" -eq 1 ]; then
+  exec "@STAGE0_LLVM_BIN_DIR@/clang" \
+    "--target=@STAGE0_TARGET_TRIPLE@" \
+    "--sysroot=@STAGE0_BUSYBOX_SYSROOT_DIR@" \
+    @STAGE0_TARGET_WRAPPER_ALWAYS_ARGS@ \
+    "-fuse-ld=lld" \
+    @STAGE0_TARGET_WRAPPER_LINK_ARGS@ \
+    "$@"
+else
+  exec "@STAGE0_LLVM_BIN_DIR@/clang" \
+    "--target=@STAGE0_TARGET_TRIPLE@" \
+    "--sysroot=@STAGE0_BUSYBOX_SYSROOT_DIR@" \
+    @STAGE0_TARGET_WRAPPER_ALWAYS_ARGS@ \
+    "$@"
+fi

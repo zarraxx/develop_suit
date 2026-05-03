@@ -60,6 +60,8 @@ endif()
 find_program(STAGE1_HOST_CC NAMES cc clang gcc REQUIRED)
 find_program(STAGE1_HOST_CXX NAMES c++ clang++ g++ REQUIRED)
 find_program(STAGE1_MAKE_PROGRAM NAMES gmake make REQUIRED)
+find_program(STAGE1_CP_PROGRAM NAMES cp REQUIRED)
+find_program(STAGE1_READELF NAMES llvm-readelf readelf REQUIRED)
 
 set(STAGE1_LLVM_BIN_DIR "${STAGE1_CLANG_ROOT}/bin")
 set(STAGE1_ROOTFS_DIR "${STAGE1_OUTPUT_DIR}/${STAGE1_TARGET_TRIPLE}/rootfs")
@@ -181,7 +183,7 @@ add_custom_command(
   OUTPUT "${_stage1_sysroot_stage_stamp}"
   COMMAND "${CMAKE_COMMAND}" -E rm -rf "${STAGE1_ROOTFS_DIR}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${STAGE1_ROOTFS_DIR}"
-  COMMAND "${CMAKE_COMMAND}" -E copy_directory "${STAGE1_INPUT_ROOTFS_DIR}" "${STAGE1_ROOTFS_DIR}"
+  COMMAND "${STAGE1_CP_PROGRAM}" -a "${STAGE1_INPUT_ROOTFS_DIR}/." "${STAGE1_ROOTFS_DIR}/"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${STAGE1_ROOTFS_DIR}/root"
   COMMAND "${CMAKE_COMMAND}" -E touch "${_stage1_sysroot_stage_stamp}"
   DEPENDS "${STAGE1_INPUT_ROOTFS_DIR}/usr"
