@@ -134,7 +134,7 @@ llvm_native_target_name_for_arch() {
       echo "AArch64"
       ;;
     riscv64)
-      echo "RISCV"
+      echo "riscv64"
       ;;
     loongarch64)
       echo "LoongArch"
