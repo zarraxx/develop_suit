@@ -302,8 +302,10 @@ resolve_llvm_source_dir() {
 apply_llvm_source_patches() {
   local llvm_source_root="$1"
   local smallvector_header="${llvm_source_root}/llvm/include/llvm/ADT/SmallVector.h"
+  local compiler_rt_cmakelists="${llvm_source_root}/compiler-rt/CMakeLists.txt"
 
   [[ -f "$smallvector_header" ]] || die "expected llvm SmallVector header not found: ${smallvector_header}"
+  [[ -f "$compiler_rt_cmakelists" ]] || die "expected compiler-rt CMakeLists.txt not found: ${compiler_rt_cmakelists}"
 
   # GCC 15 no longer picks up uint32_t/uint64_t transitively for this header.
   # LLVM 18 still relies on that transitive include, which breaks the NATIVE
@@ -311,6 +313,30 @@ apply_llvm_source_patches() {
   if ! grep -Fq '#include <cstdint>' "$smallvector_header"; then
     log "Patching llvm/ADT/SmallVector.h for explicit <cstdint> include"
     sed -i '/#include <cassert>/a #include <cstdint>' "$smallvector_header"
+  fi
+
+  if ! grep -Fq 'COMPILER_RT_EXTRA_CXX_CFLAGS' "$compiler_rt_cmakelists"; then
+    log "Patching compiler-rt/CMakeLists.txt to support target libc++ header overlay flags"
+    python3 - "$compiler_rt_cmakelists" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+needle = "set(COMPILER_RT_COMMON_LINK_FLAGS ${SANITIZER_COMMON_LINK_FLAGS})\n"
+replacement = needle + """
+set(COMPILER_RT_EXTRA_CXX_CFLAGS "" CACHE STRING
+  "Extra C++ flags appended when building compiler-rt C++ sources.")
+if(NOT COMPILER_RT_EXTRA_CXX_CFLAGS STREQUAL "")
+  separate_arguments(_COMPILER_RT_EXTRA_CXX_CFLAGS NATIVE_COMMAND "${COMPILER_RT_EXTRA_CXX_CFLAGS}")
+  list(APPEND SANITIZER_COMMON_CFLAGS ${_COMPILER_RT_EXTRA_CXX_CFLAGS})
+  list(APPEND COMPILER_RT_COMMON_CFLAGS ${_COMPILER_RT_EXTRA_CXX_CFLAGS})
+endif()
+"""
+if needle not in text:
+    raise SystemExit(f"needle not found in {path}")
+path.write_text(text.replace(needle, replacement, 1))
+PY
   fi
 }
 
@@ -442,7 +468,21 @@ configure_cmake() {
   local build_dir="$2"
   shift 2
 
-  cmake "${GENERATOR_ARGS[@]}" -S "$source_dir" -B "$build_dir" "$@"
+  local args=("${GENERATOR_ARGS[@]}")
+  if [[ ${#GENERATOR_ARGS[@]} -gt 0 && -n "${GENERATOR_MAKE_PROGRAM:-}" ]]; then
+    local cache_path="${build_dir}/CMakeCache.txt"
+    if [[ -f "$cache_path" ]]; then
+      local cached_make_program
+      cached_make_program="$(sed -n 's/^CMAKE_MAKE_PROGRAM:FILEPATH=//p' "$cache_path" | head -n 1)"
+      if [[ -n "$cached_make_program" && "$cached_make_program" != "$GENERATOR_MAKE_PROGRAM" ]]; then
+        log "Resetting ${build_dir} because cached CMAKE_MAKE_PROGRAM points to ${cached_make_program}"
+        cmake -E rm -rf "$build_dir"
+      fi
+    fi
+    args+=("-DCMAKE_MAKE_PROGRAM=${GENERATOR_MAKE_PROGRAM}")
+  fi
+
+  cmake "${args[@]}" -S "$source_dir" -B "$build_dir" "$@"
 }
 
 build_cmake_target() {
@@ -461,6 +501,21 @@ build_cmake_target() {
 
   if [[ "$VERBOSE" -eq 1 ]]; then
     args+=(--verbose)
+  fi
+
+  cmake "${args[@]}" "$@"
+}
+
+install_cmake_build_dir() {
+  local build_dir="$1"
+  shift
+
+  local args=(
+    --install "$build_dir"
+  )
+
+  if [[ -n "$JOBS" ]]; then
+    args+=(--parallel "$JOBS")
   fi
 
   cmake "${args[@]}" "$@"
@@ -512,6 +567,35 @@ prepare_bootstrap_resource_overlay() {
   relative_symlink "$builtins_source" "${overlay_dir}/lib/${target_triple}/libclang_rt.builtins.a"
 }
 
+ensure_bootstrap_resource_headers_linked() {
+  local resource_root="$1"
+
+  if [[ -d "${BOOTSTRAP_RESOURCE_DIR}/include" && ! -e "${resource_root}/include" ]]; then
+    relative_symlink "${BOOTSTRAP_RESOURCE_DIR}/include" "${resource_root}/include"
+  fi
+}
+
+prepare_final_clang_resource_headers_dir() {
+  local resource_root="$1"
+  local include_dir="${resource_root}/include"
+
+  if [[ -L "$include_dir" ]]; then
+    log "Replacing borrowed clang resource headers overlay at ${include_dir} before final install"
+    rm -f "$include_dir"
+  fi
+
+  mkdir -p "$include_dir"
+}
+
+verify_final_clang_resource_headers_dir() {
+  local resource_root="$1"
+  local include_dir="${resource_root}/include"
+
+  [[ -d "$include_dir" ]] || die "expected clang resource include directory not found: ${include_dir}"
+  [[ ! -L "$include_dir" ]] || die "clang resource include directory is still a symlink: ${include_dir}"
+  [[ -f "${include_dir}/stddef.h" ]] || die "expected builtin header not found after install: ${include_dir}/stddef.h"
+}
+
 write_bootstrap_builder_wrapper() {
   local wrapper_path="$1"
   local driver_path="$2"
@@ -522,32 +606,48 @@ write_bootstrap_builder_wrapper() {
   local runtime_lib_dir="$7"
   local add_cxx_stdlib="$8"
   local add_unwindlib="$9"
+  local disable_default_cxx_includes="${10:-0}"
+  local cxx_triple_include_dir="${11:-${sysroot_dir}/usr/include/${target_triple}/c++/v1}"
+  local cxx_include_dir="${12:-${sysroot_dir}/usr/include/c++/v1}"
   {
     printf '%s\n' '#!/usr/bin/env sh'
     printf '%s\n' 'set -eu'
     printf '%s\n' ''
     printf '%s\n' 'want_link=1'
+    printf '%s\n' 'want_cxx_stdlib=1'
     printf '%s\n' 'for arg in "$@"; do'
     printf '%s\n' '  case "$arg" in'
     printf '%s\n' '    -c|-E|-S)'
     printf '%s\n' '      want_link=0'
     printf '%s\n' '      ;;'
+    printf '%s\n' '    -nostdinc++)'
+    printf '%s\n' '      want_cxx_stdlib=0'
+    printf '%s\n' '      ;;'
     printf '%s\n' '  esac'
     printf '%s\n' 'done'
     printf '%s\n' ''
+    if [[ "$disable_default_cxx_includes" == "1" ]]; then
+      printf '%s\n' 'set -- "-nostdinc++" "$@"'
+      printf '%s\n' ''
+    fi
+    if [[ "$add_cxx_stdlib" == "1" ]]; then
+      printf '%s\n' 'if [ "$want_cxx_stdlib" -eq 1 ]; then'
+      printf '  set -- "-nostdinc++" "-isystem%s" "-isystem%s" "$@"\n' "$cxx_triple_include_dir" "$cxx_include_dir"
+      printf '%s\n' 'fi'
+      printf '%s\n' ''
+    fi
     printf '%s\n' 'if [ "$want_link" -eq 1 ]; then'
+    if [[ "$add_cxx_stdlib" == "1" ]]; then
+      printf '%s\n' '  if [ "$want_cxx_stdlib" -eq 1 ]; then'
+      printf '%s\n' '    set -- "-stdlib=libc++" "$@"'
+      printf '%s\n' '  fi'
+    fi
     printf '  exec "%s" \\\n' "$driver_path"
     printf '    "--target=%s" \\\n' "$target_triple"
     printf '    "--sysroot=%s" \\\n' "$sysroot_dir"
     printf '    "-resource-dir=%s" \\\n' "$resource_dir"
     printf '    "-B%s" \\\n' "$crt_dir"
     printf '    "-isystem%s/usr/include/%s" \\\n' "$sysroot_dir" "$target_triple"
-    if [[ "$add_cxx_stdlib" == "1" ]]; then
-      printf '%s\n' '    "-nostdinc++" \'
-      printf '    "-isystem%s/usr/include/%s/c++/v1" \\\n' "$sysroot_dir" "$target_triple"
-      printf '    "-isystem%s/usr/include/c++/v1" \\\n' "$sysroot_dir"
-      printf '%s\n' '    "-stdlib=libc++" \'
-    fi
     if [[ "$add_unwindlib" == "1" ]]; then
       printf '%s\n' '    "--unwindlib=libunwind" \'
     fi
@@ -566,11 +666,6 @@ write_bootstrap_builder_wrapper() {
     printf '    "-resource-dir=%s" \\\n' "$resource_dir"
     printf '    "-B%s" \\\n' "$crt_dir"
     printf '    "-isystem%s/usr/include/%s" \\\n' "$sysroot_dir" "$target_triple"
-    if [[ "$add_cxx_stdlib" == "1" ]]; then
-      printf '%s\n' '    "-nostdinc++" \'
-      printf '    "-isystem%s/usr/include/%s/c++/v1" \\\n' "$sysroot_dir" "$target_triple"
-      printf '    "-isystem%s/usr/include/c++/v1" \\\n' "$sysroot_dir"
-    fi
     printf '%s\n' '    "$@"'
     printf '%s\n' 'fi'
   } > "$wrapper_path"
@@ -578,38 +673,56 @@ write_bootstrap_builder_wrapper() {
   chmod +x "$wrapper_path"
 }
 
-stage_compiler_rt_overlay() {
+stage_target_runtime_overlay() {
   local toolchain_root="$1"
   local target_triple="$2"
 
   local source_libdir="${toolchain_root}/lib/${target_triple}"
   local resource_root="${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}"
   local resource_libdir="${resource_root}/lib/${target_triple}"
-  local short_resource_libdir="${resource_root}/${target_triple}"
-  local crt_dir="${resource_root}/crt/${target_triple}"
+  local legacy_resource_libdir="${resource_root}/${target_triple}"
   local builtins="${source_libdir}/libclang_rt.builtins.a"
   local crtbegin="${source_libdir}/clang_rt.crtbegin.o"
   local crtend="${source_libdir}/clang_rt.crtend.o"
+  local runtime_path
+  local overlay_path
 
+  [[ -d "$source_libdir" ]] || die "runtime library directory not found for ${target_triple}: ${source_libdir}"
   [[ -f "$builtins" ]] || die "compiler-rt builtins not found for ${target_triple}: ${builtins}"
   [[ -f "$crtbegin" ]] || die "compiler-rt crtbegin not found for ${target_triple}: ${crtbegin}"
   [[ -f "$crtend" ]] || die "compiler-rt crtend not found for ${target_triple}: ${crtend}"
 
-  mkdir -p "$resource_libdir" "$crt_dir"
-  if [[ -d "${BOOTSTRAP_RESOURCE_DIR}/include" ]]; then
-    relative_symlink "${BOOTSTRAP_RESOURCE_DIR}/include" "${resource_root}/include"
+  mkdir -p "$resource_libdir"
+  ensure_bootstrap_resource_headers_linked "$resource_root"
+  if [[ -L "$legacy_resource_libdir" ]]; then
+    rm -f "$legacy_resource_libdir"
+  elif [[ -d "$legacy_resource_libdir" ]] && [[ ! "$legacy_resource_libdir" -ef "$resource_libdir" ]]; then
+    cmake -E rm -rf "$legacy_resource_libdir"
   fi
-  relative_symlink "$builtins" "${resource_libdir}/libclang_rt.builtins.a"
-  relative_symlink "$resource_libdir" "$short_resource_libdir"
+
+  for runtime_path in "${source_libdir}"/*; do
+    [[ -e "$runtime_path" ]] || continue
+    overlay_path="${resource_libdir}/$(basename "$runtime_path")"
+    if [[ -e "$overlay_path" && ! -L "$overlay_path" ]]; then
+      continue
+    fi
+    relative_symlink "$runtime_path" "$overlay_path"
+  done
 
   local crtbegin_name
   for crtbegin_name in crtbegin.o crtbeginS.o crtbeginT.o; do
-    relative_symlink "$crtbegin" "${crt_dir}/${crtbegin_name}"
+    overlay_path="${resource_libdir}/${crtbegin_name}"
+    if [[ ! -e "$overlay_path" || -L "$overlay_path" ]]; then
+      relative_symlink "$crtbegin" "$overlay_path"
+    fi
   done
 
   local crtend_name
   for crtend_name in crtend.o crtendS.o; do
-    relative_symlink "$crtend" "${crt_dir}/${crtend_name}"
+    overlay_path="${resource_libdir}/${crtend_name}"
+    if [[ ! -e "$overlay_path" || -L "$overlay_path" ]]; then
+      relative_symlink "$crtend" "$overlay_path"
+    fi
   done
 }
 
@@ -629,8 +742,8 @@ toolchain_root=\$(CDPATH= cd -- "\${script_dir}/.." && pwd)
 sysroot_root=\$(CDPATH= cd -- "\${toolchain_root}/${sysroot_rel_from_toolchain}" && pwd)
 target_triple="${target_triple}"
 resource_root="\${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}"
-runtime_lib_dir="\${toolchain_root}/lib/\${target_triple}"
-crt_dir="\${resource_root}/crt/\${target_triple}"
+runtime_lib_dir="\${resource_root}/lib/\${target_triple}"
+crt_dir="\${runtime_lib_dir}"
 sysroot_dir="\${sysroot_root}/\${target_triple}"
 
 want_link=1
@@ -712,13 +825,14 @@ build_host_llvm() {
   local host_target_sysroot="$3"
   local host_wrapper_root="${BUILD_DIR}/toolchain/host-llvm/${TARGET_TRIPLE}"
   local host_resource_dir="${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}"
-  local host_crt_dir="${host_resource_dir}/crt/${TARGET_TRIPLE}"
+  local host_crt_dir="${host_resource_dir}/lib/${TARGET_TRIPLE}"
   local host_cc_wrapper="${host_wrapper_root}/clang"
   local host_cxx_wrapper="${host_wrapper_root}/clang++"
   local llvm_target_arch
   llvm_target_arch="$(llvm_native_target_name_for_arch "$ARCH")"
 
   local host_build_dir="${BUILD_DIR}/llvm-host"
+  local host_install_rpath="\$ORIGIN;\$ORIGIN/../lib;\$ORIGIN/${TARGET_TRIPLE};\$ORIGIN/../lib/${TARGET_TRIPLE}"
   cmake -E make_directory "$host_build_dir"
 
   mkdir -p "$host_wrapper_root"
@@ -750,11 +864,11 @@ build_host_llvm() {
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
     -DCMAKE_C_FLAGS_INIT=-pthread
     -DCMAKE_CXX_FLAGS_INIT=-pthread
-    -DCMAKE_EXE_LINKER_FLAGS_INIT=-pthread
-    -DCMAKE_SHARED_LINKER_FLAGS_INIT=-pthread
-    -DCMAKE_MODULE_LINKER_FLAGS_INIT=-pthread
+    "-DCMAKE_EXE_LINKER_FLAGS_INIT=-pthread -Wl,--disable-new-dtags"
+    "-DCMAKE_SHARED_LINKER_FLAGS_INIT=-pthread -Wl,--disable-new-dtags"
+    "-DCMAKE_MODULE_LINKER_FLAGS_INIT=-pthread -Wl,--disable-new-dtags"
     -DCMAKE_INSTALL_PREFIX="${toolchain_root}"
-    "-DCMAKE_INSTALL_RPATH=\$ORIGIN/../lib;\$ORIGIN/../lib64"
+    "-DCMAKE_INSTALL_RPATH=${host_install_rpath}"
     -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
     "-DCMAKE_SYSROOT=${host_target_sysroot}"
     "-DCMAKE_FIND_ROOT_PATH=${host_target_sysroot}"
@@ -763,7 +877,7 @@ build_host_llvm() {
     -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
     -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
     -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY
-    -DLLVM_ENABLE_PROJECTS=clang\;lld
+    -DLLVM_ENABLE_PROJECTS=clang\;clang-tools-extra\;lld
     -DLLVM_TARGETS_TO_BUILD=X86\;AArch64\;RISCV
     -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=WebAssembly\;LoongArch
     -DLLVM_HOST_TRIPLE="${TARGET_TRIPLE}"
@@ -779,6 +893,7 @@ build_host_llvm() {
     -DLLVM_ENABLE_LIBCXX=ON
     -DLLVM_ENABLE_ZLIB=ON
     -DLLVM_ENABLE_ZSTD=ON
+    "-DPython3_EXECUTABLE=${HOST_PYTHON3}"
     -DLLVM_ENABLE_RTTI=ON
     -DLLVM_BUILD_LLVM_DYLIB=ON
     -DLLVM_LINK_LLVM_DYLIB=ON
@@ -807,7 +922,14 @@ build_host_llvm() {
   configure_cmake "${llvm_source_root}/llvm" "${host_build_dir}" "${host_cmake_args[@]}"
 
   log "Building host LLVM/Clang for ${TARGET_TRIPLE}"
-  build_cmake_target "${host_build_dir}" install
+  build_cmake_target "${host_build_dir}" all
+
+  prepare_final_clang_resource_headers_dir "$host_resource_dir"
+
+  log "Installing host LLVM/Clang for ${TARGET_TRIPLE}"
+  install_cmake_build_dir "${host_build_dir}"
+
+  verify_final_clang_resource_headers_dir "$host_resource_dir"
 }
 
 build_target_compiler_rt() {
@@ -815,18 +937,103 @@ build_target_compiler_rt() {
   local toolchain_root="$2"
   local staged_sysroot="$3"
   local target_triple="$4"
+  local phase="${5:-final}"
 
-  local build_dir="${BUILD_DIR}/llvm-runtimes/${target_triple}/compiler-rt"
+  local build_dir
+  local wrapper_root
+  local resource_dir
+  local crt_dir
+  local runtime_lib_dir
+  local compiler_rt_shared_linker_flags="-fuse-ld=lld"
+  local build_builtins="OFF"
+  local build_crt="OFF"
+  local build_sanitizers="ON"
+  local build_xray="ON"
+  local build_libfuzzer="ON"
+  local build_profile="ON"
+  local build_memprof="ON"
+  local build_gwp_asan="ON"
+  local build_orc="ON"
+  local use_builtins_library="ON"
+  local sanitizer_cxx_abi="libcxxabi"
+  local should_stage_overlay="0"
+  local compiler_rt_install_library_dir=""
+  local cxx_triple_include_dir="${staged_sysroot}/usr/include/${target_triple}/c++/v1"
+  local cxx_include_dir="${staged_sysroot}/usr/include/c++/v1"
+
+  case "$phase" in
+    bootstrap)
+      build_dir="${BUILD_DIR}/llvm-runtimes/${target_triple}/compiler-rt-bootstrap"
+      wrapper_root="${BUILD_DIR}/toolchain/runtime-builders/${target_triple}/compiler-rt-bootstrap"
+      resource_dir="${BOOTSTRAP_RESOURCE_DIR}"
+      crt_dir="${staged_sysroot}/usr/lib/${target_triple}"
+      runtime_lib_dir="${staged_sysroot}/usr/lib/${target_triple}"
+      compiler_rt_shared_linker_flags="-fuse-ld=lld -nostartfiles"
+      build_builtins="ON"
+      build_crt="ON"
+      build_sanitizers="OFF"
+      build_xray="OFF"
+      build_libfuzzer="OFF"
+      build_profile="OFF"
+      build_memprof="OFF"
+      build_gwp_asan="OFF"
+      build_orc="OFF"
+      use_builtins_library="OFF"
+      sanitizer_cxx_abi="default"
+      should_stage_overlay="1"
+      ;;
+    final)
+      build_dir="${BUILD_DIR}/llvm-runtimes/${target_triple}/compiler-rt"
+      wrapper_root="${BUILD_DIR}/toolchain/runtime-builders/${target_triple}/compiler-rt"
+      resource_dir="${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}"
+      crt_dir="${resource_dir}/lib/${target_triple}"
+      runtime_lib_dir="${resource_dir}/lib/${target_triple}"
+      compiler_rt_install_library_dir="${resource_dir}/lib"
+      build_builtins="ON"
+      cxx_triple_include_dir="${toolchain_root}/include/${target_triple}/c++/v1"
+      cxx_include_dir="${toolchain_root}/include/c++/v1"
+      ;;
+    *)
+      die "unsupported compiler-rt build phase: ${phase}"
+      ;;
+  esac
+
+  local cc_wrapper="${wrapper_root}/clang"
+  local cxx_wrapper="${wrapper_root}/clang++"
   cmake -E make_directory "$build_dir"
+  mkdir -p "$wrapper_root"
+  write_bootstrap_builder_wrapper \
+    "$cc_wrapper" \
+    "${BOOTSTRAP_CLANG_ROOT}/bin/clang" \
+    "$target_triple" \
+    "$staged_sysroot" \
+    "${resource_dir}" \
+    "${crt_dir}" \
+    "${runtime_lib_dir}" \
+    "0" \
+    "0"
+  write_bootstrap_builder_wrapper \
+    "$cxx_wrapper" \
+    "${BOOTSTRAP_CLANG_ROOT}/bin/clang++" \
+    "$target_triple" \
+    "$staged_sysroot" \
+    "${resource_dir}" \
+    "${crt_dir}" \
+    "${runtime_lib_dir}" \
+    "1" \
+    "0" \
+    "0" \
+    "${cxx_triple_include_dir}" \
+    "${cxx_include_dir}"
 
   local common_args=(
     -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_SYSTEM_NAME=Linux
     -DCMAKE_SYSTEM_PROCESSOR="${target_triple%%-*}"
     -DCMAKE_INSTALL_PREFIX="${toolchain_root}"
-    -DCMAKE_C_COMPILER="${BOOTSTRAP_CLANG_ROOT}/bin/clang"
-    -DCMAKE_CXX_COMPILER="${BOOTSTRAP_CLANG_ROOT}/bin/clang++"
-    -DCMAKE_ASM_COMPILER="${BOOTSTRAP_CLANG_ROOT}/bin/clang"
+    -DCMAKE_C_COMPILER="${cc_wrapper}"
+    -DCMAKE_CXX_COMPILER="${cxx_wrapper}"
+    -DCMAKE_ASM_COMPILER="${cc_wrapper}"
     -DCMAKE_LINKER="${BOOTSTRAP_CLANG_ROOT}/bin/ld.lld"
     -DCMAKE_AR="${BOOTSTRAP_CLANG_ROOT}/bin/llvm-ar"
     -DCMAKE_NM="${BOOTSTRAP_CLANG_ROOT}/bin/llvm-nm"
@@ -844,8 +1051,8 @@ build_target_compiler_rt() {
     -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
     -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
-    -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld
-    -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld
+    "-DCMAKE_SHARED_LINKER_FLAGS=${compiler_rt_shared_linker_flags}"
+    "-DCMAKE_MODULE_LINKER_FLAGS=${compiler_rt_shared_linker_flags}"
     -DLLVM_PATH="${llvm_source_root}/llvm"
     -DLLVM_DEFAULT_TARGET_TRIPLE="${target_triple}"
     -DLLVM_INCLUDE_TESTS=OFF
@@ -857,16 +1064,20 @@ build_target_compiler_rt() {
     -DLIBCXX_INCLUDE_BENCHMARKS=OFF
     -DLIBCXX_CXX_ABI=libcxxabi
     -DLLVM_ENABLE_RUNTIMES=compiler-rt
+    "-DPYTHON_EXECUTABLE=${HOST_PYTHON3}"
+    "-DPython3_EXECUTABLE=${HOST_PYTHON3}"
     -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON
-    -DCOMPILER_RT_BUILD_BUILTINS=ON
-    -DCOMPILER_RT_BUILD_CRT=ON
-    -DCOMPILER_RT_BUILD_SANITIZERS=OFF
-    -DCOMPILER_RT_BUILD_XRAY=OFF
-    -DCOMPILER_RT_BUILD_LIBFUZZER=OFF
-    -DCOMPILER_RT_BUILD_PROFILE=OFF
-    -DCOMPILER_RT_BUILD_MEMPROF=OFF
-    -DCOMPILER_RT_BUILD_GWP_ASAN=OFF
-    -DCOMPILER_RT_BUILD_ORC=OFF
+    "-DSANITIZER_CXX_ABI=${sanitizer_cxx_abi}"
+    "-DCOMPILER_RT_USE_BUILTINS_LIBRARY=${use_builtins_library}"
+    "-DCOMPILER_RT_BUILD_BUILTINS=${build_builtins}"
+    "-DCOMPILER_RT_BUILD_CRT=${build_crt}"
+    "-DCOMPILER_RT_BUILD_SANITIZERS=${build_sanitizers}"
+    "-DCOMPILER_RT_BUILD_XRAY=${build_xray}"
+    "-DCOMPILER_RT_BUILD_LIBFUZZER=${build_libfuzzer}"
+    "-DCOMPILER_RT_BUILD_PROFILE=${build_profile}"
+    "-DCOMPILER_RT_BUILD_MEMPROF=${build_memprof}"
+    "-DCOMPILER_RT_BUILD_GWP_ASAN=${build_gwp_asan}"
+    "-DCOMPILER_RT_BUILD_ORC=${build_orc}"
   )
 
   if [[ "$VERBOSE" -eq 1 ]]; then
@@ -877,13 +1088,19 @@ build_target_compiler_rt() {
     common_args+=("${RUNTIME_CMAKE_EXTRA_ARGS[@]}")
   fi
 
-  log "Configuring compiler-rt for ${target_triple}"
+  if [[ -n "$compiler_rt_install_library_dir" ]]; then
+    common_args+=("-DCOMPILER_RT_INSTALL_LIBRARY_DIR=${compiler_rt_install_library_dir}")
+  fi
+
+  log "Configuring compiler-rt (${phase}) for ${target_triple}"
   configure_cmake "${llvm_source_root}/runtimes" "${build_dir}" "${common_args[@]}"
 
-  log "Building compiler-rt for ${target_triple}"
+  log "Building compiler-rt (${phase}) for ${target_triple}"
   build_cmake_target "${build_dir}" install
 
-  stage_compiler_rt_overlay "$toolchain_root" "$target_triple"
+  if [[ "$phase" == "final" || "$should_stage_overlay" == "1" ]]; then
+    stage_target_runtime_overlay "$toolchain_root" "$target_triple"
+  fi
 }
 
 build_target_libunwind() {
@@ -905,8 +1122,8 @@ build_target_libunwind() {
     "$target_triple" \
     "$staged_sysroot" \
     "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}" \
-    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/crt/${target_triple}" \
-    "${toolchain_root}/lib/${target_triple}" \
+    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}" \
+    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}" \
     "0" \
     "0"
   write_bootstrap_builder_wrapper \
@@ -915,8 +1132,8 @@ build_target_libunwind() {
     "$target_triple" \
     "$staged_sysroot" \
     "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}" \
-    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/crt/${target_triple}" \
-    "${toolchain_root}/lib/${target_triple}" \
+    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}" \
+    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}" \
     "1" \
     "0"
 
@@ -968,6 +1185,7 @@ build_target_libunwind() {
 
   log "Building libunwind for ${target_triple}"
   build_cmake_target "${build_dir}" install
+  stage_target_runtime_overlay "$toolchain_root" "$target_triple"
 }
 
 build_target_cxx_runtimes() {
@@ -990,9 +1208,10 @@ build_target_cxx_runtimes() {
     "$target_triple" \
     "$staged_sysroot" \
     "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}" \
-    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/crt/${target_triple}" \
-    "${toolchain_root}/lib/${target_triple}" \
+    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}" \
+    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}" \
     "0" \
+    "1" \
     "1"
   write_bootstrap_builder_wrapper \
     "$cxx_wrapper" \
@@ -1000,8 +1219,9 @@ build_target_cxx_runtimes() {
     "$target_triple" \
     "$staged_sysroot" \
     "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}" \
-    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/crt/${target_triple}" \
-    "${toolchain_root}/lib/${target_triple}" \
+    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}" \
+    "${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}" \
+    "0" \
     "1" \
     "1"
 
@@ -1036,7 +1256,7 @@ build_target_cxx_runtimes() {
     -DLIBCXX_INCLUDE_TESTS=OFF
     -DLIBCXX_INCLUDE_BENCHMARKS=OFF
     -DLIBCXX_CXX_ABI=libcxxabi
-    -DLLVM_ENABLE_RUNTIMES=libcxxabi\;libcxx
+    -DLLVM_ENABLE_RUNTIMES=libunwind\;libcxxabi\;libcxx
     -DLIBUNWIND_USE_COMPILER_RT=ON
     -DLIBCXXABI_USE_COMPILER_RT=ON
     -DLIBCXXABI_USE_LLVM_UNWINDER=ON
@@ -1057,6 +1277,7 @@ build_target_cxx_runtimes() {
 
   log "Building libc++/libc++abi for ${target_triple}"
   build_cmake_target "${build_dir}" install
+  stage_target_runtime_overlay "$toolchain_root" "$target_triple"
 }
 
 ARCH=""
@@ -1230,10 +1451,12 @@ require_command tar
 require_command sha256sum
 require_command uname
 require_command realpath
+require_command python3
 
 ARCH="$(normalize_arch "$ARCH")"
 TARGET_TRIPLE="$(target_triple_for_arch "$ARCH")"
 HOST_MACHINE_ARCH="$(normalize_arch "$(uname -m)")"
+HOST_PYTHON3="$(command -v python3)"
 
 if [[ -z "$BUILD_DIR" ]]; then
   BUILD_DIR="${ROOT_DIR}/build/${ARCH}"
@@ -1255,8 +1478,10 @@ fi
 mkdir -p "${BUILD_DIR}"
 [[ -d "$INPUT_ROOTFS_DIR" ]] || die "input rootfs does not exist: ${INPUT_ROOTFS_DIR}"
 
+GENERATOR_MAKE_PROGRAM=""
 if command -v ninja >/dev/null 2>&1; then
   GENERATOR_ARGS=(-G Ninja)
+  GENERATOR_MAKE_PROGRAM="$(command -v ninja)"
 else
   GENERATOR_ARGS=()
 fi
@@ -1300,16 +1525,11 @@ log "LLVM install prefix: ${INSTALL_PREFIX}"
 log "Sysroot prefix: ${SYSROOT_PREFIX}"
 
 log "Bootstrapping compiler-rt for host clang target ${TARGET_TRIPLE}"
-build_target_compiler_rt "$LLVM_SOURCE_ROOT" "$TOOLCHAIN_ROOT" "$ROOTFS_OUT" "$TARGET_TRIPLE"
-
-build_host_llvm "$LLVM_SOURCE_ROOT" "$TOOLCHAIN_ROOT" "$ROOTFS_OUT"
-
-[[ -x "${TOOLCHAIN_ROOT}/bin/clang" ]] || die "expected installed clang not found: ${TOOLCHAIN_ROOT}/bin/clang"
-[[ -x "${TOOLCHAIN_ROOT}/bin/ld.lld" ]] || die "expected installed lld not found: ${TOOLCHAIN_ROOT}/bin/ld.lld"
+build_target_compiler_rt "$LLVM_SOURCE_ROOT" "$TOOLCHAIN_ROOT" "$ROOTFS_OUT" "$TARGET_TRIPLE" bootstrap
 
 READELF_BIN="$(command -v readelf || true)"
-if [[ -z "$READELF_BIN" && -x "${TOOLCHAIN_ROOT}/bin/llvm-readelf" ]]; then
-  READELF_BIN="${TOOLCHAIN_ROOT}/bin/llvm-readelf"
+if [[ -z "$READELF_BIN" && -x "${BOOTSTRAP_CLANG_ROOT}/bin/llvm-readelf" ]]; then
+  READELF_BIN="${BOOTSTRAP_CLANG_ROOT}/bin/llvm-readelf"
 fi
 [[ -n "$READELF_BIN" ]] || die "could not find readelf or llvm-readelf"
 
@@ -1317,10 +1537,17 @@ for target_triple in "${ALL_TARGET_TRIPLES[@]}"; do
   staged_sysroot="${SYSROOTS_ROOT}/${target_triple}"
   libcxxabi_has_tls_dtor="$(detect_cxa_thread_atexit_impl "$staged_sysroot" "$READELF_BIN")"
 
-  build_target_compiler_rt "$LLVM_SOURCE_ROOT" "$TOOLCHAIN_ROOT" "$staged_sysroot" "$target_triple"
+  build_target_compiler_rt "$LLVM_SOURCE_ROOT" "$TOOLCHAIN_ROOT" "$staged_sysroot" "$target_triple" bootstrap
   build_target_libunwind "$LLVM_SOURCE_ROOT" "$TOOLCHAIN_ROOT" "$staged_sysroot" "$target_triple"
   build_target_cxx_runtimes "$LLVM_SOURCE_ROOT" "$TOOLCHAIN_ROOT" "$staged_sysroot" "$target_triple" "$libcxxabi_has_tls_dtor"
+  build_target_compiler_rt "$LLVM_SOURCE_ROOT" "$TOOLCHAIN_ROOT" "$staged_sysroot" "$target_triple" final
 done
+
+log "Building final host LLVM/Clang for ${TARGET_TRIPLE} after runtimes"
+build_host_llvm "$LLVM_SOURCE_ROOT" "$TOOLCHAIN_ROOT" "$ROOTFS_OUT"
+
+[[ -x "${TOOLCHAIN_ROOT}/bin/clang" ]] || die "expected installed clang not found: ${TOOLCHAIN_ROOT}/bin/clang"
+[[ -x "${TOOLCHAIN_ROOT}/bin/ld.lld" ]] || die "expected installed lld not found: ${TOOLCHAIN_ROOT}/bin/ld.lld"
 
 log "Creating target wrapper drivers"
 create_target_wrappers "$TOOLCHAIN_ROOT" "$SYSROOTS_ROOT"

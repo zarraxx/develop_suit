@@ -37,7 +37,7 @@ target wrapper 会自动补：
 
 - `--target=<triple>`
 - `--sysroot=/opt/sysroot/<triple>`
-- `-B.../lib/clang/18/crt/<triple>`
+- `-B.../lib/clang/18/lib/<triple>`
 - `--rtlib=compiler-rt`
 - `--unwindlib=libunwind`
 
@@ -55,6 +55,36 @@ target wrapper 会自动补：
 
 ```bash
 ./stage_llvm/build.sh --arch=aarch64 --clean --jobs=4
+```
+
+构建镜像：
+
+```bash
+./stage_llvm/image.sh --arch=x86_64
+```
+
+构建完成后可以直接跑冒烟测试，检查 `helloworld.c` / `helloworld.cpp` 是否都能编成 4 个平台的 ELF：
+
+```bash
+./stage_llvm/smoke-test.sh dist/stage_llvm/x86_64/opt/llvm-18.1.8
+```
+
+如果不传参数，脚本会默认找：
+
+```text
+dist/stage_llvm/<当前机器架构>/opt/llvm-18.1.8
+```
+
+GitHub Actions workflow 也已经对齐 `stage1` / `stage_python`，可以发布：
+
+- rootfs artifact
+- GHCR 多架构镜像
+- 可选 GitHub Release
+
+默认镜像 tag 形如：
+
+```text
+stage-llvm-YYYY-MM-DD
 ```
 
 ## 设计约定
