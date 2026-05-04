@@ -69,6 +69,13 @@ target wrapper 会自动补：
 ./stage_llvm/smoke-test.sh dist/stage_llvm/x86_64/opt/llvm-18.1.8
 ```
 
+也可以指定输出目录，脚本会把 8 个 hello world ELF 写到这里，方便在宿主机继续用 `file` 检查：
+
+```bash
+./stage_llvm/smoke-test.sh dist/stage_llvm/x86_64/opt/llvm-18.1.8 /tmp/stage_llvm-smoke-out
+file /tmp/stage_llvm-smoke-out/*
+```
+
 如果不传参数，脚本会默认找：
 
 ```text

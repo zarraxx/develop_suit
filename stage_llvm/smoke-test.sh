@@ -46,10 +46,11 @@ repo_root=$(CDPATH= cd -- "${script_dir}/.." && pwd)
 
 default_arch=$(normalize_host_arch "$(uname -m)")
 toolchain_root="${1:-${repo_root}/dist/stage_llvm/${default_arch}/opt/llvm-18.1.8}"
+output_root="${2:-}"
 
 if [ ! -d "${toolchain_root}" ]; then
   echo "toolchain root not found: ${toolchain_root}" >&2
-  echo "usage: $0 [toolchain-root]" >&2
+  echo "usage: $0 [toolchain-root] [output-dir]" >&2
   exit 1
 fi
 
@@ -68,15 +69,14 @@ fi
   exit 1
 }
 
-file_bin="$(command -v file || true)"
-[ -n "${file_bin}" ] || {
-  echo "could not find file command" >&2
-  exit 1
-}
-
 tmp_root="${TMPDIR:-/tmp}/stage_llvm-smoke.$$"
 trap 'rm -rf "${tmp_root}"' EXIT INT TERM
 mkdir -p "${tmp_root}"
+
+if [ -z "${output_root}" ]; then
+  output_root="${tmp_root}/out"
+fi
+mkdir -p "${output_root}"
 
 c_source="${tmp_root}/helloworld.c"
 cpp_source="${tmp_root}/helloworld.cpp"
@@ -108,11 +108,12 @@ loongarch64-unknown-linux-gnu
 
 echo "== stage_llvm smoke test =="
 echo "-- toolchain root: ${toolchain_root}"
+echo "-- output root: ${output_root}"
 
 for triple in ${triples}; do
   expected_machine="$(target_machine_name "${triple}")"
-  c_output="${tmp_root}/${triple}-hello-c"
-  cpp_output="${tmp_root}/${triple}-hello-cpp"
+  c_output="${output_root}/${triple}-hello-c"
+  cpp_output="${output_root}/${triple}-hello-cpp"
   c_compiler="${bin_dir}/${triple}-clang"
   cpp_compiler="${bin_dir}/${triple}-clang++"
 
@@ -141,8 +142,8 @@ for triple in ${triples}; do
     exit 1
   }
 
-  echo "   C   $("${file_bin}" "${c_output}")"
-  echo "   C++ $("${file_bin}" "${cpp_output}")"
+  echo "   C   ${c_output} (${c_machine})"
+  echo "   C++ ${cpp_output} (${cpp_machine})"
 done
 
 echo "== stage_llvm smoke test ok =="

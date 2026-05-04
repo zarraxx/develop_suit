@@ -207,19 +207,29 @@ else
 fi
 
 if [[ "$SKIP_TEST" -eq 0 ]]; then
+  require_command file
+
   test_tag="${TAGS[0]}"
+  smoke_output_dir="${PROJECT_ROOT}/dist/stage_llvm-smoke/${ARCH}"
 
   if [[ "$PUSH" -eq 0 ]]; then
     echo "Loading image archive for smoke test: ${OUTPUT}"
     docker load -i "${OUTPUT}"
   fi
 
+  rm -rf "${smoke_output_dir}"
+  mkdir -p "${smoke_output_dir}"
+
   echo "Running smoke test for image: ${test_tag}"
   docker run --rm -i \
     --platform "${PLATFORM}" \
     -v "${ROOT_DIR}:/opt/stage_llvm_smoke:ro" \
+    -v "${smoke_output_dir}:/opt/stage_llvm_out" \
     --entrypoint /bin/sh \
     "${test_tag}" \
-    /opt/stage_llvm_smoke/smoke-test.sh /opt/llvm-18.1.8
+    /opt/stage_llvm_smoke/smoke-test.sh /opt/llvm-18.1.8 /opt/stage_llvm_out
+
+  echo "Checking smoke test outputs on host with file"
+  file "${smoke_output_dir}"/*
   echo "Smoke test finished"
 fi
