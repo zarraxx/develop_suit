@@ -241,6 +241,21 @@ if(COMMAND stage1_register_utility_packages)
   endif()
 endif()
 
+set(_stage1_package_cleanup_stamp "${STAGE1_ROOTFS_DIR}/.package-cleanup-staged")
+add_custom_command(
+  OUTPUT "${_stage1_package_cleanup_stamp}"
+  COMMAND "${CMAKE_COMMAND}" -E rm -rf "${STAGE1_ROOTFS_DIR}${STAGE1_INSTALL_PREFIX}/share/doc"
+  COMMAND "${CMAKE_COMMAND}" -E rm -rf "${STAGE1_ROOTFS_DIR}${STAGE1_INSTALL_PREFIX}/share/info"
+  COMMAND "${CMAKE_COMMAND}" -E rm -rf "${STAGE1_ROOTFS_DIR}${STAGE1_INSTALL_PREFIX}/share/man"
+  COMMAND "${CMAKE_COMMAND}" -E rm -rf "${STAGE1_ROOTFS_DIR}${STAGE1_INSTALL_PREFIX}/man"
+  COMMAND "${CMAKE_COMMAND}" -E touch "${_stage1_package_cleanup_stamp}"
+  DEPENDS ${_stage1_rootfs_deps}
+  COMMENT "Cleaning stage1 package documentation directories"
+  VERBATIM)
+
+add_custom_target(stage1-package-cleanup
+  DEPENDS "${_stage1_package_cleanup_stamp}")
+
 set(_stage1_ldso_cache_stamp "${STAGE1_ROOTFS_DIR}/.ldso-config-staged")
 add_custom_command(
   OUTPUT "${_stage1_ldso_cache_stamp}"
@@ -249,7 +264,7 @@ add_custom_command(
     "-DTARGET_TRIPLE=${STAGE1_TARGET_TRIPLE}"
     -P "${CMAKE_CURRENT_LIST_DIR}/cmake/stage_ldso_cache.cmake"
   COMMAND "${CMAKE_COMMAND}" -E touch "${_stage1_ldso_cache_stamp}"
-  DEPENDS ${_stage1_rootfs_deps}
+  DEPENDS stage1-package-cleanup
   COMMENT "Staging ld.so configuration for ${STAGE1_TARGET_TRIPLE}"
   VERBATIM)
 

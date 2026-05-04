@@ -331,11 +331,7 @@ function(stage1_resolve_archive_source out_var description cache_dir extract_par
 endfunction()
 
 function(stage1_get_no_doc_install_commands rootfs_dir install_prefix out_var)
-  set(${out_var}
-    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${rootfs_dir}${install_prefix}/share/doc"
-    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${rootfs_dir}${install_prefix}/share/man"
-    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${rootfs_dir}${install_prefix}/man"
-    PARENT_SCOPE)
+  set(${out_var} "" PARENT_SCOPE)
 endfunction()
 
 function(stage1_collect_triplet_refresh_commands source_dir out_var)
@@ -367,9 +363,5 @@ function(stage1_collect_triplet_refresh_commands source_dir out_var)
 endfunction()
 
 function(stage1_get_lib_only_install_commands rootfs_dir install_prefix out_var)
-  stage1_get_no_doc_install_commands("${rootfs_dir}" "${install_prefix}" _stage1_no_doc_commands)
-  set(${out_var}
-    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${rootfs_dir}${install_prefix}/share/info"
-    ${_stage1_no_doc_commands}
-    PARENT_SCOPE)
+  set(${out_var} "" PARENT_SCOPE)
 endfunction()
