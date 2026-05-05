@@ -41,6 +41,29 @@ target_cpu_family() {
   esac
 }
 
+native_triple() {
+  machine="$(uname -m)"
+
+  case "$machine" in
+    x86_64)
+      printf '%s\n' "x86_64-unknown-linux-gnu"
+      ;;
+    aarch64)
+      printf '%s\n' "aarch64-unknown-linux-gnu"
+      ;;
+    riscv64)
+      printf '%s\n' "riscv64-unknown-linux-gnu"
+      ;;
+    loongarch64)
+      printf '%s\n' "loongarch64-unknown-linux-gnu"
+      ;;
+    *)
+      echo "unsupported native machine for ldd smoke test: ${machine}" >&2
+      return 1
+      ;;
+  esac
+}
+
 check_machine() {
   output_file="$1"
   triple="$2"
@@ -50,6 +73,20 @@ check_machine() {
   if [ "$actual_machine" != "$expected_machine" ]; then
     echo "unexpected ELF machine for ${output_file}: ${actual_machine}" >&2
     echo "expected: ${expected_machine}" >&2
+    exit 1
+  fi
+}
+
+check_native_ldd() {
+  output_file="$1"
+  ldd_log="$2"
+
+  echo "-- ldd native ELF: ${output_file}"
+  ldd "$output_file" >"$ldd_log"
+  cat "$ldd_log"
+
+  if grep -Eq 'not found|not a dynamic executable|No such file' "$ldd_log"; then
+    echo "unexpected ldd output for ${output_file}" >&2
     exit 1
   fi
 }
@@ -119,7 +156,16 @@ READELF_BIN="/opt/llvm-18.1.8/bin/llvm-readelf"
   exit 1
 }
 
+LDD_BIN="$(command -v ldd || true)"
+[ -n "$LDD_BIN" ] || {
+  echo "ldd not found in image" >&2
+  exit 1
+}
+
+native_test_triple="$(native_triple)"
+
 echo "== stage_tools smoke test =="
+echo "-- native triple: ${native_test_triple}"
 
 for required_tool in \
     /usr/bin/bash \
@@ -174,6 +220,10 @@ for triple in ${triples}; do
   cp "${cmake_build_dir}/cmake_hello_cpp" "${output_root}/cmake-${triple}-hello-cpp"
   check_machine "${output_root}/cmake-${triple}-hello-c" "$triple"
   check_machine "${output_root}/cmake-${triple}-hello-cpp" "$triple"
+  if [ "$triple" = "$native_test_triple" ]; then
+    check_native_ldd "${output_root}/cmake-${triple}-hello-c" "${output_root}/cmake-${triple}-hello-c.ldd"
+    check_native_ldd "${output_root}/cmake-${triple}-hello-cpp" "${output_root}/cmake-${triple}-hello-cpp.ldd"
+  fi
 
   echo "-- meson cross build: ${triple}"
   meson_build_dir="${tmp_root}/meson-${triple}"
@@ -192,6 +242,10 @@ for triple in ${triples}; do
   cp "${meson_build_dir}/meson_hello_cpp" "${output_root}/meson-${triple}-hello-cpp"
   check_machine "${output_root}/meson-${triple}-hello-c" "$triple"
   check_machine "${output_root}/meson-${triple}-hello-cpp" "$triple"
+  if [ "$triple" = "$native_test_triple" ]; then
+    check_native_ldd "${output_root}/meson-${triple}-hello-c" "${output_root}/meson-${triple}-hello-c.ldd"
+    check_native_ldd "${output_root}/meson-${triple}-hello-cpp" "${output_root}/meson-${triple}-hello-cpp.ldd"
+  fi
 done
 
 echo "== stage_tools smoke test ok =="
