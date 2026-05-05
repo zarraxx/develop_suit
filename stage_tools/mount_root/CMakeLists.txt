@@ -93,6 +93,10 @@ set(STAGE_TOOLS_COMMON_ENV
   "PKG_CONFIG_SYSROOT_DIR=${STAGE_TOOLS_DEPS_DIR}"
   "PKG_CONFIG_LIBDIR=${STAGE_TOOLS_OUT_DIR}/usr/lib/pkgconfig:${STAGE_TOOLS_OUT_DIR}/usr/lib64/pkgconfig:${STAGE_TOOLS_DEPS_DIR}/usr/lib/pkgconfig:${STAGE_TOOLS_DEPS_DIR}/usr/lib64/pkgconfig:${STAGE_TOOLS_SYSROOT}/usr/lib/pkgconfig:${STAGE_TOOLS_SYSROOT}/usr/share/pkgconfig")
 
+set(STAGE_TOOLS_PCRE2_ENV
+  ${STAGE_TOOLS_COMMON_ENV}
+  "ax_cv_check_vscript_flag=unsupported")
+
 set(STAGE_TOOLS_GIT_COMMON_ARGS
   prefix=/usr
   CC=${STAGE_TOOLS_CC}
@@ -115,8 +119,13 @@ set(STAGE_TOOLS_GIT_COMMON_ARGS
   CFLAGS=${STAGE_TOOLS_GIT_CFLAGS}
   LDFLAGS=${STAGE_TOOLS_TARGET_LDFLAGS})
 
+set(STAGE_TOOLS_BASH_BUILD_CROSS_DEFINE "")
+if(NOT STAGE_TOOLS_TARGET_TRIPLE STREQUAL STAGE_TOOLS_BUILD_TRIPLE)
+  set(STAGE_TOOLS_BASH_BUILD_CROSS_DEFINE " -DCROSS_COMPILING")
+endif()
+
 set(STAGE_TOOLS_BASH_BUILD_CCFLAGS
-  "--sysroot=${STAGE_TOOLS_BUILD_SYSROOT} -O2 -D_GNU_SOURCE -D_DEFAULT_SOURCE -DCROSS_COMPILING -include ${STAGE_TOOLS_BUILD_SYSROOT}/usr/include/getopt.h -DHAVE_CONFIG_H -DSHELL -DPROGRAM='\"bash\"' -DCONF_HOSTTYPE='\"${STAGE_TOOLS_ARCH}\"' -DCONF_OSTYPE='\"linux-gnu\"' -DCONF_MACHTYPE='\"${STAGE_TOOLS_TARGET_TRIPLE}\"' -DCONF_VENDOR='\"unknown\"' -DLOCALEDIR='\"/usr/share/locale\"' -DPACKAGE='\"bash\"' -I${CMAKE_BINARY_DIR}/build/bash -I${CMAKE_BINARY_DIR}/build/bash/builtins -I${CMAKE_BINARY_DIR}/src/bash -I${CMAKE_BINARY_DIR}/src/bash/include -I${CMAKE_BINARY_DIR}/src/bash/lib -I${CMAKE_BINARY_DIR}/src/bash/builtins")
+  "--sysroot=${STAGE_TOOLS_BUILD_SYSROOT} -O2 -D_GNU_SOURCE -D_DEFAULT_SOURCE${STAGE_TOOLS_BASH_BUILD_CROSS_DEFINE} -include ${STAGE_TOOLS_BUILD_SYSROOT}/usr/include/getopt.h -DHAVE_CONFIG_H -DSHELL -DPROGRAM='\"bash\"' -DCONF_HOSTTYPE='\"${STAGE_TOOLS_ARCH}\"' -DCONF_OSTYPE='\"linux-gnu\"' -DCONF_MACHTYPE='\"${STAGE_TOOLS_TARGET_TRIPLE}\"' -DCONF_VENDOR='\"unknown\"' -DLOCALEDIR='\"/usr/share/locale\"' -DPACKAGE='\"bash\"' -I${CMAKE_BINARY_DIR}/build/bash -I${CMAKE_BINARY_DIR}/build/bash/builtins -I${CMAKE_BINARY_DIR}/src/bash -I${CMAKE_BINARY_DIR}/src/bash/include -I${CMAKE_BINARY_DIR}/src/bash/lib -I${CMAKE_BINARY_DIR}/src/bash/builtins")
 set(STAGE_TOOLS_BASH_BUILD_CFLAGS
   "--sysroot=${STAGE_TOOLS_BUILD_SYSROOT} -O2 -D_GNU_SOURCE -D_DEFAULT_SOURCE -include ${STAGE_TOOLS_BUILD_SYSROOT}/usr/include/getopt.h")
 
@@ -141,7 +150,7 @@ ExternalProject_Add(stage-tools-pcre2
   SOURCE_DIR "${CMAKE_BINARY_DIR}/src/pcre2"
   BINARY_DIR "${CMAKE_BINARY_DIR}/build/pcre2"
   CONFIGURE_COMMAND
-    ${CMAKE_COMMAND} -E env ${STAGE_TOOLS_COMMON_ENV}
+    ${CMAKE_COMMAND} -E env ${STAGE_TOOLS_PCRE2_ENV}
       <SOURCE_DIR>/configure
         --build=${STAGE_TOOLS_BUILD_TRIPLE}
         --host=${STAGE_TOOLS_TARGET_TRIPLE}
@@ -153,7 +162,7 @@ ExternalProject_Add(stage-tools-pcre2
         --disable-pcre2-32
         --disable-jit
   BUILD_COMMAND
-    ${CMAKE_COMMAND} -E env ${STAGE_TOOLS_COMMON_ENV}
+    ${CMAKE_COMMAND} -E env ${STAGE_TOOLS_PCRE2_ENV}
       make -j${STAGE_TOOLS_JOBS}
   INSTALL_COMMAND
     /bin/sh
