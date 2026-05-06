@@ -208,6 +208,11 @@ jobs:
           $passed = (Run-Variant 'sysroot-no-user-crt' $sysrootNoUserCrt) -or $passed
           Copy-Item -Force (Join-Path $llvmRoot "lib/clang/18/include/__stddef*.h") (Join-Path $llvmRoot "include/c++/v1")
           $passed = (Run-Variant 'sysroot-no-user-crt-stddef-copy' $sysrootNoUserCrt) -or $passed
+          $resourceDir = Join-Path $llvmRoot "lib/clang/18/include"
+          foreach ($header in @("complex.h", "ctype.h", "errno.h", "fenv.h", "locale.h", "math.h", "stdio.h", "stdlib.h", "string.h", "uchar.h", "wchar.h", "wctype.h")) {
+            "#include_next <$header>" | Set-Content -Encoding ASCII (Join-Path $resourceDir $header)
+          }
+          $passed = (Run-Variant 'sysroot-no-user-crt-resource-c-wrappers' $sysrootNoUserCrt) -or $passed
           Rename-Item -Force (Join-Path $llvmRoot "include/c++/v1/module.modulemap") "module.modulemap.disabled"
           Rename-Item -Force (Join-Path $llvmRoot "lib/clang/18/include/module.modulemap") "module.modulemap.disabled"
           $passed = (Run-Variant 'sysroot-no-user-crt-no-modulemap' $sysrootNoUserCrt) -or $passed
