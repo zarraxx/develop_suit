@@ -106,6 +106,22 @@ jobs:
           $libcxxInclude = '<CFGDIR>/../include/c++/v1'
           $resourceInclude = '<CFGDIR>/../lib/clang/18/include'
 
+          $crtInclude = Join-Path $llvmRoot "sysroot/usr/x86_64-w64-windows-gnu/include"
+          $crtLib = Join-Path $llvmRoot "sysroot/usr/x86_64-w64-windows-gnu/lib"
+          foreach ($alias in @("x86_64-w64-mingw32", "x86_64-w64-windows-gnu")) {
+            $aliasRoot = Join-Path $llvmRoot "sysroot/$alias"
+            $aliasInclude = Join-Path $aliasRoot "include"
+            $aliasLib = Join-Path $aliasRoot "lib"
+            Remove-Item -LiteralPath $aliasInclude -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $aliasLib -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $aliasInclude | Out-Null
+            New-Item -ItemType Directory -Force -Path $aliasLib | Out-Null
+            Copy-Item -Recurse -Force (Join-Path $crtInclude "*") $aliasInclude
+            Copy-Item -Recurse -Force (Join-Path $crtLib "*") $aliasLib
+          }
+          Test-Path (Join-Path $llvmRoot "sysroot/x86_64-w64-mingw32/include/crtdefs.h")
+          Test-Path (Join-Path $llvmRoot "sysroot/x86_64-w64-mingw32/include/stdlib.h")
+
           function Insert-AfterLine([string[]]$lines, [string]$needle, [string[]]$insert) {
             $out = [System.Collections.Generic.List[string]]::new()
             $done = $false
