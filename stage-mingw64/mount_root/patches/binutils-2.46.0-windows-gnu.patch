@@ -1,0 +1,65 @@
+diff --git a/config.sub b/config.sub
+index 38f3d0375b0..01bb89b6149 100755
+--- a/config.sub
++++ b/config.sub
+@@ -2224,7 +2224,7 @@
+ 		;;
+ 	managarm-mlibc*- | managarm-kernel*- )
+ 		;;
+-	windows*-msvc*-)
++	windows*-msvc*- | windows*-gnu*-)
+ 		;;
+ 	-dietlibc*- | -llvm*- | -mlibc*- | -musl*- | -newlib*- | -relibc*- \
+ 		    | -uclibc*- )
+diff --git a/bfd/config.bfd b/bfd/config.bfd
+index e9860f87d0e..7aa1ef7f420 100644
+--- a/bfd/config.bfd
++++ b/bfd/config.bfd
+@@ -712,7 +712,7 @@ case "${targ}" in
+     targ_selvecs="i386_elf32_vec iamcu_elf32_vec x86_64_elf32_vec i386_pei_vec x86_64_pe_vec x86_64_pei_vec"
+     want64=true
+     ;;
+-  x86_64-*-mingw* | x86_64-*-pe | x86_64-*-pep | x86_64-*-cygwin)
++  x86_64-*-mingw* | x86_64-*-windows-gnu* | x86_64-*-pe | x86_64-*-pep | x86_64-*-cygwin)
+     targ_defvec=x86_64_pe_vec
+     targ_selvecs="x86_64_pe_vec x86_64_pei_vec x86_64_pe_big_vec x86_64_elf64_vec i386_pe_vec i386_pe_big_vec i386_pei_vec i386_elf32_vec iamcu_elf32_vec pdb_vec"
+     want64=true
+diff --git a/gas/configure.tgt b/gas/configure.tgt
+index 6f084504d72..506ff699862 100644
+--- a/gas/configure.tgt
++++ b/gas/configure.tgt
+@@ -247,7 +247,12 @@ case ${generic_target} in
+   | i386-*-kfreebsd*-gnu)		fmt=elf em=freebsd ;;
+   i386-*-msdosdjgpp* \
+   | i386-*-go32*)			fmt=coff em=go32 ;;
++  i386-*-windows-gnu*)
++    case ${cpu} in
++      x86_64*)				fmt=coff em=pep ;;
++      i*)				fmt=coff em=pe ;;
++    esac ;;
+   i386-*-gnu*)				fmt=elf em=gnu ;;
+   i386-*-msdos*)			fmt=aout ;;
+   i386-*-moss*)				fmt=elf ;;
+   i386-*-pe)				fmt=coff em=pe ;;
+@@ -257,7 +262,7 @@ case ${generic_target} in
+      i*)				fmt=coff em=pe ;;
+    esac ;;
+   i386-*-interix*)			fmt=coff em=interix ;;
+-  i386-*-mingw*)
++  i386-*-mingw* | i386-*-windows-gnu*)
+     case ${cpu} in
+       x86_64*)				fmt=coff em=pep ;;
+       i*)				fmt=coff em=pe ;;
+diff --git a/ld/configure.tgt b/ld/configure.tgt
+index 33791622cd9..b5d26a7d43d 100644
+--- a/ld/configure.tgt
++++ b/ld/configure.tgt
+@@ -1006,7 +1006,7 @@ x86_64-*-cygwin)	targ_emul=i386pep ;
+ 			targ_extra_ofiles="deffilep.o pdb.o pep-dll.o pe-dll.o"
+ 			test "$targ" != "$host" && LIB_PATH='${tooldir}/lib/w32api'
+ 			;;
+-x86_64-*-mingw*)	targ_emul=i386pep ;
++x86_64-*-mingw* | x86_64-*-windows-gnu*)	targ_emul=i386pep ;
+ 			targ_extra_emuls=i386pe
+ 			targ_extra_ofiles="deffilep.o pdb.o pep-dll.o pe-dll.o"
+ 			;;

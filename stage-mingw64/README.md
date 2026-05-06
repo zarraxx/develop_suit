@@ -5,8 +5,16 @@
 
 The initial version intentionally supports only an `x86_64` Linux host output.
 It uses the prebuilt MinGW GCC package as the source for headers, CRT objects,
-import libraries, `libgcc`, and `libstdc++`, then exposes clang driver entries
-that target Windows:
+import libraries, and temporary bootstrap tools. Binutils is built from GNU
+source for the public `x86_64-w64-windows-gnu` triple. The final overlay keeps
+a clean Windows GNU target layout and builds the LLVM runtimes:
+
+- `compiler-rt`
+- `libunwind`
+- `libc++abi`
+- `libc++`
+
+It then exposes clang driver entries that target Windows:
 
 - `x86_64-w64-windows-gnu-clang-gcc`
 - `x86_64-w64-windows-gnu-clang-g++`
@@ -23,14 +31,26 @@ The overlay installs:
 
 ```text
 /opt/x86_64-w64-windows-gnu
+/opt/x86_64-w64-windows-gnu/sysroot
+/opt/x86_64-w64-windows-gnu/bin
+/opt/x86_64-w64-windows-gnu/lib
+/opt/x86_64-w64-windows-gnu/include/c++/v1
 /opt/llvm-18.1.8/bin/x86_64-w64-windows-gnu-clang-gcc
 /opt/llvm-18.1.8/bin/x86_64-w64-windows-gnu-clang-g++
 /opt/llvm-18.1.8/bin/x86_64-w64-windows-gnu-clang-gcc.cfg
 /opt/llvm-18.1.8/bin/x86_64-w64-windows-gnu-clang-g++.cfg
 ```
 
+`/opt/x86_64-w64-windows-gnu/bin` contains GNU binutils built by this stage
+and the Windows runtime DLLs copied from the seed sysroot, such as
+`libwinpthread-1.dll`, `libgcc_s_seh-1.dll`, and `libstdc++-6.dll`.
+
 The clang config files use `<CFGDIR>` so the overlay remains relocatable inside
-the container image.
+the container image. The sysroot is available directly at:
+
+```text
+/opt/x86_64-w64-windows-gnu/sysroot
+```
 
 ## Build
 
@@ -48,6 +68,14 @@ and downloads:
 
 ```text
 https://github.com/zarraxx/package_builder/releases/download/compiler-mingw32-gcc-15.2.0/compiler-mingw32-gcc-15.2.0-linux-x86_64.tar.gz
+https://ftp.gnu.org/gnu/binutils/binutils-2.46.0.tar.xz
+https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/llvm-project-18.1.8.src.tar.xz
+```
+
+GNU also publishes the same binutils release as:
+
+```text
+https://ftp.gnu.org/gnu/binutils/binutils-2.46.0.tar.zst
 ```
 
 If the archive already exists locally, pass it explicitly:
@@ -64,36 +92,19 @@ If the archive already exists locally, pass it explicitly:
 ./stage-mingw64/image.sh --arch=x86_64
 ```
 
-The image smoke test compiles C and C++ programs into `PE32+ x86-64` Windows
-executables. It does not run the Windows binaries.
-
-## Next Steps
-
-This first pass deliberately uses the GCC-provided MinGW runtime:
-
-- `libgcc`
-- `libstdc++`
-
-The next runtime stage can build and overlay the LLVM runtime stack for
-`x86_64-w64-windows-gnu`:
-
-- `compiler-rt`
-- `libunwind`
-- `libc++abi`
-- `libc++`
-
-That should follow the same runtime overlay pattern used by `stage_llvm`, but
-install into the target layout under `/opt/x86_64-w64-windows-gnu`
-and/or clang's resource directory as appropriate.
-
-## Canadian Binutils Plan
-
-For a full traditional GNU MinGW toolchain on each Linux host architecture,
-build binutils with:
+The default local image tag is:
 
 ```text
-https://ftp.gnu.org/gnu/binutils/binutils-2.46.0.tar.zst
+develop_suit:llvm-with-mingw64-18.1.8
 ```
+
+The image smoke test compiles C and C++ programs into `PE32+ x86-64` Windows
+executables under `stage-mingw64/build/smoke/<arch>`. It does not run the
+Windows binaries.
+
+## Binutils
+
+The x86_64 stage builds GNU binutils with:
 
 ```text
 build  = x86_64-unknown-linux-gnu
@@ -111,4 +122,13 @@ Example for a future `aarch64` hosted MinGW binutils build:
   --prefix=/opt/x86_64-w64-windows-gnu
 ```
 
-That expansion is intentionally left out of the first x86_64-only version.
+Binutils 2.46.0 does not accept `x86_64-w64-windows-gnu` out of the box, so the
+stage applies `mount_root/patches/binutils-2.46.0-windows-gnu.patch` with the
+standard `patch` command. The patch maps the triple to the same PE/COFF backend
+used for MinGW while keeping final tool names under `x86_64-w64-windows-gnu-*`.
+
+The binutils flow is kept in:
+
+```text
+stage-mingw64/mount_root/build_binutils.sh
+```

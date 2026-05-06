@@ -13,13 +13,13 @@ Usage:
 Options:
   --arch=<arch>             Host arch: x86_64 initially
   --tag=<name>              Docker image tag, repeatable
-                            (default: stage-mingw64-rootfs:<arch>)
+                            (default: develop_suit:llvm-with-mingw64-18.1.8)
   --base-image=<image>      Base image
                             (default: ghcr.io/zarraxx/develop_suit:llvm-18.1.8)
   --skip-test               Skip the post-build container smoke test
   --push                    Push image directly to registry instead of writing a tar
   --output=<path>           Output Docker archive path
-                            (default: <repo>/dist/images/stage-mingw64-image-<arch>.tar)
+                            (default: <repo>/dist/images/llvm-with-mingw64-18.1.8-<arch>.tar)
   --dockerfile=<path>       Override Dockerfile path
                             (default: <repo>/stage-mingw64/Dockerfile)
   --context=<path>          Override docker build context
@@ -153,11 +153,11 @@ MINGW_ROOTFS_DIR="${ROOT_DIR}/build/out/${ARCH}"
 [[ -f "$SMOKE_TEST_SCRIPT" ]] || die "smoke test script does not exist: $SMOKE_TEST_SCRIPT"
 
 if [[ ${#TAGS[@]} -eq 0 ]]; then
-  TAGS=("stage-mingw64-rootfs:${ARCH}")
+  TAGS=("develop_suit:llvm-with-mingw64-18.1.8")
 fi
 
 if [[ "$PUSH" -eq 0 && -z "$OUTPUT" ]]; then
-  OUTPUT="${PROJECT_ROOT}/dist/images/stage-mingw64-image-${ARCH}.tar"
+  OUTPUT="${PROJECT_ROOT}/dist/images/llvm-with-mingw64-18.1.8-${ARCH}.tar"
 fi
 
 buildx_help="$(docker buildx build --help 2>&1 || true)"
@@ -217,7 +217,7 @@ if [[ "$SKIP_TEST" -eq 0 ]]; then
   require_command file
 
   test_tag="${TAGS[0]}"
-  smoke_output_dir="${PROJECT_ROOT}/dist/stage-mingw64-smoke/${ARCH}"
+  smoke_output_dir="${ROOT_DIR}/build/smoke/${ARCH}"
 
   if [[ "$WROTE_ARCHIVE" -eq 1 ]]; then
     echo "Loading image archive for smoke test: ${OUTPUT}"
