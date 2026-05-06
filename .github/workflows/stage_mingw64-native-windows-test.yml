@@ -213,6 +213,13 @@ jobs:
             "#include_next <$header>" | Set-Content -Encoding ASCII (Join-Path $resourceDir $header)
           }
           $passed = (Run-Variant 'sysroot-no-user-crt-resource-c-wrappers' $sysrootNoUserCrt) -or $passed
+          Get-ChildItem -File -Path $crtInclude -Filter "*.h" | ForEach-Object {
+            $resourceHeader = Join-Path $resourceDir $_.Name
+            if (-not (Test-Path $resourceHeader)) {
+              "#include_next <$($_.Name)>" | Set-Content -Encoding ASCII $resourceHeader
+            }
+          }
+          $passed = (Run-Variant 'sysroot-no-user-crt-resource-mingw-wrappers' $sysrootNoUserCrt) -or $passed
           Rename-Item -Force (Join-Path $llvmRoot "include/c++/v1/module.modulemap") "module.modulemap.disabled"
           Rename-Item -Force (Join-Path $llvmRoot "lib/clang/18/include/module.modulemap") "module.modulemap.disabled"
           $passed = (Run-Variant 'sysroot-no-user-crt-no-modulemap' $sysrootNoUserCrt) -or $passed
