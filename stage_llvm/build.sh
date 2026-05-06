@@ -736,11 +736,10 @@ write_clang_driver_config() {
 --target=${target_triple}
 --sysroot=<CFGDIR>/../../sysroot/${target_triple}
 -resource-dir=<CFGDIR>/../lib/clang/${LLVM_RESOURCE_VERSION}
--B<CFGDIR>/../lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}
---rtlib=compiler-rt
---unwindlib=libunwind
--fuse-ld=lld
--L<CFGDIR>/../lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}
+-B
+<CFGDIR>/../lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}
+-L
+<CFGDIR>/../lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}
 EOF
 
   if [[ "$add_cxx_stdlib" == "1" ]]; then
