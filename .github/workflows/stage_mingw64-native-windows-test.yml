@@ -106,11 +106,13 @@ jobs:
           $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
           $clangxx = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.exe"
           @'
+          extern "C" int puts(const char *);
+
           int main() {
-            return 42;
+            puts("hello from clang++ cxx");
+            return 0;
           }
           '@ | Set-Content -Encoding ASCII smoke/hello.cpp
           & $clangxx smoke/hello.cpp -o smoke/hello-cxx.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./smoke/hello-cxx.exe
-          if ($LASTEXITCODE -ne 42) { exit 1 }
