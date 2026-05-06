@@ -11,3 +11,5 @@ stage1/build/
 stage_python/build/
 stage_llvm/build/
 stage_tools/build/
+.opencode/
+.qqbot/

@@ -209,7 +209,7 @@ sanitize_target_deps_usr() {
 }
 
 ARCH=""
-IMAGE="ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-04"
+IMAGE="ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-05"
 JOBS=4
 PULL=0
 CLEAN=0
