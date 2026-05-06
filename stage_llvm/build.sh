@@ -899,6 +899,9 @@ build_host_llvm() {
     -DLLVM_LINK_LLVM_DYLIB=ON
     -DCLANG_LINK_CLANG_DYLIB=ON
     -DCLANG_DEFAULT_LINKER=lld
+    -DCLANG_DEFAULT_CXX_STDLIB=libc++
+    -DCLANG_DEFAULT_RTLIB=compiler-rt
+    -DCLANG_DEFAULT_UNWINDLIB=libunwind
     -DCMAKE_C_COMPILER="${host_cc_wrapper}"
     -DCMAKE_CXX_COMPILER="${host_cxx_wrapper}"
     -DCMAKE_ASM_COMPILER="${host_cc_wrapper}"
