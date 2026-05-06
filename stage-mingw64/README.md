@@ -3,16 +3,20 @@
 `stage-mingw64` adds a first-pass Windows GNU target layer on top of the
 `llvm-18.1.8` image.
 
-The initial version intentionally supports only an `x86_64` Linux host output.
+The stage can produce Linux-hosted overlays for `x86_64`, `aarch64`, `riscv64`,
+and `loongarch64`. The Windows target remains `x86_64-w64-windows-gnu`.
 It uses the prebuilt MinGW GCC package as the source for headers, CRT objects,
 import libraries, and temporary bootstrap tools. Binutils is built from GNU
 source for the public `x86_64-w64-windows-gnu` triple. The final overlay keeps
-a clean Windows GNU target layout and builds the LLVM runtimes:
+a clean Windows GNU target layout and builds the LLVM runtimes in bootstrap
+order:
 
-- `compiler-rt`
+- `compiler-rt` builtins-only
 - `libunwind`
 - `libc++abi`
 - `libc++`
+- full `compiler-rt` with builtins, profile, sanitizers, and CRT enabled when
+  supported by LLVM for the Windows GNU target
 
 It then exposes clang driver entries that target Windows:
 
@@ -23,6 +27,9 @@ The build output is a rootfs overlay under:
 
 ```text
 stage-mingw64/build/out/x86_64
+stage-mingw64/build/out/aarch64
+stage-mingw64/build/out/riscv64
+stage-mingw64/build/out/loongarch64
 ```
 
 ## Layout
@@ -57,6 +64,12 @@ the container image. The sysroot is available directly at:
 ```bash
 ./stage-mingw64/build.sh --arch=x86_64 --clean --pull --jobs=4
 ```
+
+Replace `x86_64` with `aarch64`, `riscv64`, or `loongarch64` to build the same
+Windows GNU target tools hosted by that Linux architecture.
+
+The build container itself stays `linux/amd64`; non-x86 host outputs are built
+as Canadian cross builds.
 
 By default the build uses:
 
@@ -104,22 +117,12 @@ Windows binaries.
 
 ## Binutils
 
-The x86_64 stage builds GNU binutils with:
+Each host-arch stage builds GNU binutils with:
 
 ```text
 build  = x86_64-unknown-linux-gnu
 host   = <arch>-unknown-linux-gnu
 target = x86_64-w64-windows-gnu
-```
-
-Example for a future `aarch64` hosted MinGW binutils build:
-
-```bash
-../binutils/configure \
-  --build=x86_64-unknown-linux-gnu \
-  --host=aarch64-unknown-linux-gnu \
-  --target=x86_64-w64-windows-gnu \
-  --prefix=/opt/x86_64-w64-windows-gnu
 ```
 
 Binutils 2.46.0 does not accept `x86_64-w64-windows-gnu` out of the box, so the

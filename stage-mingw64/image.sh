@@ -8,10 +8,10 @@ PROJECT_ROOT="$(cd "${ROOT_DIR}/.." && pwd)"
 usage() {
   cat <<'EOF'
 Usage:
-  ./stage-mingw64/image.sh --arch=x86_64 [options]
+  ./stage-mingw64/image.sh --arch=<arch> [options]
 
 Options:
-  --arch=<arch>             Host arch: x86_64 initially
+  --arch=<arch>             Host arch: x86_64, aarch64, riscv64, loongarch64
   --tag=<name>              Docker image tag, repeatable
                             (default: develop_suit:llvm-with-mingw64-18.1.8)
   --base-image=<image>      Base image
@@ -42,8 +42,17 @@ normalize_arch() {
     x86_64|amd64|x64|x86)
       echo "x86_64"
       ;;
+    aarch64|arm64)
+      echo "aarch64"
+      ;;
+    riscv64|riscv64gc)
+      echo "riscv64"
+      ;;
+    loongarch64|loong64)
+      echo "loongarch64"
+      ;;
     *)
-      die "stage-mingw64 initially supports only x86_64 images: $1"
+      die "unsupported arch: $1"
       ;;
   esac
 }
@@ -52,6 +61,15 @@ docker_platform_for_arch() {
   case "$1" in
     x86_64)
       echo "linux/amd64"
+      ;;
+    aarch64)
+      echo "linux/arm64"
+      ;;
+    riscv64)
+      echo "linux/riscv64"
+      ;;
+    loongarch64)
+      echo "linux/loong64"
       ;;
     *)
       die "no docker platform mapping for arch: $1"

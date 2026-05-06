@@ -48,6 +48,7 @@ Each stage should move the environment forward in a predictable way, from a mini
 - Preserve symlinks when staging rootfs/sysroot content.
 - Avoid fake native shortcuts that diverge from the target runtime model.
 - Prefer deterministic, repeatable builds over convenience hacks.
+- Any modification to upstream package source must be applied through an explicit patch file and the `patch` command. Do not modify extracted upstream source with `sed`, `perl -pi`, inline shell rewrites, or other ad-hoc text editing commands.
 
 ## Structure Expectations
 

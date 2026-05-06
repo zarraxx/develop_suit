@@ -8,11 +8,11 @@ PROJECT_ROOT="$(cd "${ROOT_DIR}/.." && pwd)"
 usage() {
   cat <<'EOF'
 Usage:
-  ./stage-mingw64/build.sh --arch=x86_64 [options]
+  ./stage-mingw64/build.sh --arch=<arch> [options]
 
 Options:
   --arch=<arch>            Host arch for the produced Linux tools
-                           (initially only x86_64)
+                           x86_64, aarch64, riscv64, loongarch64
   --image=<image>          Builder image
                            (default: ghcr.io/zarraxx/develop_suit:llvm-18.1.8)
   --jobs=<n>               Parallel build jobs inside container (default: 4)
@@ -40,19 +40,17 @@ normalize_arch() {
     x86_64|amd64|x64|x86)
       echo "x86_64"
       ;;
-    *)
-      die "stage-mingw64 initially supports only x86_64 host output: $1"
+    aarch64|arm64)
+      echo "aarch64"
       ;;
-  esac
-}
-
-platform_for_arch() {
-  case "$1" in
-    x86_64)
-      echo "linux/amd64"
+    riscv64|riscv64gc)
+      echo "riscv64"
+      ;;
+    loongarch64|loong64)
+      echo "loongarch64"
       ;;
     *)
-      die "no docker platform mapping for arch: $1"
+      die "unsupported arch: $1"
       ;;
   esac
 }
@@ -131,7 +129,7 @@ done
 
 [[ -n "$ARCH" ]] || die "--arch is required"
 ARCH="$(normalize_arch "$ARCH")"
-PLATFORM="$(platform_for_arch "$ARCH")"
+BUILDER_PLATFORM="linux/amd64"
 
 require_command docker
 
@@ -160,16 +158,17 @@ fi
 
 if [[ "$PULL" -eq 1 ]]; then
   echo "-- pulling builder image: ${IMAGE}"
-  docker pull --platform "$PLATFORM" "$IMAGE"
+  docker pull --platform "$BUILDER_PLATFORM" "$IMAGE"
 fi
 
 echo "-- stage-mingw64 build"
 echo "-- image: ${IMAGE}"
 echo "-- arch: ${ARCH}"
+echo "-- builder platform: ${BUILDER_PLATFORM}"
 echo "-- output: ${OUT_DIR}"
 
 docker run --rm \
-  --platform "$PLATFORM" \
+  --platform "$BUILDER_PLATFORM" \
   -v "${MOUNT_ROOT}:/work/mount_root:ro" \
   -v "${CACHE_DIR}:/work/cache" \
   -v "${BUILD_DIR}/build:/work/build" \

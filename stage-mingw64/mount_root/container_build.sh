@@ -16,10 +16,11 @@ BINUTILS_ARCHIVE_URL="https://ftp.gnu.org/gnu/binutils/${BINUTILS_ARCHIVE_NAME}"
 usage() {
   cat <<'EOF'
 Usage:
-  /work/mount_root/container_build.sh --arch=x86_64 [options]
+  /work/mount_root/container_build.sh --arch=<arch> [options]
 
 Options:
-  --arch=<arch>       Host arch for produced Linux tools (initially x86_64)
+  --arch=<arch>       Host arch for produced Linux tools:
+                      x86_64, aarch64, riscv64, loongarch64
   --jobs=<n>          Parallel build jobs
   --cache-dir=<path>  Source archive cache dir (default: /work/cache)
   --build-dir=<path>  Build dir (default: /work/build)
@@ -63,8 +64,17 @@ normalize_arch() {
     x86_64|amd64|x64|x86)
       echo "x86_64"
       ;;
+    aarch64|arm64)
+      echo "aarch64"
+      ;;
+    riscv64|riscv64gc)
+      echo "riscv64"
+      ;;
+    loongarch64|loong64)
+      echo "loongarch64"
+      ;;
     *)
-      die "stage-mingw64 initially supports only x86_64 host output: $1"
+      die "unsupported arch: $1"
       ;;
   esac
 }
@@ -240,6 +250,46 @@ EOF
   chmod +x "$wrapper"
 }
 
+write_final_runtime_wrapper() {
+  local wrapper="$1"
+  local compiler="$2"
+  local final_root="$3"
+  local resource_root="$4"
+  local cxx_mode="$5"
+  local runtime_lib_dir="${resource_root}/lib/${TARGET_TRIPLE}"
+
+  cat >"$wrapper" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec "${compiler}" \\
+  --target="${TARGET_TRIPLE}" \\
+  --sysroot="${final_root}/sysroot" \\
+  -resource-dir="${resource_root}" \\
+  -B "${final_root}/bin" \\
+  -isystem "${final_root}/sysroot/usr/${TARGET_TRIPLE}/include" \\
+  -L "${runtime_lib_dir}" \\
+  -L "${final_root}/lib/${TARGET_TRIPLE}" \\
+  -L "${final_root}/lib" \\
+  -L "${final_root}/sysroot/${TARGET_TRIPLE}/lib" \\
+  -L "${final_root}/sysroot/usr/${TARGET_TRIPLE}/lib" \\
+  --rtlib=compiler-rt \\
+  --unwindlib=libunwind \\
+EOF
+
+  if [[ "$cxx_mode" == 1 ]]; then
+    cat >>"$wrapper" <<EOF
+  -isystem "${final_root}/include/${TARGET_TRIPLE}/c++/v1" \\
+  -isystem "${final_root}/include/c++/v1" \\
+  -stdlib=libc++ \\
+EOF
+  fi
+
+  cat >>"$wrapper" <<'EOF'
+  "$@"
+EOF
+  chmod +x "$wrapper"
+}
+
 configure_cmake() {
   local source_dir="$1"
   local build_dir="$2"
@@ -266,21 +316,22 @@ ensure_output_resource_headers() {
   fi
 }
 
-build_compiler_rt() {
+build_compiler_rt_builtins_only() {
   local llvm_source_root="$1"
   local seed_root="$2"
   local final_root="$3"
   local output_llvm_root="$4"
-  local wrappers="${BUILD_DIR}/${ARCH}/wrappers/compiler-rt"
-  local build_dir="${BUILD_DIR}/${ARCH}/llvm-runtimes/compiler-rt"
+  local wrappers="${BUILD_DIR}/${ARCH}/wrappers/compiler-rt-builtins"
+  local build_dir="${BUILD_DIR}/${ARCH}/llvm-runtimes/compiler-rt-builtins"
   local resource_root="/opt/llvm-${LLVM_VERSION}/lib/clang/${LLVM_RESOURCE_VERSION}"
 
+  rm -rf "$build_dir"
   mkdir -p "$wrappers" "$build_dir" "${output_llvm_root}/lib/clang/${LLVM_RESOURCE_VERSION}/lib/${TARGET_TRIPLE}"
   ensure_output_resource_headers "$output_llvm_root"
   write_builder_wrapper "${wrappers}/clang" "/opt/llvm-${LLVM_VERSION}/bin/clang" "$seed_root" "$final_root" "$resource_root" 0
   write_builder_wrapper "${wrappers}/clang++" "/opt/llvm-${LLVM_VERSION}/bin/clang++" "$seed_root" "$final_root" "$resource_root" 1
 
-  log "Configuring compiler-rt for ${TARGET_TRIPLE}"
+  log "Configuring compiler-rt builtins-only for ${TARGET_TRIPLE}"
   configure_cmake "${llvm_source_root}/runtimes" "$build_dir" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_SYSTEM_NAME=Windows \
@@ -311,7 +362,7 @@ build_compiler_rt() {
     -DLLVM_ENABLE_RUNTIMES=compiler-rt \
     -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON \
     -DCOMPILER_RT_BUILD_BUILTINS=ON \
-    -DCOMPILER_RT_BUILD_CRT=ON \
+    -DCOMPILER_RT_BUILD_CRT=OFF \
     -DCOMPILER_RT_BUILD_SANITIZERS=OFF \
     -DCOMPILER_RT_BUILD_XRAY=OFF \
     -DCOMPILER_RT_BUILD_LIBFUZZER=OFF \
@@ -322,7 +373,81 @@ build_compiler_rt() {
     -DCOMPILER_RT_USE_BUILTINS_LIBRARY=OFF \
     "-DCOMPILER_RT_INSTALL_LIBRARY_DIR=${output_llvm_root}/lib/clang/${LLVM_RESOURCE_VERSION}/lib"
 
-  log "Building compiler-rt for ${TARGET_TRIPLE}"
+  log "Building compiler-rt builtins-only for ${TARGET_TRIPLE}"
+  build_cmake_target "$build_dir" install
+}
+
+build_compiler_rt_full() {
+  local llvm_source_root="$1"
+  local final_root="$2"
+  local output_llvm_root="$3"
+  local wrappers="${BUILD_DIR}/${ARCH}/wrappers/compiler-rt-full"
+  local build_dir="${BUILD_DIR}/${ARCH}/llvm-runtimes/compiler-rt-full"
+  local resource_root="${output_llvm_root}/lib/clang/${LLVM_RESOURCE_VERSION}"
+  local runtime_lib_dir="${resource_root}/lib/${TARGET_TRIPLE}"
+
+  rm -rf "$build_dir"
+  mkdir -p "$wrappers" "$build_dir" "$runtime_lib_dir"
+  ensure_output_resource_headers "$output_llvm_root"
+  write_final_runtime_wrapper "${wrappers}/clang" "/opt/llvm-${LLVM_VERSION}/bin/clang" "$final_root" "$resource_root" 0
+  write_final_runtime_wrapper "${wrappers}/clang++" "/opt/llvm-${LLVM_VERSION}/bin/clang++" "$final_root" "$resource_root" 1
+
+  log "Configuring compiler-rt full for ${TARGET_TRIPLE}"
+  configure_cmake "${llvm_source_root}/runtimes" "$build_dir" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_SYSTEM_NAME=Windows \
+    -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
+    -DCMAKE_INSTALL_PREFIX="${output_llvm_root}" \
+    -DCMAKE_C_COMPILER="${wrappers}/clang" \
+    -DCMAKE_CXX_COMPILER="${wrappers}/clang++" \
+    -DCMAKE_ASM_COMPILER="${wrappers}/clang" \
+    -DCMAKE_AR="/opt/llvm-${LLVM_VERSION}/bin/llvm-ar" \
+    -DCMAKE_NM="/opt/llvm-${LLVM_VERSION}/bin/llvm-nm" \
+    -DCMAKE_RANLIB="/opt/llvm-${LLVM_VERSION}/bin/llvm-ranlib" \
+    -DCMAKE_LINKER="/opt/llvm-${LLVM_VERSION}/bin/ld.lld" \
+    -DCMAKE_C_COMPILER_TARGET="${TARGET_TRIPLE}" \
+    -DCMAKE_CXX_COMPILER_TARGET="${TARGET_TRIPLE}" \
+    -DCMAKE_ASM_COMPILER_TARGET="${TARGET_TRIPLE}" \
+    -DCMAKE_SYSROOT="${final_root}/sysroot" \
+    "-DCMAKE_FIND_ROOT_PATH=${final_root}/sysroot;${final_root};${output_llvm_root}" \
+    -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+    -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+    -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld -L${runtime_lib_dir} -L${final_root}/lib/${TARGET_TRIPLE} -L${final_root}/lib" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld -L${runtime_lib_dir} -L${final_root}/lib/${TARGET_TRIPLE} -L${final_root}/lib" \
+    -DCMAKE_MODULE_LINKER_FLAGS="-fuse-ld=lld -L${runtime_lib_dir} -L${final_root}/lib/${TARGET_TRIPLE} -L${final_root}/lib" \
+    -DLLVM_PATH="${llvm_source_root}/llvm" \
+    -DLLVM_DEFAULT_TARGET_TRIPLE="${TARGET_TRIPLE}" \
+    -DLLVM_INCLUDE_TESTS=OFF \
+    -DLLVM_INCLUDE_DOCS=OFF \
+    -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \
+    -DLLVM_ENABLE_RUNTIMES=compiler-rt \
+    -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON \
+    -DCOMPILER_RT_BUILD_BUILTINS=ON \
+    -DCOMPILER_RT_BUILD_CRT=ON \
+    -DCOMPILER_RT_BUILD_SANITIZERS=ON \
+    -DCOMPILER_RT_BUILD_XRAY=OFF \
+    -DCOMPILER_RT_BUILD_LIBFUZZER=OFF \
+    -DCOMPILER_RT_BUILD_PROFILE=ON \
+    -DCOMPILER_RT_BUILD_MEMPROF=OFF \
+    -DCOMPILER_RT_BUILD_GWP_ASAN=ON \
+    -DCOMPILER_RT_BUILD_ORC=OFF \
+    -DCOMPILER_RT_USE_BUILTINS_LIBRARY=ON \
+    -DCOMPILER_RT_USE_LIBCXX=OFF \
+    -DCOMPILER_RT_HAS_Z_TEXT=OFF \
+    -DCOMPILER_RT_HAS_VERSION_SCRIPT=OFF \
+    -DCOMPILER_RT_HAS_LIBDL=OFF \
+    -DCOMPILER_RT_HAS_LIBRT=OFF \
+    -DCOMPILER_RT_HAS_LIBPTHREAD=OFF \
+    -DCOMPILER_RT_HAS_LIBC=OFF \
+    -DSANITIZER_CXX_ABI=libc++ \
+    -DSANITIZER_USE_STATIC_CXX_ABI=ON \
+    -DSANITIZER_USE_STATIC_LLVM_UNWINDER=ON \
+    "-DCOMPILER_RT_INSTALL_LIBRARY_DIR=${output_llvm_root}/lib/clang/${LLVM_RESOURCE_VERSION}/lib"
+
+  log "Building compiler-rt full for ${TARGET_TRIPLE}"
   build_cmake_target "$build_dir" install
 }
 
@@ -336,6 +461,7 @@ build_cxx_runtimes() {
   local resource_root="${output_llvm_root}/lib/clang/${LLVM_RESOURCE_VERSION}"
   local runtime_lib_dir="${resource_root}/lib/${TARGET_TRIPLE}"
 
+  rm -rf "$build_dir"
   mkdir -p "$wrappers" "$build_dir" "$runtime_lib_dir"
   ensure_output_resource_headers "$output_llvm_root"
   write_builder_wrapper "${wrappers}/clang" "/opt/llvm-${LLVM_VERSION}/bin/clang" "$seed_root" "$final_root" "$resource_root" 0
@@ -567,8 +693,9 @@ bash /work/mount_root/build_binutils.sh \
   --prefix="$FINAL_ROOT"
 
 LLVM_SOURCE_ROOT="$(extract_llvm_source)"
-build_compiler_rt "$LLVM_SOURCE_ROOT" "$SEED_ROOT" "$FINAL_ROOT" "$OUTPUT_LLVM_ROOT"
+build_compiler_rt_builtins_only "$LLVM_SOURCE_ROOT" "$SEED_ROOT" "$FINAL_ROOT" "$OUTPUT_LLVM_ROOT"
 build_cxx_runtimes "$LLVM_SOURCE_ROOT" "$SEED_ROOT" "$FINAL_ROOT" "$OUTPUT_LLVM_ROOT"
+build_compiler_rt_full "$LLVM_SOURCE_ROOT" "$FINAL_ROOT" "$OUTPUT_LLVM_ROOT"
 
 ln -sfn clang "${LLVM_BIN}/${TARGET_TRIPLE}-clang-gcc"
 ln -sfn clang++ "${LLVM_BIN}/${TARGET_TRIPLE}-clang-g++"
