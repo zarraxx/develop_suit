@@ -92,6 +92,10 @@ For a full traditional GNU MinGW toolchain on each Linux host architecture,
 build binutils with:
 
 ```text
+https://ftp.gnu.org/gnu/binutils/binutils-2.46.0.tar.zst
+```
+
+```text
 build  = x86_64-unknown-linux-gnu
 host   = <arch>-unknown-linux-gnu
 target = x86_64-w64-windows-gnu
