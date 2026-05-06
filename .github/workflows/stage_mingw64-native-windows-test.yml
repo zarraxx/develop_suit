@@ -91,7 +91,7 @@ jobs:
           $content = Get-Content $cfg
           for ($i = 0; $i -lt ($content.Length - 1); $i++) {
             if ($content[$i] -eq '-isystem' -and $content[$i + 1] -eq $sysrootInclude) {
-              $content[$i] = '-idirafter'
+              $content[$i] = '-I'
               break
             }
           }
