@@ -77,8 +77,8 @@ jobs:
           if (Test-Path $targetBin) {
             $targetBin >> $env:GITHUB_PATH
           }
-          $clang = Join-Path $llvmRoot "bin/clang.exe"
-          $clangxx = Join-Path $llvmRoot "bin/clang++.exe"
+          $clang = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-gcc.exe"
+          $clangxx = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.exe"
           & $clang --version
           & $clangxx --version
 
@@ -86,7 +86,7 @@ jobs:
         shell: pwsh
         run: |
           $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
-          $clang = Join-Path $llvmRoot "bin/clang.exe"
+          $clang = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-gcc.exe"
           New-Item -ItemType Directory -Force -Path smoke | Out-Null
           @'
           #include <stdio.h>
@@ -97,13 +97,14 @@ jobs:
           }
           '@ | Set-Content -Encoding ASCII smoke/hello.c
           & $clang smoke/hello.c -o smoke/hello-c.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./smoke/hello-c.exe
 
       - name: Build and run C++ hello world
         shell: pwsh
         run: |
           $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
-          $clangxx = Join-Path $llvmRoot "bin/clang++.exe"
+          $clangxx = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.exe"
           @'
           #include <iostream>
           #include <string>
@@ -115,4 +116,5 @@ jobs:
           }
           '@ | Set-Content -Encoding ASCII smoke/hello.cpp
           & $clangxx smoke/hello.cpp -o smoke/hello-cxx.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./smoke/hello-cxx.exe
