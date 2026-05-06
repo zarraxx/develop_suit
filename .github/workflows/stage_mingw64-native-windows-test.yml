@@ -82,17 +82,25 @@ jobs:
           & $clang --version
           & $clangxx --version
 
-      - name: Patch extracted headers for libc++ C headers
+      - name: Patch clang++ cfg for libc++ C headers
         shell: pwsh
         run: |
           $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
-          $sysrootInclude = Join-Path $llvmRoot "sysroot/usr/x86_64-w64-windows-gnu/include"
-          $libcxxInclude = Join-Path $llvmRoot "include/c++/v1"
-          Copy-Item (Join-Path $sysrootInclude "crtdefs.h") $libcxxInclude -Force
-          Copy-Item (Join-Path $sysrootInclude "corecrt.h") $libcxxInclude -Force
-          Copy-Item (Join-Path $sysrootInclude "_mingw.h") $libcxxInclude -Force
-          Copy-Item (Join-Path $sysrootInclude "_mingw_mac.h") $libcxxInclude -Force
-          Copy-Item (Join-Path $sysrootInclude "vadefs.h") $libcxxInclude -Force
+          $cfg = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.cfg"
+          $sysrootInclude = '<CFGDIR>/../sysroot/usr/x86_64-w64-windows-gnu/include'
+          $content = [System.Collections.Generic.List[string]]::new()
+          $lines = Get-Content $cfg
+          for ($i = 0; $i -lt $lines.Length; $i++) {
+            if ($i -lt ($lines.Length - 1) -and $lines[$i] -eq '-isystem' -and $lines[$i + 1] -eq $sysrootInclude) {
+              $i++
+              continue
+            }
+            $content.Add($lines[$i])
+          }
+          $content.Insert(3, '<CFGDIR>/../sysroot')
+          $content.Insert(3, '--sysroot')
+          Set-Content -Encoding ASCII $cfg $content
+          Get-Content $cfg
 
       - name: Build and run C hello world
         shell: pwsh
