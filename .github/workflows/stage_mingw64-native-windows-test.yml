@@ -87,10 +87,15 @@ jobs:
         run: |
           $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
           $cfg = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.cfg"
-          @'
-          -idirafter
-          <CFGDIR>/../sysroot/usr/x86_64-w64-windows-gnu/include
-          '@ | Add-Content -Encoding ASCII $cfg
+          $sysrootInclude = '<CFGDIR>/../sysroot/usr/x86_64-w64-windows-gnu/include'
+          $content = Get-Content $cfg
+          for ($i = 0; $i -lt ($content.Length - 1); $i++) {
+            if ($content[$i] -eq '-isystem' -and $content[$i + 1] -eq $sysrootInclude) {
+              $content[$i] = '-idirafter'
+              break
+            }
+          }
+          Set-Content -Encoding ASCII $cfg $content
           Get-Content $cfg
 
       - name: Build and run C hello world
