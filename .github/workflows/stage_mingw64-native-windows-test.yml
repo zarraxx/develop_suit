@@ -100,6 +100,9 @@ jobs:
           $content.Insert(3, '<CFGDIR>/../sysroot')
           $content.Insert(3, '--sysroot')
           Set-Content -Encoding ASCII $cfg $content
+          $resourceInclude = Join-Path $llvmRoot "lib/clang/18/include"
+          $libcxxInclude = Join-Path $llvmRoot "include/c++/v1"
+          Copy-Item (Join-Path $resourceInclude "__stddef*.h") $libcxxInclude -Force
           Get-Content $cfg
 
       - name: Build and run C hello world
