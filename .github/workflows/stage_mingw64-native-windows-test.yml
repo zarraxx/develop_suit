@@ -82,28 +82,118 @@ jobs:
           & $clang --version
           & $clangxx --version
 
-      - name: Patch clang++ cfg for libc++ C headers
+      - name: Diagnose clang++ cfg variants
         shell: pwsh
         run: |
           $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
           $cfg = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.cfg"
-          $sysrootInclude = '<CFGDIR>/../sysroot/usr/x86_64-w64-windows-gnu/include'
-          $content = [System.Collections.Generic.List[string]]::new()
-          $lines = Get-Content $cfg
-          for ($i = 0; $i -lt $lines.Length; $i++) {
-            if ($i -lt ($lines.Length - 1) -and $lines[$i] -eq '-isystem' -and $lines[$i + 1] -eq $sysrootInclude) {
-              $i++
-              continue
-            }
-            $content.Add($lines[$i])
+          $clangxx = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.exe"
+          New-Item -ItemType Directory -Force -Path smoke | Out-Null
+          @'
+          #include <iostream>
+          #include <string>
+
+          int main() {
+            const std::string message = "hello from clang++ cxx";
+            std::cout << message << '\n';
+            return 0;
           }
-          $content.Insert(3, '<CFGDIR>/../sysroot')
-          $content.Insert(3, '--sysroot')
-          Set-Content -Encoding ASCII $cfg $content
-          $resourceInclude = Join-Path $llvmRoot "lib/clang/18/include"
-          $libcxxInclude = Join-Path $llvmRoot "include/c++/v1"
-          Copy-Item (Join-Path $resourceInclude "__stddef*.h") $libcxxInclude -Force
-          Get-Content $cfg
+          '@ | Set-Content -Encoding ASCII smoke/hello.cpp
+
+          $base = [string[]](Get-Content $cfg)
+          $sysrootArg = '<CFGDIR>/../sysroot'
+          $sysrootInclude = '<CFGDIR>/../sysroot/usr/x86_64-w64-windows-gnu/include'
+          $libcxxInclude = '<CFGDIR>/../include/c++/v1'
+          $resourceInclude = '<CFGDIR>/../lib/clang/18/include'
+
+          function Insert-AfterLine([string[]]$lines, [string]$needle, [string[]]$insert) {
+            $out = [System.Collections.Generic.List[string]]::new()
+            $done = $false
+            foreach ($line in $lines) {
+              $out.Add($line)
+              if (-not $done -and $line -eq $needle) {
+                foreach ($item in $insert) { $out.Add($item) }
+                $done = $true
+              }
+            }
+            return [string[]]$out
+          }
+
+          function Remove-OptionPair([string[]]$lines, [string]$option, [string]$value) {
+            $out = [System.Collections.Generic.List[string]]::new()
+            for ($i = 0; $i -lt $lines.Length; $i++) {
+              if ($i -lt ($lines.Length - 1) -and $lines[$i] -eq $option -and $lines[$i + 1] -eq $value) {
+                $i++
+                continue
+              }
+              $out.Add($lines[$i])
+            }
+            return [string[]]$out
+          }
+
+          function Run-Variant([string]$name, [string[]]$lines) {
+            Write-Host ""
+            Write-Host "===== cfg variant: $name ====="
+            Set-Content -Encoding ASCII $cfg $lines
+            Get-Content $cfg
+            Write-Host "----- clang++ -E -v: $name -----"
+            & $clangxx -E -x c++ -v smoke/hello.cpp -o NUL
+            $preprocessExit = $LASTEXITCODE
+            Write-Host "preprocess exit: $preprocessExit"
+            Write-Host "----- clang++ -###: $name -----"
+            & $clangxx -### smoke/hello.cpp -o "smoke/$name.exe"
+            Write-Host "----- clang++ build: $name -----"
+            & $clangxx smoke/hello.cpp -o "smoke/$name.exe"
+            $buildExit = $LASTEXITCODE
+            Write-Host "build exit: $buildExit"
+            if ($buildExit -eq 0) {
+              & "./smoke/$name.exe"
+              Write-Host "variant passed: $name"
+              return $true
+            }
+            return $false
+          }
+
+          $sysrootKeepIsystem = Insert-AfterLine $base '-resource-dir=<CFGDIR>/../lib/clang/18' @('--sysroot', $sysrootArg)
+          $nostdincxx = Insert-AfterLine $base '-stdlib=libc++' @('-nostdinc++')
+          $nostdincxxSysroot = Insert-AfterLine $nostdincxx '-resource-dir=<CFGDIR>/../lib/clang/18' @('--sysroot', $sysrootArg)
+          $sysrootNoUserCrt = Remove-OptionPair $sysrootKeepIsystem '-isystem' $sysrootInclude
+          $nostdincManual = @(
+            '# Default relocatable Windows GNU configuration for x86_64-w64-windows-gnu.',
+            '--target=x86_64-w64-windows-gnu',
+            '-resource-dir=<CFGDIR>/../lib/clang/18',
+            '--sysroot',
+            $sysrootArg,
+            '-B',
+            '<CFGDIR>',
+            '-stdlib=libc++',
+            '-nostdinc',
+            '-isystem',
+            $libcxxInclude,
+            '-isystem',
+            $sysrootInclude,
+            '-isystem',
+            $resourceInclude,
+            '-L',
+            '<CFGDIR>/../sysroot/usr/x86_64-w64-windows-gnu/lib',
+            '-L',
+            '<CFGDIR>/../lib/clang/18/lib/x86_64-w64-windows-gnu',
+            '-L',
+            '<CFGDIR>/../lib/x86_64-w64-windows-gnu',
+            '--rtlib=compiler-rt',
+            '--unwindlib=libunwind'
+          )
+
+          $passed = $false
+          $passed = (Run-Variant 'original' $base) -or $passed
+          $passed = (Run-Variant 'sysroot-keep-isystem' $sysrootKeepIsystem) -or $passed
+          $passed = (Run-Variant 'nostdincxx' $nostdincxx) -or $passed
+          $passed = (Run-Variant 'nostdincxx-sysroot' $nostdincxxSysroot) -or $passed
+          $passed = (Run-Variant 'sysroot-no-user-crt' $sysrootNoUserCrt) -or $passed
+          $passed = (Run-Variant 'nostdinc-manual' $nostdincManual) -or $passed
+          if (-not $passed) {
+            throw "No clang++ cfg variant passed"
+          }
 
       - name: Build and run C hello world
         shell: pwsh
