@@ -220,6 +220,8 @@ jobs:
             }
           }
           $passed = (Run-Variant 'sysroot-no-user-crt-resource-mingw-wrappers' $sysrootNoUserCrt) -or $passed
+          Copy-Item -Recurse -Force (Join-Path $crtInclude "*") (Join-Path $llvmRoot "include/c++/v1")
+          $passed = (Run-Variant 'sysroot-no-user-crt-libcxx-crt-overlay' $sysrootNoUserCrt) -or $passed
           Rename-Item -Force (Join-Path $llvmRoot "include/c++/v1/module.modulemap") "module.modulemap.disabled"
           Rename-Item -Force (Join-Path $llvmRoot "lib/clang/18/include/module.modulemap") "module.modulemap.disabled"
           $passed = (Run-Variant 'sysroot-no-user-crt-no-modulemap' $sysrootNoUserCrt) -or $passed
