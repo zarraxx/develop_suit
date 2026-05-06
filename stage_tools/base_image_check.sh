@@ -13,7 +13,7 @@ Usage:
 Options:
   --arch=<arch>       Target arch: x86_64, aarch64, riscv64, loongarch64
   --image=<image>     Base image to check
-                      (default: ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-04)
+                      (default: ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-06)
   --jobs=<n>          Parallel build jobs inside container (default: 4)
   --pull              Pull the base image before running
   -h, --help          Show this help
@@ -50,7 +50,7 @@ normalize_arch() {
 }
 
 ARCH=""
-IMAGE="ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-04"
+IMAGE="ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-06"
 JOBS=4
 PULL=0
 

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG STAGE_TOOLS_BASE_IMAGE=ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-04
+ARG STAGE_TOOLS_BASE_IMAGE=ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-06
 ARG STAGE_TOOLS_ARCH
 
 FROM ${STAGE_TOOLS_BASE_IMAGE}

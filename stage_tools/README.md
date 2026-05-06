@@ -26,10 +26,10 @@ https://github.com/astral-sh/uv/releases/download/0.11.8/source.tar.gz
 
 
 不要再重复执行  stage0 stage1 stage_python stage_llvm
-尝试使用 docker pull ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-04
+尝试使用 docker pull ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-06
 进行 docker 两阶段构建
 
-第一阶段  用 native  ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-04
+第一阶段  用 native  ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-06
 进行交叉构建
 
 比如 

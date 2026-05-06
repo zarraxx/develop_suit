@@ -16,7 +16,7 @@ Options:
   --tag=<name>              Docker image tag, repeatable
                             (default: stage-tools-rootfs:<arch>)
   --base-image=<image>      Base stage_llvm image
-                            (default: ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-04)
+                            (default: ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-06)
   --skip-test               Skip the post-build container smoke test
   --push                    Push image directly to registry instead of writing a tar
   --output=<path>           Output Docker archive path
@@ -80,7 +80,7 @@ docker_platform_for_arch() {
 
 ARCH=""
 TAGS=()
-BASE_IMAGE="ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-04"
+BASE_IMAGE="ghcr.io/zarraxx/develop_suit:stage-llvm-2026-05-06"
 SKIP_TEST=0
 PUSH=0
 OUTPUT=""
