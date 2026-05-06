@@ -30,10 +30,10 @@ LLVM 工具链里会包含：
 - `bin/clang++`
 - `bin/lld`
 - `bin/ld.lld`
-- `bin/<triple>-clang`
-- `bin/<triple>-clang++`
+- `bin/<triple>-clang-gcc`
+- `bin/<triple>-clang-g++`
 
-target wrapper 会自动补：
+target driver 的 clang `.cfg` 配置会自动补：
 
 - `--target=<triple>`
 - `--sysroot=/opt/sysroot/<triple>`
@@ -41,7 +41,7 @@ target wrapper 会自动补：
 - `--rtlib=compiler-rt`
 - `--unwindlib=libunwind`
 
-`clang++` wrapper 还会补 `-stdlib=libc++`。
+`clang-g++` C++ 入口还会补 `-stdlib=libc++`。
 
 ## 运行方式
 

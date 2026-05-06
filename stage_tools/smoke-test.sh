@@ -99,9 +99,8 @@ write_cmake_toolchain() {
   cat >"$toolchain_file" <<EOF
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR ${processor})
-set(CMAKE_SYSROOT /opt/sysroot/${triple})
-set(CMAKE_C_COMPILER /opt/llvm-18.1.8/bin/${triple}-clang)
-set(CMAKE_CXX_COMPILER /opt/llvm-18.1.8/bin/${triple}-clang++)
+set(CMAKE_C_COMPILER /opt/llvm-18.1.8/bin/${triple}-clang-gcc)
+set(CMAKE_CXX_COMPILER /opt/llvm-18.1.8/bin/${triple}-clang-g++)
 set(CMAKE_AR /opt/llvm-18.1.8/bin/${triple}-ar)
 set(CMAKE_RANLIB /opt/llvm-18.1.8/bin/${triple}-ranlib)
 set(CMAKE_STRIP /opt/llvm-18.1.8/bin/${triple}-strip)
@@ -116,21 +115,14 @@ write_meson_cross_file() {
 
   cat >"$cross_file" <<EOF
 [binaries]
-c = '/opt/llvm-18.1.8/bin/${triple}-clang'
-cpp = '/opt/llvm-18.1.8/bin/${triple}-clang++'
+c = '/opt/llvm-18.1.8/bin/${triple}-clang-gcc'
+cpp = '/opt/llvm-18.1.8/bin/${triple}-clang-g++'
 ar = '/opt/llvm-18.1.8/bin/${triple}-ar'
 strip = '/opt/llvm-18.1.8/bin/${triple}-strip'
 pkg-config = '/usr/bin/pkg-config'
 
 [properties]
-sys_root = '/opt/sysroot/${triple}'
 needs_exe_wrapper = true
-
-[built-in options]
-c_args = ['--sysroot=/opt/sysroot/${triple}']
-cpp_args = ['--sysroot=/opt/sysroot/${triple}']
-c_link_args = ['--sysroot=/opt/sysroot/${triple}']
-cpp_link_args = ['--sysroot=/opt/sysroot/${triple}']
 
 [host_machine]
 system = 'linux'
@@ -169,6 +161,7 @@ echo "-- native triple: ${native_test_triple}"
 
 for required_tool in \
     /usr/bin/bash \
+    /bin/bash \
     /usr/bin/file \
     /usr/bin/git \
     /usr/bin/meson \
@@ -181,14 +174,14 @@ for required_tool in \
   }
 done
 
-/usr/bin/bash --version | head -n 1
+/bin/bash --version | head -n 1
 /usr/bin/git --version
 /usr/bin/file --version | head -n 1
 /usr/bin/meson --version
 /opt/cmake3/bin/cmake --version | head -n 1
 /opt/cmake4/bin/cmake --version | head -n 1
 
-/usr/bin/bash "${tests_dir}/bash/bash-features.sh"
+/bin/bash "${tests_dir}/bash/bash-features.sh"
 
 tmp_root="${TMPDIR:-/tmp}/stage-tools-smoke.$$"
 trap 'rm -rf "${tmp_root}"' EXIT INT TERM

@@ -114,8 +114,8 @@ for triple in ${triples}; do
   expected_machine="$(target_machine_name "${triple}")"
   c_output="${output_root}/${triple}-hello-c"
   cpp_output="${output_root}/${triple}-hello-cpp"
-  c_compiler="${bin_dir}/${triple}-clang"
-  cpp_compiler="${bin_dir}/${triple}-clang++"
+  c_compiler="${bin_dir}/${triple}-clang-gcc"
+  cpp_compiler="${bin_dir}/${triple}-clang-g++"
 
   echo "-- building ${triple} hello world"
   [ -x "${c_compiler}" ] || {

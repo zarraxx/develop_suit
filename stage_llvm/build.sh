@@ -726,90 +726,39 @@ stage_target_runtime_overlay() {
   done
 }
 
-write_target_wrapper() {
-  local wrapper_path="$1"
-  local driver_name="$2"
-  local target_triple="$3"
-  local add_cxx_stdlib="$4"
-  local sysroot_rel_from_toolchain="$5"
+write_clang_driver_config() {
+  local config_path="$1"
+  local target_triple="$2"
+  local add_cxx_stdlib="$3"
 
-  cat > "$wrapper_path" <<EOF
-#!/usr/bin/env sh
-set -eu
-
-script_dir=\$(CDPATH= cd -- "\$(dirname -- "\$0")" && pwd)
-toolchain_root=\$(CDPATH= cd -- "\${script_dir}/.." && pwd)
-sysroot_root=\$(CDPATH= cd -- "\${toolchain_root}/${sysroot_rel_from_toolchain}" && pwd)
-target_triple="${target_triple}"
-resource_root="\${toolchain_root}/lib/clang/${LLVM_RESOURCE_VERSION}"
-runtime_lib_dir="\${resource_root}/lib/\${target_triple}"
-crt_dir="\${runtime_lib_dir}"
-sysroot_dir="\${sysroot_root}/\${target_triple}"
-
-want_link=1
-for arg in "\$@"; do
-  case "\$arg" in
-    -c|-E|-S)
-      want_link=0
-      ;;
-  esac
-done
-
-if [ "${add_cxx_stdlib}" = "1" ]; then
-  if [ "\$want_link" -eq 1 ]; then
-    exec "\${script_dir}/${driver_name}" \\
-      "--target=\${target_triple}" \\
-      "--sysroot=\${sysroot_dir}" \\
-      "-stdlib=libc++" \\
-      "-B\${crt_dir}" \\
-      "-fuse-ld=lld" \\
-      "-L\${runtime_lib_dir}" \\
-      "--rtlib=compiler-rt" \\
-      "--unwindlib=libunwind" \\
-      "\$@"
-  else
-    exec "\${script_dir}/${driver_name}" \\
-      "--target=\${target_triple}" \\
-      "--sysroot=\${sysroot_dir}" \\
-      "-stdlib=libc++" \\
-      "-B\${crt_dir}" \\
-      "\$@"
-  fi
-else
-  if [ "\$want_link" -eq 1 ]; then
-    exec "\${script_dir}/${driver_name}" \\
-      "--target=\${target_triple}" \\
-      "--sysroot=\${sysroot_dir}" \\
-      "-B\${crt_dir}" \\
-      "-fuse-ld=lld" \\
-      "-L\${runtime_lib_dir}" \\
-      "--rtlib=compiler-rt" \\
-      "--unwindlib=libunwind" \\
-      "\$@"
-  else
-    exec "\${script_dir}/${driver_name}" \\
-      "--target=\${target_triple}" \\
-      "--sysroot=\${sysroot_dir}" \\
-      "-B\${crt_dir}" \\
-      "\$@"
-  fi
-fi
+  cat > "$config_path" <<EOF
+# Default cross configuration for ${target_triple}.
+--target=${target_triple}
+--sysroot=<CFGDIR>/../../sysroot/${target_triple}
+-resource-dir=<CFGDIR>/../lib/clang/${LLVM_RESOURCE_VERSION}
+-B<CFGDIR>/../lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}
+\$--rtlib=compiler-rt
+\$--unwindlib=libunwind
+\$-fuse-ld=lld
+\$-L<CFGDIR>/../lib/clang/${LLVM_RESOURCE_VERSION}/lib/${target_triple}
 EOF
 
-  chmod +x "$wrapper_path"
+  if [[ "$add_cxx_stdlib" == "1" ]]; then
+    printf '%s\n' '-stdlib=libc++' >> "$config_path"
+  fi
 }
 
-create_target_wrappers() {
+create_target_driver_configs() {
   local toolchain_root="$1"
-  local sysroot_root="$2"
   local bin_dir="${toolchain_root}/bin"
-  local sysroot_rel_from_toolchain
-  sysroot_rel_from_toolchain="$(realpath --relative-to="$toolchain_root" "$sysroot_root")"
 
   local triple
   for triple in "${ALL_TARGET_TRIPLES[@]}"; do
-    write_target_wrapper "${bin_dir}/${triple}-clang" "clang" "$triple" "0" "$sysroot_rel_from_toolchain"
-    write_target_wrapper "${bin_dir}/${triple}-clang++" "clang++" "$triple" "1" "$sysroot_rel_from_toolchain"
+    write_clang_driver_config "${bin_dir}/${triple}-clang-gcc.cfg" "$triple" "0"
+    write_clang_driver_config "${bin_dir}/${triple}-clang-g++.cfg" "$triple" "1"
+
+    ln -sfn "clang" "${bin_dir}/${triple}-clang-gcc"
+    ln -sfn "clang++" "${bin_dir}/${triple}-clang-g++"
 
     ln -sfn "llvm-ar" "${bin_dir}/${triple}-ar"
     ln -sfn "llvm-nm" "${bin_dir}/${triple}-nm"
@@ -1552,8 +1501,8 @@ build_host_llvm "$LLVM_SOURCE_ROOT" "$TOOLCHAIN_ROOT" "$ROOTFS_OUT"
 [[ -x "${TOOLCHAIN_ROOT}/bin/clang" ]] || die "expected installed clang not found: ${TOOLCHAIN_ROOT}/bin/clang"
 [[ -x "${TOOLCHAIN_ROOT}/bin/ld.lld" ]] || die "expected installed lld not found: ${TOOLCHAIN_ROOT}/bin/ld.lld"
 
-log "Creating target wrapper drivers"
-create_target_wrappers "$TOOLCHAIN_ROOT" "$SYSROOTS_ROOT"
+log "Creating target clang driver config files"
+create_target_driver_configs "$TOOLCHAIN_ROOT"
 
 log "Copying final rootfs to ${DIST_DIR}"
 copy_tree_clean "$ROOTFS_OUT" "$DIST_DIR"
