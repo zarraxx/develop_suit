@@ -82,6 +82,17 @@ jobs:
           & $clang --version
           & $clangxx --version
 
+      - name: Patch clang++ cfg for libc++ C headers
+        shell: pwsh
+        run: |
+          $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
+          $cfg = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.cfg"
+          @'
+          -idirafter
+          <CFGDIR>/../sysroot/usr/x86_64-w64-windows-gnu/include
+          '@ | Add-Content -Encoding ASCII $cfg
+          Get-Content $cfg
+
       - name: Build and run C hello world
         shell: pwsh
         run: |
@@ -106,10 +117,12 @@ jobs:
           $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
           $clangxx = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.exe"
           @'
-          extern "C" int puts(const char *);
+          #include <iostream>
+          #include <string>
 
           int main() {
-            puts("hello from clang++ cxx");
+            const std::string message = "hello from clang++ cxx";
+            std::cout << message << '\n';
             return 0;
           }
           '@ | Set-Content -Encoding ASCII smoke/hello.cpp
