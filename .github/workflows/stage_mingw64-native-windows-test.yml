@@ -1,0 +1,118 @@
+name: stage_mingw64-native-windows-test
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  NATIVE_LLVM_VERSION: llvm18.1.8
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag containing the Windows-native LLVM archive"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test-windows-native-llvm:
+    name: test-windows-native-llvm
+    runs-on: windows-2025
+
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          NATIVE_LLVM_VERSION: ${{ env.NATIVE_LLVM_VERSION }}
+        run: |
+          $releaseTag = $env:INPUT_RELEASE_TAG
+          if ([string]::IsNullOrWhiteSpace($releaseTag)) {
+            $releaseTag = gh release list `
+              --repo $env:GITHUB_REPOSITORY `
+              --limit 100 `
+              --json tagName `
+              --jq '.[] | select(.tagName | startswith("stage-mingw64-native-")) | .tagName' |
+              Select-Object -First 1
+          }
+
+          if ([string]::IsNullOrWhiteSpace($releaseTag)) {
+            throw "No stage-mingw64-native release tag found"
+          }
+
+          $archiveName = "stage-mingw64-native-$env:NATIVE_LLVM_VERSION-x86_64-w64-windows-gnu.tar.xz"
+          "release_tag=$releaseTag" >> $env:GITHUB_OUTPUT
+          "archive_name=$archiveName" >> $env:GITHUB_OUTPUT
+
+      - name: Download Windows-native LLVM release archive
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
+          ARCHIVE_NAME: ${{ steps.meta.outputs.archive_name }}
+        run: |
+          New-Item -ItemType Directory -Force -Path downloads | Out-Null
+          gh release download $env:RELEASE_TAG `
+            --repo $env:GITHUB_REPOSITORY `
+            --pattern $env:ARCHIVE_NAME `
+            --dir downloads
+
+      - name: Extract Windows-native LLVM
+        shell: pwsh
+        env:
+          ARCHIVE_NAME: ${{ steps.meta.outputs.archive_name }}
+        run: |
+          New-Item -ItemType Directory -Force -Path native-llvm | Out-Null
+          tar -xJf "downloads/$env:ARCHIVE_NAME" -C native-llvm
+
+      - name: Show clang versions
+        shell: pwsh
+        run: |
+          $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
+          $targetBin = Join-Path $llvmRoot "x86_64-w64-windows-gnu/bin"
+          (Join-Path $llvmRoot "bin") >> $env:GITHUB_PATH
+          if (Test-Path $targetBin) {
+            $targetBin >> $env:GITHUB_PATH
+          }
+          $clang = Join-Path $llvmRoot "bin/clang.exe"
+          $clangxx = Join-Path $llvmRoot "bin/clang++.exe"
+          & $clang --version
+          & $clangxx --version
+
+      - name: Build and run C hello world
+        shell: pwsh
+        run: |
+          $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
+          $clang = Join-Path $llvmRoot "bin/clang.exe"
+          New-Item -ItemType Directory -Force -Path smoke | Out-Null
+          @'
+          #include <stdio.h>
+
+          int main(void) {
+            puts("hello from clang c");
+            return 0;
+          }
+          '@ | Set-Content -Encoding ASCII smoke/hello.c
+          & $clang smoke/hello.c -o smoke/hello-c.exe
+          & ./smoke/hello-c.exe
+
+      - name: Build and run C++ hello world
+        shell: pwsh
+        run: |
+          $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
+          $clangxx = Join-Path $llvmRoot "bin/clang++.exe"
+          @'
+          #include <iostream>
+          #include <string>
+
+          int main() {
+            const std::string message = "hello from clang++ cxx";
+            std::cout << message << '\n';
+            return 0;
+          }
+          '@ | Set-Content -Encoding ASCII smoke/hello.cpp
+          & $clangxx smoke/hello.cpp -o smoke/hello-cxx.exe
+          & ./smoke/hello-cxx.exe
