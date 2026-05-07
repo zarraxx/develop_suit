@@ -58,9 +58,7 @@ require_command ninja
 [[ -d "$SYSROOT" ]] || die "missing target sysroot: ${SYSROOT}"
 [[ -d "$DEPS_USR" ]] || die "missing host deps /usr: ${DEPS_USR}"
 
-rm -rf "$BUILD_ROOT"
 mkdir -p "$SRC_ROOT" "$BUILD_TOOLS" "$OUT_DIR"
-find "$OUT_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
 echo "-- stage_osxcross custom container"
 echo "-- arch: ${ARCH}"

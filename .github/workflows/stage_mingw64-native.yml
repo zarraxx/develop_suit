@@ -367,7 +367,7 @@ jobs:
 
           rm -rf "${package_dir}"
           mkdir -p "${package_dir}/${archive_root}" artifacts
-          cp -a "stage-mingw64/build/out/mingw64-native/${{ env.NATIVE_LLVM_VERSION }}/." "${package_dir}/${archive_root}/"
+          cp -a "stage-mingw64/build/out/mingw64-native/llvm${{ env.NATIVE_LLVM_VERSION }}/." "${package_dir}/${archive_root}/"
           tar -C "${package_dir}" -cJf "artifacts/${archive_root}.tar.xz" "${archive_root}"
 
       - name: Upload native LLVM artifact

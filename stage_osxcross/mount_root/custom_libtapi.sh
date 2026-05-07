@@ -19,6 +19,7 @@ TAPI_DEP_INCLUDE="${BUILD_ROOT}/build/tapi-dep-include"
 [[ -f "${DEPS_USR}/include/zconf.h" ]] || die "missing stage_python zlib header: ${DEPS_USR}/include/zconf.h"
 [[ -d "${DEPS_USR}/include/libxml2" ]] || die "missing stage_python libxml2 headers"
 
+rm -rf "$TAPI_SRC" "$TAPI_NATIVE_BUILD" "$TAPI_BUILD"
 mkdir -p "$TAPI_NATIVE_BUILD" "$TAPI_BUILD" "${TAPI_DEP_INCLUDE}/zlib"
 ln -sf "${DEPS_USR}/include/zlib.h" "${TAPI_DEP_INCLUDE}/zlib/zlib.h"
 ln -sf "${DEPS_USR}/include/zconf.h" "${TAPI_DEP_INCLUDE}/zlib/zconf.h"

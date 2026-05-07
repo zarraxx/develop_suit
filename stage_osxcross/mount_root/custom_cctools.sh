@@ -20,9 +20,11 @@ OSXCROSS_TARGET_TRIPLE="${OSXCROSS_TARGET_ARCH}-apple-${OSXCROSS_TARGET}"
 [[ -f "${OUT_DIR}/lib/libtapi.so" ]] || die "missing libtapi library: ${OUT_DIR}/lib/libtapi.so"
 [[ -f "${OUT_DIR}/include/llvm-c/lto.h" ]] || die "missing libLTO header: ${OUT_DIR}/include/llvm-c/lto.h"
 [[ -f "${OUT_DIR}/lib/libLTO.so" ]] || die "missing libLTO library: ${OUT_DIR}/lib/libLTO.so"
+[[ -x "${OUT_DIR}/bin/llvm-config" ]] || die "missing llvm-config wrapper: ${OUT_DIR}/bin/llvm-config"
 [[ -f "${OUT_DIR}/include/xar/xar.h" ]] || die "missing xar headers: ${OUT_DIR}/include/xar/xar.h"
 [[ -f "${OUT_DIR}/lib/libxar.a" || -f "${OUT_DIR}/lib/libxar.so" ]] || die "missing xar library under ${OUT_DIR}/lib"
 
+rm -rf "$CCTOOLS_SRC" "$CCTOOLS_BUILD"
 mkdir -p "$CCTOOLS_BUILD"
 cp -a /work/upstream/cctools-port "$CCTOOLS_SRC"
 
@@ -35,26 +37,6 @@ TARGET_CPPFLAGS="-I${DEPS_USR}/include -I${DEPS_USR}/include/libxml2"
 TARGET_CFLAGS="--sysroot=${SYSROOT} -O2 -w ${TARGET_CPPFLAGS}"
 TARGET_CXXFLAGS="--sysroot=${SYSROOT} -O2 -w ${TARGET_CPPFLAGS}"
 TARGET_LDFLAGS="--sysroot=${SYSROOT} -L${OUT_DIR}/lib -L${DEPS_USR}/lib -L${DEPS_USR}/lib64 -Wl,-rpath-link,${OUT_DIR}/lib -Wl,-rpath-link,${DEPS_USR}/lib -Wl,-rpath-link,${DEPS_USR}/lib64 -Wl,-rpath-link,${SYSROOT}/usr/lib -Wl,-rpath-link,${SYSROOT}/usr/lib64 -Wl,-rpath-link,${SYSROOT}/lib -Wl,-rpath-link,${SYSROOT}/lib64"
-
-cat >"${BUILD_TOOLS}/llvm-config" <<EOF
-#!/usr/bin/env sh
-case "\$1" in
-  --includedir)
-    echo "${OUT_DIR}/include"
-    ;;
-  --libdir)
-    echo "${OUT_DIR}/lib"
-    ;;
-  --version)
-    echo "${LLVM_VERSION:-18.1.8}"
-    ;;
-  *)
-    echo "usage: llvm-config [--includedir|--libdir|--version]" >&2
-    exit 1
-    ;;
-esac
-EOF
-chmod +x "${BUILD_TOOLS}/llvm-config"
 
 cd "$CCTOOLS_BUILD"
 CC="$CC" \
@@ -73,7 +55,7 @@ LIBS="-lxml2 -lz -lm" \
   --build=x86_64-unknown-linux-gnu \
   --host="$TARGET_TRIPLE" \
   --target="$OSXCROSS_TARGET_TRIPLE" \
-  --with-llvm-config="${BUILD_TOOLS}/llvm-config" \
+  --with-llvm-config="${OUT_DIR}/bin/llvm-config" \
   --with-libtapi="$OUT_DIR" \
   --with-libxar="$OUT_DIR"
 

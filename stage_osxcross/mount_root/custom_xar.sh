@@ -12,6 +12,7 @@ XAR_BUILD="${BUILD_ROOT}/build/xar"
 
 [[ -d "/work/upstream/xar/xar" ]] || die "missing upstream xar source"
 
+rm -rf "$XAR_SRC" "$XAR_BUILD"
 mkdir -p "$XAR_BUILD"
 cp -a /work/upstream/xar "$XAR_SRC"
 
