@@ -3,7 +3,7 @@ name: stage_mingw64-native
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   MINGW64_IMAGE_TAG: llvm-with-mingw64-18.1.8
-  NATIVE_LLVM_VERSION: llvm18.1.8
+  NATIVE_LLVM_VERSION: 18.1.8
 
 on:
   workflow_dispatch:
@@ -131,6 +131,32 @@ jobs:
             --arch="${{ matrix.arch }}" \
             --push \
             --tag="${{ needs.resolve-meta.outputs.image_repo }}:${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}-${{ matrix.arch }}"
+
+  package-linux-release:
+    name: package-linux-release-${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+    needs:
+      - resolve-meta
+      - build-image
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - x86_64
+          - aarch64
+          - riscv64
+          - loongarch64
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pack Linux LLVM and mingw64 sysroot release archives
         env:
@@ -293,6 +319,106 @@ jobs:
             "${image_repo}:${image_temp_tag_prefix}-riscv64" \
             "${image_repo}:${image_temp_tag_prefix}-loongarch64"
 
+  build-native-llvm:
+    name: build-native-llvm
+    runs-on: ubuntu-24.04
+    needs:
+      - resolve-meta
+      - build-image
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-stage-mingw64-native-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-stage-mingw64-native-cache-
+            ${{ runner.os }}-stage-mingw64-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+
+      - name: Build Windows-native LLVM/Clang
+        run: |
+          bash ./stage-mingw64/build_mingw64_native.sh \
+            --clean \
+            --pull \
+            --jobs=4 \
+            --image="${{ needs.resolve-meta.outputs.image_repo }}:${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}-x86_64"
+
+      - name: Pack Windows-native LLVM/Clang
+        run: |
+          set -euo pipefail
+
+          archive_root="llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64--x86_64-w64-windows-gnu"
+          package_dir="artifacts/package-native"
+
+          rm -rf "${package_dir}"
+          mkdir -p "${package_dir}/${archive_root}" artifacts
+          cp -a "stage-mingw64/build/out/mingw64-native/${{ env.NATIVE_LLVM_VERSION }}/." "${package_dir}/${archive_root}/"
+          tar -C "${package_dir}" -cJf "artifacts/${archive_root}.tar.xz" "${archive_root}"
+
+      - name: Upload native LLVM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64
+          path: artifacts/llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64--x86_64-w64-windows-gnu.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-meta
+      - package-linux-release
+      - build-native-llvm
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd release-artifacts
+          sha256sum ./*.tar.xz > SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve-meta.outputs.release_tag }}
+          name: ${{ needs.resolve-meta.outputs.release_name }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: true
+          files: |
+            release-artifacts/*.tar.xz
+            release-artifacts/SHA256SUMS
+
+  cleanup-temp-image-tags:
+    name: cleanup-temp-image-tags
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-meta
+      - publish-image-manifest
+      - package-linux-release
+      - build-native-llvm
+
+    steps:
       - name: Delete temporary per-arch image tags
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -325,93 +451,3 @@ jobs:
             echo "Deleting temporary image tag ${tag} (version ${version_id})"
             gh api --method DELETE "${api_base}/versions/${version_id}"
           done
-
-  build-native-llvm:
-    name: build-native-llvm
-    runs-on: ubuntu-24.04
-    needs:
-      - resolve-meta
-      - publish-image-manifest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cache source archives
-        uses: actions/cache@v5
-        with:
-          path: cache
-          key: ${{ runner.os }}-stage-mingw64-native-cache-v1
-          restore-keys: |
-            ${{ runner.os }}-stage-mingw64-native-cache-
-            ${{ runner.os }}-stage-mingw64-cache-
-            ${{ runner.os }}-stage-llvm-cache-
-
-      - name: Build Windows-native LLVM/Clang
-        run: |
-          bash ./stage-mingw64/build_mingw64_native.sh \
-            --clean \
-            --pull \
-            --jobs=4 \
-            --image="${{ needs.resolve-meta.outputs.image_repo }}:${{ needs.resolve-meta.outputs.stable_tag }}"
-
-      - name: Pack Windows-native LLVM/Clang
-        run: |
-          set -euo pipefail
-
-          archive_root="llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64--x86_64-w64-windows-gnu"
-          package_dir="artifacts/package-native"
-
-          rm -rf "${package_dir}"
-          mkdir -p "${package_dir}/${archive_root}" artifacts
-          cp -a "stage-mingw64/build/out/mingw64-native/${{ env.NATIVE_LLVM_VERSION }}/." "${package_dir}/${archive_root}/"
-          tar -C "${package_dir}" -cJf "artifacts/${archive_root}.tar.xz" "${archive_root}"
-
-      - name: Upload native LLVM artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64
-          path: artifacts/llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64--x86_64-w64-windows-gnu.tar.xz
-          if-no-files-found: error
-          retention-days: 14
-
-  publish-release:
-    name: publish-release
-    runs-on: ubuntu-latest
-    needs:
-      - resolve-meta
-      - build-image
-      - build-native-llvm
-
-    steps:
-      - name: Download release artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: release-artifacts
-          merge-multiple: true
-
-      - name: Generate checksums
-        run: |
-          cd release-artifacts
-          sha256sum ./*.tar.xz > SHA256SUMS
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.resolve-meta.outputs.release_tag }}
-          name: ${{ needs.resolve-meta.outputs.release_name }}
-          prerelease: ${{ inputs.prerelease }}
-          generate_release_notes: true
-          files: |
-            release-artifacts/*.tar.xz
-            release-artifacts/SHA256SUMS

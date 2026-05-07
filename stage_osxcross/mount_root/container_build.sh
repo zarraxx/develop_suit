@@ -10,7 +10,7 @@ cd /build
 rm -rf * *.*
 ARCH=$(arch)
 
-export SDK_VERSION=13.3
+
 export TARGET_DIR=/opt/osxcross
 export LLVM_HOME=/opt/llvm-18.1.8
 
@@ -28,15 +28,10 @@ ln -s $LLVM_HOME/bin/llvm-size $LLVM_HOME/bin/size
 git clone https://github.com/tpoechtrager/osxcross.git
 cd osxcross
 cd tarballs
-
-
-curl -L -u "anonymous:${PASS}" \
-  "$MACOS_SDK_URL" \
-  -o MacOSX${SDK_VERSION}.sdk.tar.xz
-
-
+ln -s /cache/MacOSX${SDK_VERSION}.sdk.tar.xz MacOSX${SDK_VERSION}.sdk.tar.xz
+ls -la /cache
+ls -la
 file  MacOSX${SDK_VERSION}.sdk.tar.xz
-
 
 cd /build/osxcross
 
