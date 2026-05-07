@@ -181,6 +181,39 @@ jobs:
             "${image_repo}:${image_temp_tag_prefix}-riscv64" \
             "${image_repo}:${image_temp_tag_prefix}-loongarch64"
 
+      - name: Delete temporary per-arch image tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          package_name="$(printf '%s' "${repo_name}" | tr '[:upper:]' '[:lower:]')"
+          image_temp_tag_prefix="${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}"
+
+          api_base="/users/${owner_lc}/packages/container/${package_name}"
+          if ! gh api "${api_base}" >/dev/null 2>&1; then
+            api_base="/orgs/${owner_lc}/packages/container/${package_name}"
+            gh api "${api_base}" >/dev/null
+          fi
+
+          for arch in x86_64 aarch64 riscv64 loongarch64; do
+            tag="${image_temp_tag_prefix}-${arch}"
+            version_id="$(
+              gh api --paginate "${api_base}/versions?per_page=100" \
+                | jq -rs --arg tag "${tag}" 'flatten | map(select((.metadata.container.tags // []) as $tags | ($tags | length == 1) and ($tags[0] == $tag)) | .id) | first // empty'
+            )"
+
+            if [[ -z "${version_id}" ]]; then
+              echo "temporary image tag not found or not temp-only: ${tag}"
+              continue
+            fi
+
+            echo "Deleting temporary image tag ${tag} (version ${version_id})"
+            gh api --method DELETE "${api_base}/versions/${version_id}"
+          done
+
   publish-release:
     name: publish-release
     runs-on: ubuntu-latest

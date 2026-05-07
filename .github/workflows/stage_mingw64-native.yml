@@ -132,6 +132,134 @@ jobs:
             --push \
             --tag="${{ needs.resolve-meta.outputs.image_repo }}:${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}-${{ matrix.arch }}"
 
+      - name: Pack Linux LLVM and mingw64 sysroot release archives
+        env:
+          ARCH: ${{ matrix.arch }}
+          IMAGE_REF: ${{ needs.resolve-meta.outputs.image_repo }}:${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}-${{ matrix.arch }}
+          NATIVE_LLVM_VERSION: ${{ env.NATIVE_LLVM_VERSION }}
+        run: |
+          set -euo pipefail
+
+          case "${ARCH}" in
+            x86_64)
+              platform="linux/amd64"
+              ;;
+            aarch64)
+              platform="linux/arm64"
+              ;;
+            riscv64)
+              platform="linux/riscv64"
+              ;;
+            loongarch64)
+              platform="linux/loong64"
+              ;;
+            *)
+              echo "unsupported arch: ${ARCH}" >&2
+              exit 1
+              ;;
+          esac
+
+          llvm_version="${NATIVE_LLVM_VERSION#llvm}"
+          llvm_install_dir="llvm-${llvm_version}"
+          llvm_resource_version="${llvm_version%%.*}"
+          linux_llvm_root="llvm-${NATIVE_LLVM_VERSION}-${ARCH}-unknown-linux-gnu"
+          mingw_sysroot_root="mingw64-sysroot-${ARCH}-unknown-linux-gnu"
+          package_dir="artifacts/package-${ARCH}"
+          container_id=""
+
+          rm -rf "${package_dir}"
+          mkdir -p "${package_dir}/${linux_llvm_root}" "${package_dir}/${mingw_sysroot_root}" artifacts
+
+          docker pull --platform "${platform}" "${IMAGE_REF}"
+          container_id="$(docker create --platform "${platform}" "${IMAGE_REF}")"
+          trap 'if [[ -n "${container_id}" ]]; then docker rm -f "${container_id}" >/dev/null 2>&1 || true; fi' EXIT
+
+          docker cp "${container_id}:/opt/${llvm_install_dir}/." "${package_dir}/${linux_llvm_root}/"
+          docker cp "${container_id}:/opt/x86_64-w64-windows-gnu/." "${package_dir}/${mingw_sysroot_root}/"
+
+          cat >"${package_dir}/${linux_llvm_root}/bin/x86_64-w64-windows-gnu-clang-gcc.cfg" <<EOF
+          # Default Windows GNU cross configuration for x86_64-w64-windows-gnu.
+          --target=x86_64-w64-windows-gnu
+          --sysroot=<CFGDIR>/../../${mingw_sysroot_root}/sysroot
+          -resource-dir=<CFGDIR>/../lib/clang/${llvm_resource_version}
+          -B
+          <CFGDIR>/../../${mingw_sysroot_root}/bin
+          -isystem
+          <CFGDIR>/../../${mingw_sysroot_root}/sysroot/usr/x86_64-w64-windows-gnu/include
+          -L
+          <CFGDIR>/../../${mingw_sysroot_root}/sysroot/usr/x86_64-w64-windows-gnu/lib
+          -L
+          <CFGDIR>/../lib/clang/${llvm_resource_version}/lib/x86_64-w64-windows-gnu
+          -L
+          <CFGDIR>/../../${mingw_sysroot_root}/lib
+          --rtlib=compiler-rt
+          --unwindlib=libunwind
+          EOF
+
+          cat >"${package_dir}/${linux_llvm_root}/bin/x86_64-w64-windows-gnu-clang-g++.cfg" <<EOF
+          # Default Windows GNU cross configuration for x86_64-w64-windows-gnu.
+          --target=x86_64-w64-windows-gnu
+          --sysroot=<CFGDIR>/../../${mingw_sysroot_root}/sysroot
+          -resource-dir=<CFGDIR>/../lib/clang/${llvm_resource_version}
+          -B
+          <CFGDIR>/../../${mingw_sysroot_root}/bin
+          -stdlib=libc++
+          -isystem
+          <CFGDIR>/../../${mingw_sysroot_root}/include/c++/v1
+          -isystem
+          <CFGDIR>/../../${mingw_sysroot_root}/sysroot/usr/x86_64-w64-windows-gnu/include
+          -L
+          <CFGDIR>/../../${mingw_sysroot_root}/sysroot/usr/x86_64-w64-windows-gnu/lib
+          -L
+          <CFGDIR>/../lib/clang/${llvm_resource_version}/lib/x86_64-w64-windows-gnu
+          -L
+          <CFGDIR>/../../${mingw_sysroot_root}/lib
+          --rtlib=compiler-rt
+          --unwindlib=libunwind
+          EOF
+
+          tar -C "${package_dir}" -cJf "artifacts/${linux_llvm_root}.tar.xz" "${linux_llvm_root}"
+          tar -C "${package_dir}" -cJf "artifacts/${mingw_sysroot_root}.tar.xz" "${mingw_sysroot_root}"
+
+      - name: Pack Linux sysroot release archive
+        if: ${{ matrix.arch == 'x86_64' }}
+        env:
+          IMAGE_REF: ${{ needs.resolve-meta.outputs.image_repo }}:${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}-${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+
+          package_dir="artifacts/package-linux-sysroot"
+          container_id=""
+
+          rm -rf "${package_dir}"
+          mkdir -p "${package_dir}/linux-sysroot" artifacts
+
+          docker pull --platform linux/amd64 "${IMAGE_REF}"
+          container_id="$(docker create --platform linux/amd64 "${IMAGE_REF}")"
+          trap 'if [[ -n "${container_id}" ]]; then docker rm -f "${container_id}" >/dev/null 2>&1 || true; fi' EXIT
+
+          docker cp "${container_id}:/opt/sysroot/." "${package_dir}/linux-sysroot/"
+          tar -C "${package_dir}" -cJf "artifacts/linux-sysroot.tar.xz" linux-sysroot
+
+      - name: Upload Linux LLVM and mingw64 sysroot artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: stage-mingw64-release-${{ matrix.arch }}
+          path: |
+            artifacts/llvm-${{ env.NATIVE_LLVM_VERSION }}-${{ matrix.arch }}-unknown-linux-gnu.tar.xz
+            artifacts/mingw64-sysroot-${{ matrix.arch }}-unknown-linux-gnu.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Linux sysroot artifact
+        if: ${{ matrix.arch == 'x86_64' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-sysroot
+          path: artifacts/linux-sysroot.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
   publish-image-manifest:
     name: publish-image-manifest
     runs-on: ubuntu-latest
@@ -164,6 +292,39 @@ jobs:
             "${image_repo}:${image_temp_tag_prefix}-aarch64" \
             "${image_repo}:${image_temp_tag_prefix}-riscv64" \
             "${image_repo}:${image_temp_tag_prefix}-loongarch64"
+
+      - name: Delete temporary per-arch image tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          package_name="$(printf '%s' "${repo_name}" | tr '[:upper:]' '[:lower:]')"
+          image_temp_tag_prefix="${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}"
+
+          api_base="/users/${owner_lc}/packages/container/${package_name}"
+          if ! gh api "${api_base}" >/dev/null 2>&1; then
+            api_base="/orgs/${owner_lc}/packages/container/${package_name}"
+            gh api "${api_base}" >/dev/null
+          fi
+
+          for arch in x86_64 aarch64 riscv64 loongarch64; do
+            tag="${image_temp_tag_prefix}-${arch}"
+            version_id="$(
+              gh api --paginate "${api_base}/versions?per_page=100" \
+                | jq -rs --arg tag "${tag}" 'flatten | map(select((.metadata.container.tags // []) as $tags | ($tags | length == 1) and ($tags[0] == $tag)) | .id) | first // empty'
+            )"
+
+            if [[ -z "${version_id}" ]]; then
+              echo "temporary image tag not found or not temp-only: ${tag}"
+              continue
+            fi
+
+            echo "Deleting temporary image tag ${tag} (version ${version_id})"
+            gh api --method DELETE "${api_base}/versions/${version_id}"
+          done
 
   build-native-llvm:
     name: build-native-llvm
@@ -206,16 +367,21 @@ jobs:
 
       - name: Pack Windows-native LLVM/Clang
         run: |
-          mkdir -p artifacts
-          tar -C stage-mingw64/build/out/mingw64-native \
-            -cJf "artifacts/stage-mingw64-native-${{ env.NATIVE_LLVM_VERSION }}-x86_64-w64-windows-gnu.tar.xz" \
-            "${{ env.NATIVE_LLVM_VERSION }}"
+          set -euo pipefail
+
+          archive_root="llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64--x86_64-w64-windows-gnu"
+          package_dir="artifacts/package-native"
+
+          rm -rf "${package_dir}"
+          mkdir -p "${package_dir}/${archive_root}" artifacts
+          cp -a "stage-mingw64/build/out/mingw64-native/${{ env.NATIVE_LLVM_VERSION }}/." "${package_dir}/${archive_root}/"
+          tar -C "${package_dir}" -cJf "artifacts/${archive_root}.tar.xz" "${archive_root}"
 
       - name: Upload native LLVM artifact
         uses: actions/upload-artifact@v7
         with:
-          name: stage-mingw64-native-${{ env.NATIVE_LLVM_VERSION }}
-          path: artifacts/stage-mingw64-native-${{ env.NATIVE_LLVM_VERSION }}-x86_64-w64-windows-gnu.tar.xz
+          name: llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64
+          path: artifacts/llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64--x86_64-w64-windows-gnu.tar.xz
           if-no-files-found: error
           retention-days: 14
 
@@ -224,10 +390,11 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - resolve-meta
+      - build-image
       - build-native-llvm
 
     steps:
-      - name: Download native LLVM artifact
+      - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
           path: release-artifacts

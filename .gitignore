@@ -1,5 +1,6 @@
 *.o
 *.tmp
+tmp/
 cache/
 prebuild/
 dist/
@@ -12,5 +13,7 @@ stage_python/build/
 stage_llvm/build/
 stage_tools/build/
 stage-mingw64/build/
+stage_osxcross/build/
 .opencode/
 .qqbot/
+.env

@@ -217,6 +217,7 @@ write_builder_wrapper() {
   local final_root="$4"
   local resource_root="$5"
   local cxx_mode="$6"
+  local rtlib="${7:-libgcc}"
 
   cat >"$wrapper" <<EOF
 #!/usr/bin/env bash
@@ -232,7 +233,7 @@ exec "${compiler}" \\
   -L "${final_root}/sysroot/usr/${TARGET_TRIPLE}/lib" \\
   -L "${final_root}/sysroot/lib" \\
   -L "${seed_root}/lib/gcc/${TARGET_TRIPLE}/${GCC_VERSION}" \\
-  --rtlib=libgcc \\
+  --rtlib=${rtlib} \\
 EOF
 
   if [[ "$cxx_mode" == 1 ]]; then
@@ -268,7 +269,6 @@ exec "${compiler}" \\
   -B "${final_root}/bin" \\
   -isystem "${final_root}/sysroot/usr/${TARGET_TRIPLE}/include" \\
   -L "${runtime_lib_dir}" \\
-  -L "${final_root}/lib/${TARGET_TRIPLE}" \\
   -L "${final_root}/lib" \\
   -L "${final_root}/sysroot/${TARGET_TRIPLE}/lib" \\
   -L "${final_root}/sysroot/usr/${TARGET_TRIPLE}/lib" \\
@@ -278,7 +278,6 @@ EOF
 
   if [[ "$cxx_mode" == 1 ]]; then
     cat >>"$wrapper" <<EOF
-  -isystem "${final_root}/include/${TARGET_TRIPLE}/c++/v1" \\
   -isystem "${final_root}/include/c++/v1" \\
   -stdlib=libc++ \\
 EOF
@@ -415,9 +414,9 @@ build_compiler_rt_full() {
     -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
     -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-    -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld -L${runtime_lib_dir} -L${final_root}/lib/${TARGET_TRIPLE} -L${final_root}/lib" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld -L${runtime_lib_dir} -L${final_root}/lib/${TARGET_TRIPLE} -L${final_root}/lib" \
-    -DCMAKE_MODULE_LINKER_FLAGS="-fuse-ld=lld -L${runtime_lib_dir} -L${final_root}/lib/${TARGET_TRIPLE} -L${final_root}/lib" \
+    -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld -L${runtime_lib_dir} -L${final_root}/lib" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld -L${runtime_lib_dir} -L${final_root}/lib" \
+    -DCMAKE_MODULE_LINKER_FLAGS="-fuse-ld=lld -L${runtime_lib_dir} -L${final_root}/lib" \
     -DLLVM_PATH="${llvm_source_root}/llvm" \
     -DLLVM_DEFAULT_TARGET_TRIPLE="${TARGET_TRIPLE}" \
     -DLLVM_INCLUDE_TESTS=OFF \
@@ -464,8 +463,8 @@ build_cxx_runtimes() {
   rm -rf "$build_dir"
   mkdir -p "$wrappers" "$build_dir" "$runtime_lib_dir"
   ensure_output_resource_headers "$output_llvm_root"
-  write_builder_wrapper "${wrappers}/clang" "/opt/llvm-${LLVM_VERSION}/bin/clang" "$seed_root" "$final_root" "$resource_root" 0
-  write_builder_wrapper "${wrappers}/clang++" "/opt/llvm-${LLVM_VERSION}/bin/clang++" "$seed_root" "$final_root" "$resource_root" 1
+  write_builder_wrapper "${wrappers}/clang" "/opt/llvm-${LLVM_VERSION}/bin/clang" "$seed_root" "$final_root" "$resource_root" 0 compiler-rt
+  write_builder_wrapper "${wrappers}/clang++" "/opt/llvm-${LLVM_VERSION}/bin/clang++" "$seed_root" "$final_root" "$resource_root" 1 compiler-rt
 
   log "Configuring libunwind/libc++abi/libc++ for ${TARGET_TRIPLE}"
   configure_cmake "${llvm_source_root}/runtimes" "$build_dir" \
@@ -499,24 +498,38 @@ build_cxx_runtimes() {
     -DLLVM_DEFAULT_TARGET_TRIPLE="${TARGET_TRIPLE}" \
     -DLLVM_INCLUDE_TESTS=OFF \
     -DLLVM_INCLUDE_DOCS=OFF \
-    -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \
+    -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF \
     -DLLVM_ENABLE_RUNTIMES="libunwind;libcxxabi;libcxx" \
     -DLIBUNWIND_INCLUDE_TESTS=OFF \
-    -DLIBUNWIND_ENABLE_SHARED=OFF \
+    -DLIBUNWIND_ENABLE_SHARED=ON \
     -DLIBUNWIND_ENABLE_STATIC=ON \
     -DLIBUNWIND_USE_COMPILER_RT=ON \
+    -DLIBUNWIND_HAS_C_LIB=OFF \
+    -DLIBUNWIND_HAS_DL_LIB=OFF \
+    -DLIBUNWIND_HAS_GCC_LIB=OFF \
+    -DLIBUNWIND_HAS_GCC_S_LIB=OFF \
+    -DLIBUNWIND_HAS_PTHREAD_LIB=OFF \
     -DLIBCXXABI_INCLUDE_TESTS=OFF \
     -DLIBCXXABI_ENABLE_SHARED=OFF \
     -DLIBCXXABI_ENABLE_STATIC=ON \
     -DLIBCXXABI_USE_COMPILER_RT=ON \
     -DLIBCXXABI_USE_LLVM_UNWINDER=ON \
+    -DLIBCXXABI_HAS_C_LIB=OFF \
+    -DLIBCXXABI_HAS_DL_LIB=OFF \
+    -DLIBCXXABI_HAS_GCC_LIB=OFF \
+    -DLIBCXXABI_HAS_GCC_S_LIB=OFF \
+    -DLIBCXXABI_HAS_PTHREAD_LIB=OFF \
     -DLIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL=OFF \
     -DLIBCXX_INCLUDE_TESTS=OFF \
     -DLIBCXX_INCLUDE_BENCHMARKS=OFF \
-    -DLIBCXX_ENABLE_SHARED=OFF \
+    -DLIBCXX_ENABLE_SHARED=ON \
     -DLIBCXX_ENABLE_STATIC=ON \
     -DLIBCXX_ENABLE_STATIC_ABI_LIBRARY=ON \
     -DLIBCXX_CXX_ABI=libcxxabi \
+    -DLIBCXX_HAS_GCC_LIB=OFF \
+    -DLIBCXX_HAS_GCC_S_LIB=OFF \
+    -DLIBCXX_HAS_PTHREAD_LIB=OFF \
+    -DLIBCXX_HAS_RT_LIB=OFF \
     -DLIBCXX_USE_COMPILER_RT=ON
 
   log "Building libunwind/libc++abi/libc++ for ${TARGET_TRIPLE}"
@@ -540,8 +553,6 @@ EOF
     cat >>"$cfg_path" <<EOF
 -stdlib=libc++
 -isystem
-<CFGDIR>/../../${TARGET_TRIPLE}/include/${TARGET_TRIPLE}/c++/v1
--isystem
 <CFGDIR>/../../${TARGET_TRIPLE}/include/c++/v1
 EOF
   fi
@@ -553,8 +564,6 @@ EOF
 <CFGDIR>/../../${TARGET_TRIPLE}/sysroot/usr/${TARGET_TRIPLE}/lib
 -L
 <CFGDIR>/../lib/clang/${LLVM_RESOURCE_VERSION}/lib/${TARGET_TRIPLE}
--L
-<CFGDIR>/../../${TARGET_TRIPLE}/lib/${TARGET_TRIPLE}
 -L
 <CFGDIR>/../../${TARGET_TRIPLE}/lib
 --rtlib=compiler-rt

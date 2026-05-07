@@ -43,8 +43,10 @@ jobs:
             throw "No stage-mingw64-native release tag found"
           }
 
-          $archiveName = "stage-mingw64-native-$env:NATIVE_LLVM_VERSION-x86_64-w64-windows-gnu.tar.xz"
+          $archiveRoot = "llvm-$($env:NATIVE_LLVM_VERSION)-mingw64--x86_64-w64-windows-gnu"
+          $archiveName = "$archiveRoot.tar.xz"
           "release_tag=$releaseTag" >> $env:GITHUB_OUTPUT
+          "archive_root=$archiveRoot" >> $env:GITHUB_OUTPUT
           "archive_name=$archiveName" >> $env:GITHUB_OUTPUT
 
       - name: Download Windows-native LLVM release archive
@@ -71,7 +73,7 @@ jobs:
       - name: Show clang versions
         shell: pwsh
         run: |
-          $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
+          $llvmRoot = Join-Path $PWD "native-llvm/${{ steps.meta.outputs.archive_root }}"
           $targetBin = Join-Path $llvmRoot "x86_64-w64-windows-gnu/bin"
           (Join-Path $llvmRoot "bin") >> $env:GITHUB_PATH
           if (Test-Path $targetBin) {
@@ -85,7 +87,7 @@ jobs:
       - name: Diagnose clang++ cfg variants
         shell: pwsh
         run: |
-          $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
+          $llvmRoot = Join-Path $PWD "native-llvm/${{ steps.meta.outputs.archive_root }}"
           $cfg = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.cfg"
           $clangxx = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.exe"
           New-Item -ItemType Directory -Force -Path smoke | Out-Null
@@ -233,7 +235,7 @@ jobs:
       - name: Build and run C hello world
         shell: pwsh
         run: |
-          $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
+          $llvmRoot = Join-Path $PWD "native-llvm/${{ steps.meta.outputs.archive_root }}"
           $clang = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-gcc.exe"
           New-Item -ItemType Directory -Force -Path smoke | Out-Null
           @'
@@ -251,7 +253,7 @@ jobs:
       - name: Build and run C++ hello world
         shell: pwsh
         run: |
-          $llvmRoot = Join-Path $PWD "native-llvm/${{ env.NATIVE_LLVM_VERSION }}"
+          $llvmRoot = Join-Path $PWD "native-llvm/${{ steps.meta.outputs.archive_root }}"
           $clangxx = Join-Path $llvmRoot "bin/x86_64-w64-windows-gnu-clang-g++.exe"
           @'
           #include <iostream>

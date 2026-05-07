@@ -115,6 +115,9 @@ build_native_cmake_package() {
     -DCMAKE_INSTALL_PREFIX="$DEPS_PREFIX" \
     -DCMAKE_C_COMPILER="/opt/llvm-${LLVM_VERSION}/bin/${TARGET_TRIPLE}-clang-gcc" \
     -DCMAKE_CXX_COMPILER="/opt/llvm-${LLVM_VERSION}/bin/${TARGET_TRIPLE}-clang-g++" \
+    -DCMAKE_C_COMPILER_TARGET="${TARGET_TRIPLE}" \
+    -DCMAKE_CXX_COMPILER_TARGET="${TARGET_TRIPLE}" \
+    -DCMAKE_ASM_COMPILER_TARGET="${TARGET_TRIPLE}" \
     -DCMAKE_RC_COMPILER="/opt/llvm-${LLVM_VERSION}/bin/llvm-rc" \
     -DCMAKE_AR="/opt/llvm-${LLVM_VERSION}/bin/llvm-ar" \
     -DCMAKE_NM="/opt/llvm-${LLVM_VERSION}/bin/llvm-nm" \
@@ -182,6 +185,14 @@ copy_tree_contents() {
   cp -a "${source_dir}/." "$dest_dir/"
 }
 
+copy_tree_contents_if_exists() {
+  local source_dir="$1"
+  local dest_dir="$2"
+
+  [[ -d "$source_dir" ]] || return 0
+  copy_tree_contents "$source_dir" "$dest_dir"
+}
+
 copy_runtime_dlls_to_bin() {
   local source_dir="$1"
   local dest_bin="$2"
@@ -209,53 +220,15 @@ copy_dependency_dlls_to_bin() {
   find "$deps_prefix" -type f -name '*.dll' -exec cp -f {} "$dest_bin/" \;
 }
 
-ensure_final_sysroot_aliases() {
-  local sysroot="$1"
-  local target_root="usr/${TARGET_TRIPLE}"
-  local mingw_alias="x86_64-w64-mingw32"
-
-  [[ -d "${sysroot}/${target_root}/include" ]] || die "missing final sysroot include dir"
-  [[ -d "${sysroot}/${target_root}/lib" ]] || die "missing final sysroot lib dir"
-
-  mkdir -p "${sysroot}/${TARGET_TRIPLE}" "${sysroot}/${mingw_alias}"
-  ln -sfn "../${target_root}/include" "${sysroot}/${TARGET_TRIPLE}/include"
-  ln -sfn "../${target_root}/lib" "${sysroot}/${TARGET_TRIPLE}/lib"
-  ln -sfn "../${target_root}/include" "${sysroot}/${mingw_alias}/include"
-  ln -sfn "../${target_root}/lib" "${sysroot}/${mingw_alias}/lib"
-  ln -sfn "${target_root}" "${sysroot}/mingw"
-}
-
 write_clang_cfg() {
   local cfg_path="$1"
-  local add_cxx="$2"
+  local _add_cxx="$2"
 
   cat >"$cfg_path" <<EOF
-# Default relocatable Windows GNU configuration for ${TARGET_TRIPLE}.
+# Default Windows GNU target selection for ${TARGET_TRIPLE}.
 --target=${TARGET_TRIPLE}
--resource-dir=<CFGDIR>/../lib/clang/${LLVM_MAJOR_VERSION}
 -B
 <CFGDIR>
-EOF
-
-  if [[ "$add_cxx" == 1 ]]; then
-    cat >>"$cfg_path" <<EOF
--stdlib=libc++
--isystem
-<CFGDIR>/../include/c++/v1
-EOF
-  fi
-
-  cat >>"$cfg_path" <<EOF
--isystem
-<CFGDIR>/../sysroot/usr/${TARGET_TRIPLE}/include
--L
-<CFGDIR>/../sysroot/usr/${TARGET_TRIPLE}/lib
--L
-<CFGDIR>/../lib/clang/${LLVM_MAJOR_VERSION}/lib/${TARGET_TRIPLE}
--L
-<CFGDIR>/../lib/${TARGET_TRIPLE}
---rtlib=compiler-rt
---unwindlib=libunwind
 EOF
 }
 
@@ -272,8 +245,8 @@ set(CMAKE_C_COMPILER "\${_toolchain_dir}/bin/${TARGET_TRIPLE}-clang-gcc.exe")
 set(CMAKE_CXX_COMPILER "\${_toolchain_dir}/bin/${TARGET_TRIPLE}-clang-g++.exe")
 set(CMAKE_RC_COMPILER "\${_toolchain_dir}/bin/llvm-rc.exe")
 
-set(CMAKE_SYSROOT "\${_toolchain_dir}/sysroot")
-set(CMAKE_FIND_ROOT_PATH "\${_toolchain_dir}/sysroot" "\${_toolchain_dir}")
+set(CMAKE_SYSROOT "\${_toolchain_dir}")
+set(CMAKE_FIND_ROOT_PATH "\${_toolchain_dir}")
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
@@ -285,10 +258,15 @@ prepare_native_layout() {
   local final_root="$1"
   local source_target_root="/opt/${TARGET_TRIPLE}"
   local source_llvm_root="/opt/llvm-${LLVM_VERSION}"
+  local source_sysroot_target="${source_target_root}/sysroot/usr/${TARGET_TRIPLE}"
+  local source_target_runtime_lib_dir="${source_target_root}/lib/${TARGET_TRIPLE}"
+  local builtins_source="${source_llvm_root}/lib/clang/${LLVM_MAJOR_VERSION}/lib/${TARGET_TRIPLE}/libclang_rt.builtins.a"
+  local builtins_dest="${final_root}/lib/clang/${LLVM_MAJOR_VERSION}/lib/windows/libclang_rt.builtins-x86_64.a"
 
   [[ -d "${source_target_root}/sysroot" ]] || die "missing stage-mingw64 sysroot: ${source_target_root}/sysroot"
+  [[ -d "${source_sysroot_target}/include" ]] || die "missing stage-mingw64 CRT include dir: ${source_sysroot_target}/include"
+  [[ -d "${source_sysroot_target}/lib" ]] || die "missing stage-mingw64 CRT lib dir: ${source_sysroot_target}/lib"
   [[ -d "${source_target_root}/include/c++/v1" ]] || die "missing stage-mingw64 libc++ headers"
-  [[ -d "${source_target_root}/lib/${TARGET_TRIPLE}" ]] || die "missing stage-mingw64 libc++ libraries"
   [[ -d "${source_llvm_root}/lib/clang/${LLVM_MAJOR_VERSION}" ]] || die "missing clang resource dir"
 
   rm -rf "$final_root"
@@ -296,13 +274,19 @@ prepare_native_layout() {
     "${final_root}/bin" \
     "${final_root}/include" \
     "${final_root}/lib" \
-    "${final_root}/lib/clang/${LLVM_MAJOR_VERSION}/lib"
+    "${final_root}/lib/clang/${LLVM_MAJOR_VERSION}/lib/windows"
 
-  copy_tree_contents "${source_target_root}/sysroot" "${final_root}/sysroot"
+  copy_tree_contents "${source_sysroot_target}/include" "${final_root}/include"
+  copy_tree_contents "${source_sysroot_target}/lib" "${final_root}/lib"
   copy_tree_contents "${source_target_root}/include" "${final_root}/include"
-  copy_tree_contents "${source_target_root}/lib/${TARGET_TRIPLE}" "${final_root}/lib/${TARGET_TRIPLE}"
+  copy_tree_contents "${source_target_root}/lib" "${final_root}/lib"
+  rm -rf "${final_root}/lib/bfd-plugins"
+  copy_tree_contents_if_exists "${source_target_runtime_lib_dir}" "${final_root}/lib"
   copy_tree_contents "${source_llvm_root}/lib/clang/${LLVM_MAJOR_VERSION}" "${final_root}/lib/clang/${LLVM_MAJOR_VERSION}"
-  ensure_final_sysroot_aliases "${final_root}/sysroot"
+
+  if [[ -f "$builtins_source" ]]; then
+    cp -f "$builtins_source" "$builtins_dest"
+  fi
 
   copy_runtime_dlls_to_bin "${source_target_root}/bin" "${final_root}/bin"
   copy_runtime_dlls_to_bin "${source_target_root}/sysroot" "${final_root}/bin"
@@ -328,9 +312,11 @@ install_libcxx_config_site() {
   local config_site="${final_root}/include/${TARGET_TRIPLE}/c++/v1/__config_site"
   local generic_include="${final_root}/include/c++/v1"
 
-  [[ -f "$config_site" ]] || die "missing libc++ __config_site: ${config_site}"
   [[ -d "$generic_include" ]] || die "missing libc++ include dir: ${generic_include}"
-  cp -f "$config_site" "${generic_include}/__config_site"
+  if [[ -f "$config_site" ]]; then
+    cp -f "$config_site" "${generic_include}/__config_site"
+  fi
+  [[ -f "${generic_include}/__config_site" ]] || die "missing libc++ __config_site"
 }
 
 assert_no_mingw_c_headers_in_libcxx_include() {
@@ -443,9 +429,12 @@ cmake -S "${LLVM_SOURCE_ROOT}/llvm" -B "$LLVM_BUILD_DIR" -G Ninja \
   -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
   -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
   -DCMAKE_INSTALL_PREFIX="$FINAL_ROOT" \
-  -DCMAKE_C_COMPILER="/opt/llvm-${LLVM_VERSION}/bin/${TARGET_TRIPLE}-clang-gcc" \
-  -DCMAKE_CXX_COMPILER="/opt/llvm-${LLVM_VERSION}/bin/${TARGET_TRIPLE}-clang-g++" \
-  -DCMAKE_ASM_COMPILER="/opt/llvm-${LLVM_VERSION}/bin/${TARGET_TRIPLE}-clang-gcc" \
+  -DCMAKE_C_COMPILER="/opt/llvm-${LLVM_VERSION}/bin/clang" \
+  -DCMAKE_CXX_COMPILER="/opt/llvm-${LLVM_VERSION}/bin/clang++" \
+  -DCMAKE_C_COMPILER_TARGET="${TARGET_TRIPLE}" \
+  -DCMAKE_CXX_COMPILER_TARGET="${TARGET_TRIPLE}" \
+  -DCMAKE_ASM_COMPILER_TARGET="${TARGET_TRIPLE}" \
+  -DCMAKE_ASM_COMPILER="/opt/llvm-${LLVM_VERSION}/bin/clang" \
   -DCMAKE_RC_COMPILER="/opt/llvm-${LLVM_VERSION}/bin/llvm-rc" \
   -DCMAKE_AR="/opt/llvm-${LLVM_VERSION}/bin/llvm-ar" \
   -DCMAKE_NM="/opt/llvm-${LLVM_VERSION}/bin/llvm-nm" \
@@ -454,12 +443,13 @@ cmake -S "${LLVM_SOURCE_ROOT}/llvm" -B "$LLVM_BUILD_DIR" -G Ninja \
   -DCMAKE_STRIP="/opt/llvm-${LLVM_VERSION}/bin/llvm-strip" \
   -DCMAKE_LINKER="/opt/llvm-${LLVM_VERSION}/bin/ld.lld" \
   -DCMAKE_DLLTOOL="/opt/llvm-${LLVM_VERSION}/bin/llvm-dlltool" \
-  -DCMAKE_SYSROOT="/opt/${TARGET_TRIPLE}/sysroot" \
-  "-DCMAKE_FIND_ROOT_PATH=${DEPS_PREFIX};/opt/${TARGET_TRIPLE}/sysroot;/opt/${TARGET_TRIPLE};/opt/llvm-${LLVM_VERSION}" \
+  -DCMAKE_SYSROOT="$FINAL_ROOT" \
+  "-DCMAKE_FIND_ROOT_PATH=${DEPS_PREFIX};${FINAL_ROOT};/opt/${TARGET_TRIPLE};/opt/llvm-${LLVM_VERSION}" \
   -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
   -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
   -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
   -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+  -DCMAKE_SYSTEM_IGNORE_PATH=/usr/lib \
   "-DCMAKE_PREFIX_PATH=${DEPS_PREFIX}" \
   -DLLVM_ENABLE_PROJECTS=clang\;clang-tools-extra\;lld \
   -DLLVM_TARGETS_TO_BUILD=X86\;AArch64\;RISCV \
@@ -467,12 +457,18 @@ cmake -S "${LLVM_SOURCE_ROOT}/llvm" -B "$LLVM_BUILD_DIR" -G Ninja \
   -DLLVM_HOST_TRIPLE="${TARGET_TRIPLE}" \
   -DLLVM_TARGET_ARCH=X86 \
   -DLLVM_DEFAULT_TARGET_TRIPLE="${TARGET_TRIPLE}" \
-  -DDEFAULT_SYSROOT="../sysroot" \
   "-DLLVM_NATIVE_TOOL_DIR=/opt/llvm-${LLVM_VERSION}/bin" \
+  "-DLLVM_TABLEGEN=/opt/llvm-${LLVM_VERSION}/bin/llvm-tblgen" \
+  "-DCLANG_TABLEGEN=/opt/llvm-${LLVM_VERSION}/bin/clang-tblgen" \
+  "-DLLVM_NM=/opt/llvm-${LLVM_VERSION}/bin/llvm-nm" \
+  "-DLLVM_READOBJ=/opt/llvm-${LLVM_VERSION}/bin/llvm-readobj" \
+  "-DLLVM_CONFIG_PATH=/opt/llvm-${LLVM_VERSION}/bin/llvm-config" \
   -DLLVM_INCLUDE_TESTS=OFF \
   -DLLVM_INCLUDE_EXAMPLES=OFF \
   -DLLVM_INCLUDE_DOCS=OFF \
   -DLLVM_INSTALL_UTILS=ON \
+  -DLLVM_BUILD_STATIC=OFF \
+  -DLLVM_ENABLE_THREADS=ON \
   -DLLVM_ENABLE_TERMINFO=OFF \
   -DLLVM_ENABLE_LIBXML2=ON \
   -DLLVM_ENABLE_ZLIB=ON \
@@ -491,6 +487,7 @@ cmake -S "${LLVM_SOURCE_ROOT}/llvm" -B "$LLVM_BUILD_DIR" -G Ninja \
   -DLLVM_BUILD_LLVM_DYLIB=ON \
   -DLLVM_LINK_LLVM_DYLIB=ON \
   -DCLANG_LINK_CLANG_DYLIB=ON \
+  -DLLD_DEFAULT_LD_LLD_IS_MINGW=ON \
   -DCLANG_DEFAULT_LINKER=lld \
   -DCLANG_DEFAULT_CXX_STDLIB=libc++ \
   -DCLANG_DEFAULT_RTLIB=compiler-rt \
@@ -520,12 +517,12 @@ LLVM version: ${LLVM_VERSION}
 
 Layout:
   bin/       Windows .exe tools and required .dll runtime libraries
-  sysroot/   MinGW64 sysroot embedded as clang's default ../sysroot
-  lib/       clang resource files and static target runtimes
-  include/   libc++/libunwind headers
+  include/   MinGW CRT headers and libc++/libunwind headers
+  lib/       MinGW CRT objects/import libraries, clang resource files, and runtimes
 
-The clang default sysroot is built as a relative ../sysroot path, so the whole
-llvm18.1.8 directory can be copied to another machine.
+The directory itself is the Windows GNU sysroot, matching the MSYS2 clang64
+prefix layout. Clang derives include and library paths from its installed
+bin/ directory instead of relying on an embedded DEFAULT_SYSROOT.
 EOF
 
 log "stage-mingw64 native Windows build ok: ${FINAL_ROOT}"
