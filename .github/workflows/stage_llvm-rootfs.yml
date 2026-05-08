@@ -116,39 +116,39 @@ jobs:
 
       - name: Prepare host tools
         run: |
-          bash ./stage1/prepare.sh
+          bash ./stages/stage1/prepare.sh
 
       - name: Build stage0 rootfs
         run: |
-          bash ./stage0/build.sh \
+          bash ./stages/stage0/build.sh \
             --arch="${{ matrix.arch }}" \
             --clean \
             --jobs=4
 
       - name: Build stage1 rootfs
         run: |
-          bash ./stage1/build.sh \
+          bash ./stages/stage1/build.sh \
             --arch="${{ matrix.arch }}" \
             --clean \
             --jobs=4
 
       - name: Build stage_python rootfs
         run: |
-          bash ./stage_python/build.sh \
+          bash ./stages/stage_python/build.sh \
             --arch="${{ matrix.arch }}" \
             --clean \
             --jobs=4
 
       - name: Build stage_llvm rootfs
         run: |
-          bash ./stage_llvm/build.sh \
+          bash ./stages/stage_llvm/build.sh \
             --arch="${{ matrix.arch }}" \
             --clean \
             --jobs=4
 
       - name: Build, test, and push stage_llvm Docker image
         run: |
-          bash ./stage_llvm/image.sh \
+          bash ./stages/stage_llvm/image.sh \
             --arch="${{ matrix.arch }}" \
             --push \
             --tag="${{ needs.resolve-meta.outputs.image_repo }}:${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}-${{ matrix.arch }}"

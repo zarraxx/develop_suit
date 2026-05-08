@@ -1,0 +1,14 @@
+LLVM SDK @LLVM_VERSION@
+
+Target triple: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+
+This SDK intentionally builds LLVM without clang, lld, or clang-tools-extra.
+It includes LLVM headers, LLVM tools, libLLVM, libLTO, and the external
+dependency prefix used to build them.
+
+LLVM target backends:
+  @LLVM_TARGETS@
+
+LLVM experimental target backends:
+  @LLVM_EXPERIMENTAL_TARGETS@

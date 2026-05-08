@@ -1,0 +1,16 @@
+LLVM SDK dependency prefix.
+
+Target triple: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+
+Included dependency sources:
+  zlib @ZLIB_VERSION@
+  zstd @ZSTD_VERSION@
+  libiconv @LIBICONV_VERSION@
+  libxml2 @LIBXML2_VERSION@
+  pcre2 @PCRE2_VERSION@
+  ncurses @NCURSES_VERSION@
+  readline @READLINE_VERSION@
+  libffi @LIBFFI_VERSION@
+  gettext @GETTEXT_VERSION@
+  openssl @OPENSSL_VERSION@

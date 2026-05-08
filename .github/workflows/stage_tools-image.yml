@@ -90,7 +90,7 @@ jobs:
 
       - name: Build stage_tools rootfs overlay
         run: |
-          bash ./stage_tools/build.sh \
+          bash ./stages/stage_tools/build.sh \
             --arch="${{ matrix.arch }}" \
             --clean \
             --pull \
@@ -98,7 +98,7 @@ jobs:
 
       - name: Build, test, and push stage_tools Docker image
         run: |
-          bash ./stage_tools/image.sh \
+          bash ./stages/stage_tools/image.sh \
             --arch="${{ matrix.arch }}" \
             --push \
             --tag="${{ needs.resolve-meta.outputs.image_repo }}:${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}-${{ matrix.arch }}"

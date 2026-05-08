@@ -43,7 +43,7 @@ jobs:
             throw "No stage-mingw64-native release tag found"
           }
 
-          $archiveRoot = "llvm-$($env:NATIVE_LLVM_VERSION)-mingw64--x86_64-w64-windows-gnu"
+          $archiveRoot = "llvm-$($env:NATIVE_LLVM_VERSION)-x86_64-w64-windows-gnu"
           $archiveName = "$archiveRoot.tar.xz"
           "release_tag=$releaseTag" >> $env:GITHUB_OUTPUT
           "archive_root=$archiveRoot" >> $env:GITHUB_OUTPUT

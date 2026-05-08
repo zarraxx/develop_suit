@@ -1,0 +1,2 @@
+#!/usr/bin/env sh
+exec "@REAL_COMPILER@" --target="@TARGET_TRIPLE@" --sysroot="@SYSROOT@" "$@"

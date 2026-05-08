@@ -27,13 +27,13 @@ on:
   # push:
   #   paths:
   #     - ".github/workflows/stage0-rootfs.yml"
-  #     - "stage0/**"
+  #     - "stages/stage0/**"
   #     - ".gitignore"
   #     - "README.md"
   # pull_request:
   #   paths:
   #     - ".github/workflows/stage0-rootfs.yml"
-  #     - "stage0/**"
+  #     - "stages/stage0/**"
   #     - ".gitignore"
   #     - "README.md"
 
@@ -79,7 +79,7 @@ jobs:
 
       - name: Build stage0 rootfs
         run: |
-          bash ./stage0/build.sh \
+          bash ./stages/stage0/build.sh \
             --arch="${{ matrix.arch }}" \
             --clean \
             --jobs=4 \

@@ -113,25 +113,25 @@ jobs:
 
       - name: Prepare host tools
         run: |
-          bash ./stage1/prepare.sh
+          bash ./stages/stage1/prepare.sh
 
       - name: Build stage0 rootfs
         run: |
-          bash ./stage0/build.sh \
+          bash ./stages/stage0/build.sh \
             --arch="${{ matrix.arch }}" \
             --clean \
             --jobs=4
 
       - name: Build stage1 rootfs
         run: |
-          bash ./stage1/build.sh \
+          bash ./stages/stage1/build.sh \
             --arch="${{ matrix.arch }}" \
             --clean \
             --jobs=4
 
       - name: Build, test, and push stage1 Docker image
         run: |
-          bash ./stage1/image.sh \
+          bash ./stages/stage1/image.sh \
             --arch="${{ matrix.arch }}" \
             --push \
             --tag="${{ needs.resolve-meta.outputs.image_repo }}:${{ needs.resolve-meta.outputs.image_temp_tag_prefix }}-${{ matrix.arch }}"

@@ -17,3 +17,6 @@ stage_osxcross/build/
 .opencode/
 .qqbot/
 .env
+
+packages/*/build/
+packages/*/dist/
