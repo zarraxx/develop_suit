@@ -362,7 +362,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          archive_root="llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64--x86_64-w64-windows-gnu"
+          archive_root="llvm-${{ env.NATIVE_LLVM_VERSION }}-x86_64-w64-windows-gnu"
           package_dir="artifacts/package-native"
 
           rm -rf "${package_dir}"
@@ -373,8 +373,8 @@ jobs:
       - name: Upload native LLVM artifact
         uses: actions/upload-artifact@v7
         with:
-          name: llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64
-          path: artifacts/llvm-${{ env.NATIVE_LLVM_VERSION }}-mingw64--x86_64-w64-windows-gnu.tar.xz
+          name: llvm-${{ env.NATIVE_LLVM_VERSION }}-x86_64-w64-windows-gnu
+          path: artifacts/llvm-${{ env.NATIVE_LLVM_VERSION }}-x86_64-w64-windows-gnu.tar.xz
           if-no-files-found: error
           retention-days: 14
 
