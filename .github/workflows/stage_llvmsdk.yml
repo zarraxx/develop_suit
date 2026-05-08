@@ -46,7 +46,7 @@ jobs:
         run: |
           release_tag="${INPUT_RELEASE_TAG}"
           if [[ -z "${release_tag}" ]]; then
-            release_tag="stage-llvmsdk-$(date -u +%F)"
+            release_tag="llvmsdk-$(date -u +%F)"
           fi
 
           release_name="${INPUT_RELEASE_NAME}"
