@@ -237,8 +237,12 @@ build_openssl() {
   local source_dir="$1"
   local package_build_dir="${DEP_BUILD_DIR}/openssl"
   local openssl_target=""
+  local openssl_ldflags="$COMMON_LDFLAGS"
 
   openssl_target="$(openssl_target_for_target)"
+  if [[ "$TARGET_KIND" == "linux" ]]; then
+    openssl_ldflags="${openssl_ldflags} -Wl,--undefined-version"
+  fi
 
   rm -rf "$package_build_dir"
   mkdir -p "$package_build_dir"
@@ -260,7 +264,7 @@ build_openssl() {
       CPPFLAGS="$COMMON_CPPFLAGS" \
       CFLAGS="$COMMON_CFLAGS" \
       CXXFLAGS="$COMMON_CXXFLAGS" \
-      LDFLAGS="$COMMON_LDFLAGS" \
+      LDFLAGS="$openssl_ldflags" \
       perl ./Configure \
         "$openssl_target" \
         --prefix="$SDK_PREFIX" \
