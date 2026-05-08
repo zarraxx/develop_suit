@@ -1,0 +1,163 @@
+name: stage_llvmsdk
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  LLVM_SDK_VERSION: 18.1.8
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Create or update a GitHub Release after building"
+        required: true
+        type: boolean
+        default: true
+      release_tag:
+        description: "Release tag, defaults to stage-llvmsdk-YYYY-MM-DD"
+        required: false
+        type: string
+      release_name:
+        description: "Release title, defaults to release_tag"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark the GitHub Release as prerelease"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  resolve-meta:
+    name: resolve-meta
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+        run: |
+          release_tag="${INPUT_RELEASE_TAG}"
+          if [[ -z "${release_tag}" ]]; then
+            release_tag="stage-llvmsdk-$(date -u +%F)"
+          fi
+
+          release_name="${INPUT_RELEASE_NAME}"
+          if [[ -z "${release_name}" ]]; then
+            release_name="${release_tag}"
+          fi
+
+          {
+            echo "release_tag=${release_tag}"
+            echo "release_name=${release_name}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build-sdk:
+    name: llvmsdk-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    needs: resolve-meta
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64
+          - aarch64
+          - riscv64
+          - loongarch64
+          - mingw64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-stage-llvmsdk-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-stage-llvmsdk-cache-
+            ${{ runner.os }}-stage-mingw64-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+            ${{ runner.os }}-stage-python-cache-
+            ${{ runner.os }}-stage1-cache-
+
+      - name: Build LLVM SDK
+        run: |
+          bash ./stage_osxcross/build_llvm_sdk.sh \
+            --target="${{ matrix.target }}" \
+            --llvm-version="${{ env.LLVM_SDK_VERSION }}" \
+            --clean \
+            --pull \
+            --jobs=4
+
+      - name: Upload LLVM SDK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: llvmsdk-${{ matrix.target }}
+          path: |
+            stage_osxcross/build/llvmsdk/dist/llvmsdk-${{ env.LLVM_SDK_VERSION }}-*.tar.xz
+            stage_osxcross/build/llvmsdk/dist/llvm_dependencies-*.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-meta
+      - build-sdk
+    if: ${{ inputs.publish_release }}
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: llvmsdk-*
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.resolve-meta.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.resolve-meta.outputs.release_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            prerelease_flag=(--prerelease)
+          fi
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}" \
+              --notes "LLVM SDK ${LLVM_SDK_VERSION}"
+          fi
+
+          gh release upload "${RELEASE_TAG}" artifacts/*.tar.xz --clobber

@@ -7,6 +7,23 @@ build.sh 是一个构建 osxcross 的实验 基本成功，但是有很多不完
 - host 架构的 /usr 依赖来自 stage_python rootfs，只作为 headers/libs 使用
 - host 架构的 /usr/bin 不进入 PATH，Python 等构建期工具必须使用 build 容器自身的 x86_64 工具
 
+LLVM SDK 实验构建：
+- `build_llvm_sdk.sh` 构建一个不包含 clang、lld、clang-tools-extra 的 LLVM SDK。
+- 容器内先通过 `mount_root/container_llvm_dep.sh` 构建 host 侧依赖：
+  zlib、zstd、libxml2、libiconv、ncursesw、readline、libffi、gettext。
+- 再通过 `mount_root/container_llvm_sdk.sh` 构建 LLVM、libLLVM、libLTO 和 LLVM 工具。
+- Linux SDK 会把 stage_llvm 里对应 triple 的
+  `libc++.so*`、`libc++abi.so*`、`libunwind.so*` 一起复制到 SDK `lib/`，
+  配合 LLVM 工具的 `$ORIGIN/../lib` runpath 直接运行。
+- LLVM 默认构建 `LLVM_TARGETS_TO_BUILD=all` 和
+  `LLVM_EXPERIMENTAL_TARGETS_TO_BUILD=all`，由 LLVM 18.1.8 自己展开全部稳定后端和实验后端。
+- Linux 产物名：
+  `llvmsdk-18.1.8-<arch>-unknown-linux-gnu.tar.xz`
+- 同时发布可复用依赖包：
+  `llvm_dependencies-<triple>.tar.xz`
+- Windows GNU 产物使用 target triple：
+  `x86_64-w64-windows-gnu`
+
 1 尽可能的支持 用 build x86_64的  clang 交叉编译 host=aarch64 riscv64 和 loongarch64 的xar libtapi 和 cctools
 我试了在 native loongarch64 好像 版本老  xar 不能configure
 
