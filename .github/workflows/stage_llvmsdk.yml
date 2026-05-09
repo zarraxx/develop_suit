@@ -130,9 +130,21 @@ jobs:
           esac
 
           mkdir -p packages/llvm/build/dist
-          gh release download "${dependency_release_tag}" \
-            --pattern "llvm_dependencies-${dependency_triple}.tar.xz" \
-            --dir packages/llvm/build/dist
+
+          dependency_asset="llvm_dependencies-${dependency_triple}.tar.xz"
+          for attempt in $(seq 1 72); do
+            if gh release download "${dependency_release_tag}" \
+              --pattern "${dependency_asset}" \
+              --dir packages/llvm/build/dist; then
+              exit 0
+            fi
+
+            echo "dependency asset not ready yet: ${dependency_release_tag}/${dependency_asset} (attempt ${attempt}/72)"
+            sleep 300
+          done
+
+          echo "timed out waiting for dependency asset: ${dependency_release_tag}/${dependency_asset}" >&2
+          exit 1
 
       - name: Build LLVM SDK
         run: |
