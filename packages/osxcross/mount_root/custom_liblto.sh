@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+SHELL_TOOLS_DIR="${SHELL_TOOLS_DIR:-/work/shell_tools}"
+source "${SHELL_TOOLS_DIR}/tools.sh"
+
 LLVM_VERSION="${LLVM_VERSION:-18.1.8}"
 
 [[ -n "${LLVM_SDK_ROOT:-}" ]] || die "LLVM_SDK_ROOT is required for libLTO install"
@@ -16,37 +19,22 @@ echo "-- LLVM SDK root: ${LLVM_SDK_ROOT}"
   || die "missing LLVM SDK libLLVM library under: ${LLVM_SDK_ROOT}/lib"
 
 mkdir -p "${OUT_DIR}/bin" "${OUT_DIR}/include" "${OUT_DIR}/lib"
-cp -a "${LLVM_SDK_ROOT}/bin/llvm-config" "${OUT_DIR}/bin/"
+render_template "${TEMPLATE_DIR}/llvm-config.in" "${OUT_DIR}/bin/llvm-config" \
+  "LLVM_VERSION=${LLVM_VERSION}" \
+  "TARGET_TRIPLE=${TARGET_TRIPLE}" \
+  "LLVM_TARGETS=all" \
+  "LLVM_EXPERIMENTAL_TARGETS="
 [[ ! -d "${LLVM_SDK_ROOT}/include/llvm" ]] || cp -a "${LLVM_SDK_ROOT}/include/llvm" "${OUT_DIR}/include/"
 [[ ! -d "${LLVM_SDK_ROOT}/include/llvm-c" ]] || cp -a "${LLVM_SDK_ROOT}/include/llvm-c" "${OUT_DIR}/include/"
 [[ ! -d "${LLVM_SDK_ROOT}/lib/cmake" ]] || cp -a "${LLVM_SDK_ROOT}/lib/cmake" "${OUT_DIR}/lib/"
+if [[ "$DEPS_USR" != "$LLVM_SDK_ROOT" ]]; then
+  find "${DEPS_USR}/lib" -maxdepth 1 \
+    \( -name '*.so' -o -name '*.so.*' \) \
+    -exec cp -a {} "${OUT_DIR}/lib/" \;
+fi
 find "${LLVM_SDK_ROOT}/lib" -maxdepth 1 \
-  \( \
-    -name 'libLLVM*.so' \
-    -o -name 'libLLVM*.so.*' \
-    -o -name 'libLTO.so' \
-    -o -name 'libLTO.so.*' \
-    -o -name 'libz.so' \
-    -o -name 'libz.so.*' \
-    -o -name 'libzstd.so' \
-    -o -name 'libzstd.so.*' \
-    -o -name 'libxml2.so' \
-    -o -name 'libxml2.so.*' \
-    -o -name 'libiconv.so' \
-    -o -name 'libiconv.so.*' \
-    -o -name 'libcharset.so' \
-    -o -name 'libcharset.so.*' \
-    -o -name 'libffi.so' \
-    -o -name 'libffi.so.*' \
-    -o -name 'libtinfo*.so' \
-    -o -name 'libtinfo*.so.*' \
-    -o -name 'libncurses*.so' \
-    -o -name 'libncurses*.so.*' \
-    -o -name 'libreadline.so' \
-    -o -name 'libreadline.so.*' \
-    -o -name 'libhistory.so' \
-    -o -name 'libhistory.so.*' \
-  \) -exec cp -a {} "${OUT_DIR}/lib/" \;
+  \( -name '*.so' -o -name '*.so.*' \) \
+  -exec cp -a {} "${OUT_DIR}/lib/" \;
 
 chmod +x "${OUT_DIR}/bin/llvm-config"
 file "${OUT_DIR}/lib/libLLVM.so" "${OUT_DIR}/lib/libLTO.so" "${OUT_DIR}/include/llvm-c/lto.h" "${OUT_DIR}/bin/llvm-config" || true

@@ -10,16 +10,19 @@ ARCH="${ARCH:-}"
 TARGET_TRIPLE="${TARGET_TRIPLE:-}"
 JOBS="${JOBS:-4}"
 DEPS_DIR="${DEPS_DIR:-/work/deps/${ARCH}}"
+DEPS_ROOT="${DEPS_ROOT:-}"
 LLVM_SDK_ROOT="${LLVM_SDK_ROOT:-}"
 OUT_DIR="${OUT_DIR:-/opt/osxcross}"
-CUSTOM_MODULES="${CUSTOM_MODULES:-xar libtapi liblto cctools}"
+CUSTOM_MODULES="${CUSTOM_MODULES:-xar libtapi liblto cctools wrapper cmake_helper macports_helper}"
 
 [[ -n "$ARCH" ]] || die "ARCH is required"
 [[ -n "$TARGET_TRIPLE" ]] || die "TARGET_TRIPLE is required"
 
 export LLVM_ROOT="/opt/llvm-18.1.8"
 export SYSROOT="/opt/sysroot/${TARGET_TRIPLE}"
-if [[ -n "$LLVM_SDK_ROOT" ]]; then
+if [[ -n "$DEPS_ROOT" ]]; then
+  export DEPS_USR="$DEPS_ROOT"
+elif [[ -n "$LLVM_SDK_ROOT" ]]; then
   export DEPS_USR="$LLVM_SDK_ROOT"
 else
   export DEPS_USR="${DEPS_DIR}/usr"
@@ -58,6 +61,10 @@ require_command ninja
 [[ -x "$OBJCOPY" ]] || die "missing target objcopy: ${TARGET_TRIPLE}-objcopy"
 [[ -d "$SYSROOT" ]] || die "missing target sysroot: ${SYSROOT}"
 [[ -d "$DEPS_USR" ]] || die "missing host dependency prefix: ${DEPS_USR}"
+[[ -f "${DEPS_USR}/include/bzlib.h" ]] || die "missing host dependency bzip2 header: ${DEPS_USR}/include/bzlib.h"
+[[ -f "${DEPS_USR}/include/lzma.h" ]] || die "missing host dependency xz header: ${DEPS_USR}/include/lzma.h"
+[[ -f "${DEPS_USR}/lib/libbz2.so" ]] || die "missing host dependency bzip2 library: ${DEPS_USR}/lib/libbz2.so"
+[[ -f "${DEPS_USR}/lib/liblzma.so" ]] || die "missing host dependency xz library: ${DEPS_USR}/lib/liblzma.so"
 if [[ -n "$LLVM_SDK_ROOT" ]]; then
   [[ -x "${LLVM_SDK_ROOT}/bin/llvm-config" ]] || die "missing LLVM SDK llvm-config: ${LLVM_SDK_ROOT}/bin/llvm-config"
   [[ -f "${LLVM_SDK_ROOT}/lib/libLTO.so" ]] || die "missing LLVM SDK libLTO: ${LLVM_SDK_ROOT}/lib/libLTO.so"
@@ -86,6 +93,15 @@ for module in $CUSTOM_MODULES; do
       ;;
     cctools)
       /bin/bash "${MODULE_DIR}/custom_cctools.sh"
+      ;;
+    wrapper|osxcross-wrapper)
+      /bin/bash "${MODULE_DIR}/custom_wrapper.sh"
+      ;;
+    cmake|cmake_helper|cmake-helper)
+      /bin/bash "${MODULE_DIR}/custom_cmake_helper.sh"
+      ;;
+    macports|macports_helper|macports-helper)
+      /bin/bash "${MODULE_DIR}/custom_macports_helper.sh"
       ;;
     *)
       die "unknown custom module: ${module}"

@@ -13,7 +13,7 @@ case "$1" in
     echo -I"@DEPS_USR@/include/libxml2"
     ;;
   --libs)
-    echo -L"@DEPS_USR@/lib" -L"@DEPS_USR@/lib64" -lxml2 -lz -lm
+    echo -L"@DEPS_USR@/lib" -L"@DEPS_USR@/lib64" -lxml2 -llzma -lz -lm
     ;;
   *)
     echo "usage: xml2-config [--version|--cflags|--libs]" >&2

@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+SHELL_TOOLS_DIR="${SHELL_TOOLS_DIR:-/work/shell_tools}"
+source "${SHELL_TOOLS_DIR}/tools.sh"
+
 TAPI_SRC="${SRC_ROOT}/apple-libtapi"
 TAPI_NATIVE_BUILD="${BUILD_ROOT}/build/tapi-native-tblgen"
 TAPI_BUILD="${BUILD_ROOT}/build/tapi"

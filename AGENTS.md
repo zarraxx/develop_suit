@@ -49,6 +49,7 @@ Each stage should move the environment forward in a predictable way, from a mini
 - Avoid fake native shortcuts that diverge from the target runtime model.
 - Prefer deterministic, repeatable builds over convenience hacks.
 - Any modification to upstream package source must be applied through an explicit patch file and the `patch` command. Do not modify extracted upstream source with `sed`, `perl -pi`, inline shell rewrites, or other ad-hoc text editing commands.
+- Prefer dynamic libraries in distributable package outputs. Disable static libraries when upstream supports it; otherwise delete ordinary `.a` and `.la` files after install. Preserve MinGW `*.dll.a` import libraries because they are required for DLL linking. Keep unavoidable static artifacts only when they are intrinsic to the toolchain/runtime being shipped, such as compiler-rt or LLVM component archives.
 
 ## Structure Expectations
 
@@ -56,6 +57,33 @@ Each stage should move the environment forward in a predictable way, from a mini
 - Package registration functions should be the public entry points of stage modules.
 - New package families should usually mean a new module, not growth of the top-level stage file.
 - If a package needs special handling for cross-compilation, keep that handling inside its module or shared helper layer.
+
+## Package Rules
+
+The `packages/` tree builds reusable, distributable packages with stage-built Docker images. It is separate from rootfs stages.
+
+- Supported package targets are:
+  - `x86_64-unknown-linux-gnu`
+  - `aarch64-unknown-linux-gnu`
+  - `riscv64-unknown-linux-gnu`
+  - `loongarch64-unknown-linux-gnu`
+  - `x86_64-w64-windows-gnu`
+- Treat package builds as cross-compilation for every target, including `x86_64` Linux.
+- Use `x86_64-w64-windows-gnu` as the Windows GNU triple for package names and final outputs. Do not introduce new `x86_64-w64-mingw32` package/output naming.
+- Package directory names use underscores, not hyphens, for example `llvm_dependencies`.
+- Each package must have a top-level `build.sh`; it should parse the common knobs `--target` or `--arch`, `--clean`, and `--jobs=<n>`, then run the actual work inside a container.
+- Package scripts should mount `packages/shell_tools` into containers and reuse helpers from `var.sh`, `tools.sh`, `autotools_utils.sh`, and `cmake_utils.sh` instead of copying common shell blocks.
+- Container entry scripts should live under `packages/<package>/mount_root/`. Prefer the target-kind entry points `container_linux_native.sh`, `container_linux_cross.sh`, and `container_mingw64.sh`, with shared implementation factored into a common script when needed.
+- Package-specific patches live under `packages/<package>/mount_root/patch/`. Project-owned generated files should use `.in` templates under `packages/<package>/mount_root/templates/` and the shared `render_template` helper.
+- Every package must have a top-level `README.md` that explains its responsibility boundary, inputs, supported targets, default image, build commands, output layout, and release artifact names.
+- Package READMEs must document each upstream component's configure/CMake/Meson command and key parameters, build command, install command, and any extra copy/template/validation steps. If Linux and MinGW parameters differ, document them separately.
+- `packages/*/upstream/**/README*` files are upstream documentation and should be treated as reference material, not repository policy.
+
+Current package boundaries:
+
+- `packages/llvm_dependencies` builds reusable dynamic dependency prefixes for LLVM SDKs.
+- `packages/llvm` builds the LLVM SDK without clang, lld, or clang-tools-extra; it consumes `llvm_dependencies` tarballs.
+- `packages/osxcross` builds only osxcross components: `xar`, `libtapi`, `libLTO`/`libLLVM` copied from the LLVM SDK, and `cctools`. It must not rebuild LLVM internally or put the host-arch LLVM SDK `bin` directory on `PATH`.
 
 ## Practical Direction
 

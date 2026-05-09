@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+SHELL_TOOLS_DIR="${SHELL_TOOLS_DIR:-/work/shell_tools}"
+source "${SHELL_TOOLS_DIR}/tools.sh"
+
 CCTOOLS_SRC="${SRC_ROOT}/cctools-port"
 CCTOOLS_BUILD="${BUILD_ROOT}/build/cctools"
 MACOS_SDK_VERSION="${MACOS_SDK_VERSION:-13.3}"
@@ -22,13 +25,24 @@ OSXCROSS_TARGET_TRIPLE="${OSXCROSS_TARGET_ARCH}-apple-${OSXCROSS_TARGET}"
 rm -rf "$CCTOOLS_SRC" "$CCTOOLS_BUILD"
 mkdir -p "$CCTOOLS_BUILD"
 cp -a /work/upstream/cctools-port "$CCTOOLS_SRC"
+(
+  cd "$CCTOOLS_SRC"
+  patch -p1 < "${PATCH_DIR}/cctools-llvm18-disassembler-callback.patch"
+)
 
 echo "-- building cctools"
 echo "-- macOS SDK version hint: ${MACOS_SDK_VERSION}"
 echo "-- osxcross target: ${OSXCROSS_TARGET_TRIPLE}"
 echo "-- osxcross arch symlinks: ${OSXCROSS_ARCHS}"
 
-TARGET_CPPFLAGS="-I${DEPS_USR}/include -I${DEPS_USR}/include/libxml2"
+CCTOOLS_HOST_ARCH_FLAGS=""
+case "$TARGET_TRIPLE" in
+  loongarch64-unknown-linux-gnu|riscv64-unknown-linux-gnu)
+    CCTOOLS_HOST_ARCH_FLAGS="-D__x86_64__"
+    ;;
+esac
+
+TARGET_CPPFLAGS="-I${DEPS_USR}/include -I${DEPS_USR}/include/libxml2 ${CCTOOLS_HOST_ARCH_FLAGS}"
 TARGET_CFLAGS="--sysroot=${SYSROOT} -O2 -w ${TARGET_CPPFLAGS}"
 TARGET_CXXFLAGS="--sysroot=${SYSROOT} -O2 -w ${TARGET_CPPFLAGS}"
 TARGET_LDFLAGS="--sysroot=${SYSROOT} -L${OUT_DIR}/lib -L${DEPS_USR}/lib -L${DEPS_USR}/lib64 -Wl,-rpath-link,${OUT_DIR}/lib -Wl,-rpath-link,${DEPS_USR}/lib -Wl,-rpath-link,${DEPS_USR}/lib64 -Wl,-rpath-link,${SYSROOT}/usr/lib -Wl,-rpath-link,${SYSROOT}/usr/lib64 -Wl,-rpath-link,${SYSROOT}/lib -Wl,-rpath-link,${SYSROOT}/lib64"
@@ -44,6 +58,7 @@ CFLAGS="$TARGET_CFLAGS" \
 CXXFLAGS="$TARGET_CXXFLAGS" \
 CPPFLAGS="$TARGET_CPPFLAGS" \
 LDFLAGS="$TARGET_LDFLAGS" \
+LD="${LLVM_ROOT}/bin/ld.lld" \
 LIBS="-lxml2 -lz -lm" \
 "${CCTOOLS_SRC}/cctools/configure" \
   --prefix="$OUT_DIR" \
@@ -56,6 +71,7 @@ LIBS="-lxml2 -lz -lm" \
 
 make -j"$JOBS"
 make install -j"$JOBS"
+find "${OUT_DIR}/lib" -maxdepth 1 \( -name '*.a' -o -name '*.la' \) -delete
 
 (
   cd "${OUT_DIR}/bin"
