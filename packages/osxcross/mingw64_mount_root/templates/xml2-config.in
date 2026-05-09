@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+case "$1" in
+  --version)
+    if [ -f "@DEPS_USR@/lib/pkgconfig/libxml-2.0.pc" ]; then
+      awk -F': *' '/^Version:/ { print $2; exit }' "@DEPS_USR@/lib/pkgconfig/libxml-2.0.pc"
+    else
+      echo 2.13.0
+    fi
+    ;;
+  --cflags)
+    echo -I"@DEPS_USR@/include/libxml2"
+    ;;
+  --libs)
+    echo -L"@DEPS_USR@/lib" -lxml2 -lz -lws2_32 -lbcrypt
+    ;;
+  *)
+    echo "usage: xml2-config [--version|--cflags|--libs]" >&2
+    exit 1
+    ;;
+esac

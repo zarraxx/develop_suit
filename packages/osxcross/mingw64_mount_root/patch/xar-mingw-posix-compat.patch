@@ -1,0 +1,106 @@
+diff --git a/xar/lib/xar_mingw_compat.h b/xar/lib/xar_mingw_compat.h
+new file mode 100644
+--- /dev/null
++++ b/xar/lib/xar_mingw_compat.h
+@@ -0,0 +1,53 @@
++#ifndef XAR_MINGW_COMPAT_H
++#define XAR_MINGW_COMPAT_H
++
++#ifdef _WIN32
++
++#include <stddef.h>
++#include <string.h>
++#include <sys/stat.h>
++#include <time.h>
++
++#ifndef lstat
++#define lstat stat
++#endif
++
++static inline struct tm *
++xar_mingw_gmtime_r(const time_t *timer, struct tm *result)
++{
++	return gmtime_s(result, timer) == 0 ? result : NULL;
++}
++
++#ifndef gmtime_r
++#define gmtime_r xar_mingw_gmtime_r
++#endif
++
++static inline char *
++xar_mingw_strsep(char **stringp, const char *delim)
++{
++	char *begin;
++	char *end;
++
++	if (stringp == NULL || *stringp == NULL)
++		return NULL;
++
++	begin = *stringp;
++	end = begin + strcspn(begin, delim);
++
++	if (*end != '\0') {
++		*end = '\0';
++		*stringp = end + 1;
++	} else {
++		*stringp = NULL;
++	}
++
++	return begin;
++}
++
++#ifndef strsep
++#define strsep xar_mingw_strsep
++#endif
++
++#endif /* _WIN32 */
++
++#endif /* XAR_MINGW_COMPAT_H */
+diff --git a/xar/lib/darwinattr.c b/xar/lib/darwinattr.c
+--- a/xar/lib/darwinattr.c
++++ b/xar/lib/darwinattr.c
+@@ -39,6 +39,9 @@
+ #define _FILE_OFFSET_BITS 64
+ 
+ #include "config.h"
++#ifndef HAVE_ASPRINTF
++#include "asprintf.h"
++#endif
+ #include <stdio.h>
+ #include <unistd.h>
+ #include <string.h>
+diff --git a/xar/lib/ext2.c b/xar/lib/ext2.c
+--- a/xar/lib/ext2.c
++++ b/xar/lib/ext2.c
+@@ -49,7 +49,6 @@
+ #include <string.h>
+ #include <fcntl.h>
+ #include <sys/types.h>
+-#include <sys/ioctl.h>
+ #include "ext2.h"
+ 
+ #if defined(HAVE_EXT2FS_EXT2_FS_H) && !defined(__CYGWIN__)
+@@ -64,6 +63,10 @@
+ 
+ #define XAR_EXT2_FORK "ext2"
+ 
++#if (defined(HAVE_EXT2FS_EXT2_FS_H) || defined(HAVE_LINUX_EXT2_FS_H)) && !defined(__CYGWIN__)
++#include <sys/ioctl.h>
++#endif
++
+ #if (defined(HAVE_EXT2FS_EXT2_FS_H) || defined(HAVE_LINUX_EXT2_FS_H)) && !defined(__CYGWIN__)
+ static void x_addprop(xar_file_t f, const char *name) {
+ 	char opt[1024];
+diff --git a/xar/src/xar.c b/xar/src/xar.c
+--- a/xar/src/xar.c
++++ b/xar/src/xar.c
+@@ -51,6 +51,9 @@
+ #include <errno.h>
+ #include <time.h>
+ #include "xar.h"
++#ifndef HAVE_ASPRINTF
++#include "../lib/asprintf.h"
++#endif
+ #include "../lib/filetree.h"
+ #include "config.h"
+ 

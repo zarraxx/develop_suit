@@ -1,0 +1,52 @@
+diff --git a/cctools/include/llvm-c/Disassembler.h b/cctools/include/llvm-c/Disassembler.h
+--- a/cctools/include/llvm-c/Disassembler.h
++++ b/cctools/include/llvm-c/Disassembler.h
+@@ -46,6 +46,7 @@
+  */
+ typedef int (*LLVMOpInfoCallback)(void *DisInfo, uint64_t Pc,
+                                   uint64_t Offset, uint64_t Size,
++                                  uint64_t InstSize,
+                                   int TagType, void *TagBuf);
+ 
+ /**
+diff --git a/cctools/otool/arm64_disasm.c b/cctools/otool/arm64_disasm.c
+--- a/cctools/otool/arm64_disasm.c
++++ b/cctools/otool/arm64_disasm.c
+@@ -150,6 +150,7 @@ void *DisInfo,
+ uint64_t Pc,
+ uint64_t Offset, /* should always be passed as 0 for arm64 */
+ uint64_t Size,   /* should always be passed as 4 for arm64 */
++uint64_t InstSize,
+ int TagType,     /* should always be passed as 1 for arm64-apple-darwin10 */
+ void *TagBuf)
+ {
+diff --git a/cctools/otool/arm_disasm.c b/cctools/otool/arm_disasm.c
+--- a/cctools/otool/arm_disasm.c
++++ b/cctools/otool/arm_disasm.c
+@@ -187,6 +187,7 @@ void *DisInfo,
+ uint64_t Pc,
+ uint64_t Offset, /* should always be passed as 0 for arm or thumb */
+ uint64_t Size,   /* should always be passed as 4 for arm or 2 or 4 for thumb */
++uint64_t InstSize,
+ int TagType,     /* should always be passed as 1 for either Triple */
+ void *TagBuf)
+ {
+diff --git a/cctools/otool/i386_disasm.c b/cctools/otool/i386_disasm.c
+--- a/cctools/otool/i386_disasm.c
++++ b/cctools/otool/i386_disasm.c
+@@ -4501,6 +4501,7 @@ void *DisInfo,
+ uint64_t Pc,
+ uint64_t Offset,
+ uint64_t Width,
++uint64_t InstSize,
+ int TagType,     /* should currently always be passed as 1 */
+ void *TagBuf)
+ {
+@@ -4707,6 +4708,7 @@ void *DisInfo,
+ uint64_t Pc,
+ uint64_t Offset,
+ uint64_t Width,
++uint64_t InstSize,
+ int TagType,     /* should currently always be passed as 1 */
+ void *TagBuf)
+ {

@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+prefix="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+version="@LLVM_VERSION@"
+targets="@LLVM_TARGETS@"
+out=""
+for arg in "$@"; do
+  case "$arg" in
+    --version) out="$out $version" ;;
+    --prefix) out="$out $prefix" ;;
+    --bindir) out="$out $prefix/bin" ;;
+    --includedir) out="$out $prefix/include" ;;
+    --libdir) out="$out $prefix/lib" ;;
+    --host-target) out="$out @TARGET_TRIPLE@" ;;
+    --targets-built) out="$out $targets" ;;
+    --shared-mode) out="$out shared" ;;
+    --components) out="$out all" ;;
+    --cflags|--cppflags) out="$out -I$prefix/include" ;;
+    --cxxflags) out="$out -I$prefix/include -std=c++17" ;;
+    --ldflags) out="$out -L$prefix/lib" ;;
+    --system-libs) out="$out -lz -lws2_32 -ladvapi32 -lshell32 -lole32 -luuid -lversion -lpsapi -lbcrypt" ;;
+    --libs) out="$out -lLLVM-18" ;;
+    --help)
+      echo "usage: llvm-config [--version|--prefix|--bindir|--includedir|--libdir|--libs|--ldflags|--system-libs|--cflags|--cxxflags|--host-target|--targets-built|--components|--shared-mode]"
+      exit 0
+      ;;
+  esac
+done
+echo "${out# }"

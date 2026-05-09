@@ -1,0 +1,99 @@
+diff --git a/xar/lib/xar_mingw_compat.h b/xar/lib/xar_mingw_compat.h
+--- a/xar/lib/xar_mingw_compat.h
++++ b/xar/lib/xar_mingw_compat.h
+@@ -4,10 +4,81 @@
+ #ifdef _WIN32
+ 
++#include <errno.h>
++#include <stdint.h>
+ #include <stddef.h>
+ #include <string.h>
+ #include <sys/stat.h>
++#include <sys/types.h>
+ #include <time.h>
++#include <unistd.h>
+ 
++struct passwd {
++	char *pw_name;
++	uid_t pw_uid;
++};
++
++struct group {
++	char *gr_name;
++	gid_t gr_gid;
++};
++
++static inline struct passwd *
++xar_mingw_getpwuid(uid_t uid)
++{
++	(void)uid;
++	return NULL;
++}
++
++static inline struct group *
++xar_mingw_getgrgid(gid_t gid)
++{
++	(void)gid;
++	return NULL;
++}
++
++static inline struct passwd *
++xar_mingw_getpwnam(const char *name)
++{
++	(void)name;
++	return NULL;
++}
++
++static inline struct group *
++xar_mingw_getgrnam(const char *name)
++{
++	(void)name;
++	return NULL;
++}
++
++static inline uid_t
++xar_mingw_geteuid(void)
++{
++	return 0;
++}
++
++static inline gid_t
++xar_mingw_getegid(void)
++{
++	return 0;
++}
++
++static inline int
++xar_mingw_chown(const char *path, uid_t owner, gid_t group)
++{
++	(void)path;
++	(void)owner;
++	(void)group;
++	return 0;
++}
++
++#define getpwuid xar_mingw_getpwuid
++#define getgrgid xar_mingw_getgrgid
++#define getpwnam xar_mingw_getpwnam
++#define getgrnam xar_mingw_getgrnam
++#define geteuid xar_mingw_geteuid
++#define getegid xar_mingw_getegid
++#define chown xar_mingw_chown
++
+ #ifndef lstat
+ #define lstat stat
+ #endif
+diff --git a/xar/lib/stat.c b/xar/lib/stat.c
+--- a/xar/lib/stat.c
++++ b/xar/lib/stat.c
+@@ -55,8 +55,10 @@
+ #include <sys/time.h>
+ #include <fcntl.h>
+ #include <time.h>
++#ifndef _WIN32
+ #include <pwd.h>
+ #include <grp.h>
++#endif
+ #include <string.h>
+ #include <unistd.h>
+ #include <limits.h>
