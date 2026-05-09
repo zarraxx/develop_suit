@@ -1,0 +1,38 @@
+--- a/bzlib.h
++++ b/bzlib.h
+@@ -75,19 +75,28 @@
+ #include <stdio.h>
+ #endif
+ 
+-#ifdef _WIN32
++#if defined(_WIN32) && !defined(__CYGWIN__)
+ #   include <windows.h>
+ #   ifdef small
+       /* windows.h define small to char */
+ #      undef small
+ #   endif
+-#   ifdef BZ_EXPORT
+-#   define BZ_API(func) WINAPI func
+-#   define BZ_EXTERN extern
++#   ifndef __GNUC__
++#      ifdef BZ_EXPORT
++#      define BZ_API(func) WINAPI func
++#      define BZ_EXTERN extern
++#      else
++       /* import windows dll dynamically */
++#      define BZ_API(func) (WINAPI * func)
++#      define BZ_EXTERN
++#      endif
+ #   else
+-   /* import windows dll dynamically */
+-#   define BZ_API(func) (WINAPI * func)
+-#   define BZ_EXTERN
++       /*
++        * MinGW uses the GNU toolchain ABI here.  Keep libbz2 exports cdecl so
++        * the DLL and import library match MSYS2 mingw-w64 packaging model.
++        */
++#      define BZ_API(func) func
++#      define BZ_EXTERN extern
+ #   endif
+ #else
+ #   define BZ_API(func) func

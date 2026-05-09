@@ -6,6 +6,9 @@ Target kind: @TARGET_KIND@
 Included dependency sources:
   zlib @ZLIB_VERSION@
   zstd @ZSTD_VERSION@
+  lz4 @LZ4_VERSION@
+  bzip2 @BZIP2_VERSION@
+  xz @XZ_VERSION@
   libiconv @LIBICONV_VERSION@
   libxml2 @LIBXML2_VERSION@
   pcre2 @PCRE2_VERSION@

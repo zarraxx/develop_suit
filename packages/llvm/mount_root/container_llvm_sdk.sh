@@ -67,6 +67,15 @@ copy_linux_cxx_runtime_libraries() {
   cp -a "${runtime_lib_dir}"/libunwind.so* "${SDK_PREFIX}/lib/"
 }
 
+first_glob() {
+  local pattern="$1"
+  local path=""
+
+  path="$(compgen -G "$pattern" | sort | head -n 1 || true)"
+  [[ -n "$path" ]] || die "missing required library: $pattern"
+  printf '%s\n' "$path"
+}
+
 ARCH="${ARCH:-}"
 TARGET_KIND="${TARGET_KIND:-linux}"
 TARGET_TRIPLE="${TARGET_TRIPLE:-}"
@@ -150,6 +159,16 @@ fi
 
 LLVM_BUILD_DIR="${BUILD_DIR}/llvm-sdk-build"
 LINK_FLAGS="-L${SDK_PREFIX}/lib"
+if [[ "$TARGET_KIND" == "mingw" ]]; then
+  ICONV_LIBRARY="$(first_glob "${SDK_PREFIX}/lib/libiconv*.dll.a")"
+  FFI_LIBRARY="$(first_glob "${SDK_PREFIX}/lib/libffi*.dll.a")"
+else
+  ICONV_LIBRARY="${SDK_PREFIX}/lib/libiconv.so"
+  FFI_LIBRARY="${SDK_PREFIX}/lib/libffi.so"
+fi
+[[ -e "$ICONV_LIBRARY" ]] || die "missing libiconv dynamic link library: ${ICONV_LIBRARY}"
+[[ -e "$FFI_LIBRARY" ]] || die "missing libffi dynamic link library: ${FFI_LIBRARY}"
+
 if [[ "$TARGET_KIND" == "linux" ]]; then
   LINK_FLAGS="${LINK_FLAGS} -Wl,-rpath-link,${SDK_PREFIX}/lib -Wl,-rpath-link,${SYSROOT}/usr/lib -Wl,-rpath-link,${SYSROOT}/usr/lib64 -Wl,-rpath-link,${SYSROOT}/lib -Wl,-rpath-link,${SYSROOT}/lib64"
 fi
@@ -227,10 +246,10 @@ cmake -S "${LLVM_SOURCE_ROOT}/llvm" -B "$LLVM_BUILD_DIR" -G Ninja \
   "-Dzstd_DIR=${SDK_PREFIX}/lib/cmake/zstd" \
   "-DLibXml2_DIR=${SDK_PREFIX}/lib/cmake/libxml2" \
   "-DIconv_INCLUDE_DIR=${SDK_PREFIX}/include" \
-  "-DIconv_LIBRARY=${SDK_PREFIX}/lib/libiconv.a" \
+  "-DIconv_LIBRARY=${ICONV_LIBRARY}" \
   "-DFFI_INCLUDE_DIR=${SDK_PREFIX}/include" \
   "-DFFI_LIBRARY_DIR=${SDK_PREFIX}/lib" \
-  "-DFFI_LIBRARY=${SDK_PREFIX}/lib/libffi.a" \
+  "-DFFI_LIBRARY=${FFI_LIBRARY}" \
   "-DCURSES_INCLUDE_PATH=${SDK_PREFIX}/include/ncursesw" \
   "-DCURSES_LIBRARY=${SDK_PREFIX}/lib/libncursesw.so" \
   "-DCURSES_TINFO_LIBRARY=${SDK_PREFIX}/lib/libtinfow.so"

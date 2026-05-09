@@ -4,6 +4,9 @@
 
 - zlib
 - zstd
+- lz4
+- bzip2
+- xz/liblzma
 - libxml2
 - libiconv
 - OpenSSL

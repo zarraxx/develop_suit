@@ -1,0 +1,11 @@
+--- configure
++++ configure
+@@ -14094,7 +14094,7 @@
+       exclude_expsyms='[_]+GLOBAL_OFFSET_TABLE_|[_]+GLOBAL__[FID]_.*|[_]+head_[A-Za-z0-9_]+_dll|[A-Za-z0-9_]+_dll_iname'
+       file_list_spec='@'
+ 
+-      if $LD --help 2>&1 | $GREP 'auto-import' > /dev/null; then
++      if :; then
+         archive_cmds='$CC -shared $libobjs $deplibs $compiler_flags -o $output_objdir/$soname $wl--enable-auto-image-base -Xlinker --out-implib -Xlinker $lib'
+ 	# If the export-symbols file already is a .def file, use it as
+ 	# is; otherwise, prepend EXPORTS...
