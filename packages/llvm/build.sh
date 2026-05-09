@@ -24,6 +24,9 @@ Options:
   --target=<target>       SDK target, see list above
   --arch=<target>         Alias for --target
   --llvm-version=<ver>    LLVM version (default: 18.1.8)
+  --bootstrap-llvm-version=<ver>
+                          LLVM version already installed in the build image
+                          and used to build the requested SDK (default: 18.1.8)
   --image=<image>         Build image for every target
                           (default: ghcr.io/zarraxx/develop_suit:llvm-with-mingw64-18.1.8)
   --jobs=<n>              Parallel build jobs inside container (default: 4)
@@ -32,6 +35,11 @@ Options:
                           Override dependency tarball top-level directory name
   --dependency-archive=<tar>
                           Extract a prebuilt llvm_dependencies tarball before SDK build
+  --native-tools-archive=<tar>
+                          Extract same-version native LLVM build tools before SDK build.
+                          If omitted, the container builds them locally.
+  --native-tools-dir=<dir>
+                          Use an already extracted native LLVM build tools prefix.
   --pull                  Pull the selected build image before building
   --clean                 Remove this target's build and output directories first
   -h, --help              Show this help
@@ -73,13 +81,53 @@ prepare_dependencies_from_archive() {
   rm -rf "$tmp_extract"
 }
 
+prepare_native_tools_from_archive() {
+  local archive_path="$1"
+  local tmp_extract="${BUILD_DIR}.native-tools-extract"
+  local extracted_dir=""
+
+  [[ -f "$archive_path" ]] || die "native tools archive not found: ${archive_path}"
+
+  echo "-- extracting native LLVM tools archive: ${archive_path}"
+  rm -rf "$tmp_extract" "$NATIVE_TOOLS_INPUT_DIR"
+  mkdir -p "$tmp_extract" "$NATIVE_TOOLS_INPUT_DIR"
+  tar -xf "$archive_path" -C "$tmp_extract"
+
+  if [[ -x "${tmp_extract}/bin/llvm-tblgen" ]]; then
+    extracted_dir="$tmp_extract"
+  else
+    while IFS= read -r candidate; do
+      extracted_dir="$(dirname "$(dirname "$candidate")")"
+      break
+    done < <(find "$tmp_extract" -mindepth 2 -maxdepth 3 -type f -path '*/bin/llvm-tblgen' -perm /111 | sort)
+  fi
+
+  [[ -n "$extracted_dir" ]] || die "could not find native LLVM tools prefix in archive: ${archive_path}"
+
+  cp -a "${extracted_dir}/." "$NATIVE_TOOLS_INPUT_DIR/"
+  rm -rf "$tmp_extract"
+}
+
+validate_native_tools_dir() {
+  local tools_dir="$1"
+
+  [[ -d "$tools_dir" ]] || die "native tools directory not found: ${tools_dir}"
+  [[ -x "${tools_dir}/bin/llvm-tblgen" ]] || die "missing native llvm-tblgen: ${tools_dir}/bin/llvm-tblgen"
+  [[ -x "${tools_dir}/bin/llvm-config" ]] || die "missing native llvm-config: ${tools_dir}/bin/llvm-config"
+  [[ -x "${tools_dir}/bin/llvm-nm" ]] || die "missing native llvm-nm: ${tools_dir}/bin/llvm-nm"
+  [[ -x "${tools_dir}/bin/llvm-readobj" ]] || die "missing native llvm-readobj: ${tools_dir}/bin/llvm-readobj"
+}
+
 TARGET=""
 LLVM_VERSION="18.1.8"
+BOOTSTRAP_LLVM_VERSION="18.1.8"
 BUILD_IMAGE="$PACKAGES_DEFAULT_BUILD_IMAGE"
 JOBS="$PACKAGES_DEFAULT_JOBS"
 PACKAGE_NAME=""
 DEPENDENCY_PACKAGE_NAME=""
 DEPENDENCY_ARCHIVE=""
+NATIVE_TOOLS_ARCHIVE=""
+NATIVE_TOOLS_DIR=""
 PULL=0
 CLEAN=0
 
@@ -104,6 +152,14 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || die "--llvm-version requires a value"
       LLVM_VERSION="$1"
+      ;;
+    --bootstrap-llvm-version=*)
+      BOOTSTRAP_LLVM_VERSION="${1#*=}"
+      ;;
+    --bootstrap-llvm-version)
+      shift
+      [[ $# -gt 0 ]] || die "--bootstrap-llvm-version requires a value"
+      BOOTSTRAP_LLVM_VERSION="$1"
       ;;
     --image=*|--linux-image=*|--mingw-image=*)
       BUILD_IMAGE="${1#*=}"
@@ -146,6 +202,22 @@ while [[ $# -gt 0 ]]; do
       [[ $# -gt 0 ]] || die "--dependency-archive requires a value"
       DEPENDENCY_ARCHIVE="$1"
       ;;
+    --native-tools-archive=*)
+      NATIVE_TOOLS_ARCHIVE="${1#*=}"
+      ;;
+    --native-tools-archive)
+      shift
+      [[ $# -gt 0 ]] || die "--native-tools-archive requires a value"
+      NATIVE_TOOLS_ARCHIVE="$1"
+      ;;
+    --native-tools-dir=*)
+      NATIVE_TOOLS_DIR="${1#*=}"
+      ;;
+    --native-tools-dir)
+      shift
+      [[ $# -gt 0 ]] || die "--native-tools-dir requires a value"
+      NATIVE_TOOLS_DIR="$1"
+      ;;
     --pull)
       PULL=1
       ;;
@@ -182,6 +254,7 @@ MOUNT_ROOT="${ROOT_DIR}/mount_root"
 CACHE_DIR="${PROJECT_ROOT}/cache"
 SDK_ROOT="${ROOT_DIR}/build"
 BUILD_DIR="${SDK_ROOT}/work/${TARGET_TRIPLE}"
+NATIVE_TOOLS_INPUT_DIR="${BUILD_DIR}/native-tools-input"
 OUT_BASE="${SDK_ROOT}/out"
 OUT_DIR="${OUT_BASE}/${PACKAGE_NAME}"
 DIST_DIR="${SDK_ROOT}/dist"
@@ -209,12 +282,37 @@ if [[ -z "$DEPENDENCY_ARCHIVE" ]]; then
 fi
 prepare_dependencies_from_archive "$DEPENDENCY_ARCHIVE"
 
+NATIVE_TOOLS_DOCKER_ARGS=()
+NATIVE_TOOLS_DOCKER_ENVS=()
+if [[ -n "$NATIVE_TOOLS_ARCHIVE" && -n "$NATIVE_TOOLS_DIR" ]]; then
+  die "--native-tools-archive and --native-tools-dir are mutually exclusive"
+fi
+if [[ -n "$NATIVE_TOOLS_ARCHIVE" ]]; then
+  prepare_native_tools_from_archive "$NATIVE_TOOLS_ARCHIVE"
+  validate_native_tools_dir "$NATIVE_TOOLS_INPUT_DIR"
+  NATIVE_TOOLS_DOCKER_ARGS=(-v "${NATIVE_TOOLS_INPUT_DIR}:/work/native-llvm-tools:ro")
+  NATIVE_TOOLS_DOCKER_ENVS=(-e NATIVE_LLVM_TOOLS_DIR="/work/native-llvm-tools/bin")
+elif [[ -n "$NATIVE_TOOLS_DIR" ]]; then
+  [[ -d "$NATIVE_TOOLS_DIR" ]] || die "native tools directory not found: ${NATIVE_TOOLS_DIR}"
+  NATIVE_TOOLS_DIR="$(cd "$NATIVE_TOOLS_DIR" && pwd)"
+  validate_native_tools_dir "$NATIVE_TOOLS_DIR"
+  NATIVE_TOOLS_DOCKER_ARGS=(-v "${NATIVE_TOOLS_DIR}:/work/native-llvm-tools:ro")
+  NATIVE_TOOLS_DOCKER_ENVS=(-e NATIVE_LLVM_TOOLS_DIR="/work/native-llvm-tools/bin")
+fi
+
 echo "-- LLVM SDK build"
 echo "-- image: ${BUILD_IMAGE}"
 echo "-- target kind: ${TARGET_KIND}"
 echo "-- target triple: ${TARGET_TRIPLE}"
 echo "-- package: ${PACKAGE_NAME}"
 echo "-- dependency archive: ${DEPENDENCY_ARCHIVE}"
+if [[ -n "$NATIVE_TOOLS_ARCHIVE" ]]; then
+  echo "-- native tools archive: ${NATIVE_TOOLS_ARCHIVE}"
+elif [[ -n "$NATIVE_TOOLS_DIR" ]]; then
+  echo "-- native tools dir: ${NATIVE_TOOLS_DIR}"
+else
+  echo "-- native tools: build inside container"
+fi
 echo "-- output: ${OUT_DIR}"
 
 docker run --rm \
@@ -224,13 +322,17 @@ docker run --rm \
   -v "${CACHE_DIR}:/work/cache" \
   -v "${BUILD_DIR}:/work/build" \
   -v "${OUT_DIR}:/opt/${PACKAGE_NAME}" \
+  "${NATIVE_TOOLS_DOCKER_ARGS[@]}" \
   --workdir /work \
   -e ARCH="$ARCH" \
   -e TARGET_KIND="$TARGET_KIND" \
   -e TARGET_TRIPLE="$TARGET_TRIPLE" \
   -e LLVM_VERSION="$LLVM_VERSION" \
+  -e BOOTSTRAP_LLVM_VERSION="$BOOTSTRAP_LLVM_VERSION" \
+  -e PREBUILT_LLVM_ROOT="/opt/llvm-${BOOTSTRAP_LLVM_VERSION}" \
   -e JOBS="$JOBS" \
   -e SDK_PREFIX="/opt/${PACKAGE_NAME}" \
+  "${NATIVE_TOOLS_DOCKER_ENVS[@]}" \
   "$BUILD_IMAGE" \
   /bin/bash /work/mount_root/container_llvm_sdk.sh
 

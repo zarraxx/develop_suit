@@ -49,8 +49,8 @@ copy_linux_cxx_runtime_libraries() {
   local runtime_lib_dir=""
   local candidate
   for candidate in \
-    "${LLVM_ROOT}/lib/${TARGET_TRIPLE}" \
-    "${LLVM_ROOT}/lib/clang/${LLVM_MAJOR_VERSION}/lib/${TARGET_TRIPLE}"
+    "${PREBUILT_LLVM_ROOT}/lib/${TARGET_TRIPLE}" \
+    "${PREBUILT_LLVM_ROOT}/lib/clang/${BOOTSTRAP_LLVM_MAJOR_VERSION}/lib/${TARGET_TRIPLE}"
   do
     if [[ -f "${candidate}/libc++.so.1" && -f "${candidate}/libc++abi.so.1" && -f "${candidate}/libunwind.so.1" ]]; then
       runtime_lib_dir="$candidate"
@@ -76,25 +76,85 @@ first_glob() {
   printf '%s\n' "$path"
 }
 
+build_native_llvm_tools() {
+  local source_root="$1"
+
+  rm -rf "$NATIVE_TOOLS_BUILD_DIR"
+  mkdir -p "$NATIVE_TOOLS_BUILD_DIR"
+
+  log "Configuring native LLVM tools"
+  log "Native tools build dir: ${NATIVE_TOOLS_BUILD_DIR}"
+
+  cmake -S "${source_root}/llvm" -B "$NATIVE_TOOLS_BUILD_DIR" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER="${PREBUILT_LLVM_ROOT}/bin/clang" \
+    -DCMAKE_CXX_COMPILER="${PREBUILT_LLVM_ROOT}/bin/clang++" \
+    "-DLLVM_TARGETS_TO_BUILD=${LLVM_TARGETS}" \
+    "-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=${LLVM_EXPERIMENTAL_TARGETS}" \
+    -DLLVM_ENABLE_PROJECTS= \
+    -DLLVM_INCLUDE_TESTS=OFF \
+    -DLLVM_INCLUDE_DOCS=OFF \
+    -DLLVM_INCLUDE_EXAMPLES=OFF \
+    -DLLVM_BUILD_TESTS=OFF \
+    -DLLVM_BUILD_BENCHMARKS=OFF \
+    -DLLVM_ENABLE_ASSERTIONS=OFF \
+    -DLLVM_ENABLE_TERMINFO=OFF \
+    -DLLVM_ENABLE_LIBEDIT=OFF \
+    -DLLVM_ENABLE_ZLIB=OFF \
+    -DLLVM_ENABLE_ZSTD=OFF \
+    -DLLVM_ENABLE_LIBXML2=OFF \
+    -DLLVM_ENABLE_CURL=OFF \
+    -DLLVM_ENABLE_FFI=OFF
+
+  log "Building native LLVM tools"
+  cmake --build "$NATIVE_TOOLS_BUILD_DIR" --parallel "$JOBS" --target \
+    llvm-tblgen \
+    llvm-config \
+    llvm-nm \
+    llvm-readobj
+
+  NATIVE_LLVM_TOOLS_DIR="${NATIVE_TOOLS_BUILD_DIR}/bin"
+  [[ -x "${NATIVE_LLVM_TOOLS_DIR}/llvm-tblgen" ]] || die "missing native llvm-tblgen"
+  [[ -x "${NATIVE_LLVM_TOOLS_DIR}/llvm-config" ]] || die "missing native llvm-config"
+  [[ -x "${NATIVE_LLVM_TOOLS_DIR}/llvm-nm" ]] || die "missing native llvm-nm"
+  [[ -x "${NATIVE_LLVM_TOOLS_DIR}/llvm-readobj" ]] || die "missing native llvm-readobj"
+}
+
+validate_native_llvm_tools() {
+  local tools_dir="$1"
+
+  [[ -d "$tools_dir" ]] || die "native LLVM tools dir not found: ${tools_dir}"
+  [[ -x "${tools_dir}/llvm-tblgen" ]] || die "missing native llvm-tblgen: ${tools_dir}/llvm-tblgen"
+  [[ -x "${tools_dir}/llvm-config" ]] || die "missing native llvm-config: ${tools_dir}/llvm-config"
+  [[ -x "${tools_dir}/llvm-nm" ]] || die "missing native llvm-nm: ${tools_dir}/llvm-nm"
+  [[ -x "${tools_dir}/llvm-readobj" ]] || die "missing native llvm-readobj: ${tools_dir}/llvm-readobj"
+}
+
 ARCH="${ARCH:-}"
 TARGET_KIND="${TARGET_KIND:-linux}"
 TARGET_TRIPLE="${TARGET_TRIPLE:-}"
 LLVM_VERSION="${LLVM_VERSION:-18.1.8}"
 LLVM_MAJOR_VERSION="${LLVM_MAJOR_VERSION:-${LLVM_VERSION%%.*}}"
+BOOTSTRAP_LLVM_VERSION="${BOOTSTRAP_LLVM_VERSION:-18.1.8}"
+BOOTSTRAP_LLVM_MAJOR_VERSION="${BOOTSTRAP_LLVM_MAJOR_VERSION:-${BOOTSTRAP_LLVM_VERSION%%.*}}"
 JOBS="${JOBS:-4}"
 SDK_PREFIX="${SDK_PREFIX:-/opt/llvmsdk-${LLVM_VERSION}-${TARGET_TRIPLE}}"
 CACHE_DIR="${CACHE_DIR:-/work/cache}"
 BUILD_DIR="${BUILD_DIR:-/work/build}"
 TEMPLATE_DIR="${TEMPLATE_DIR:-/work/mount_root/templates}"
-LLVM_ROOT="${LLVM_ROOT:-/opt/llvm-${LLVM_VERSION}}"
+PREBUILT_LLVM_ROOT="${PREBUILT_LLVM_ROOT:-/opt/llvm-${BOOTSTRAP_LLVM_VERSION}}"
 LLVM_ARCHIVE_NAME="${LLVM_ARCHIVE_NAME:-llvm-project-${LLVM_VERSION}.src.tar.xz}"
 LLVM_ARCHIVE_URL="${LLVM_ARCHIVE_URL:-https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/${LLVM_ARCHIVE_NAME}}"
 LLVM_TARGETS="${LLVM_TARGETS:-all}"
 LLVM_EXPERIMENTAL_TARGETS="${LLVM_EXPERIMENTAL_TARGETS:-all}"
+NATIVE_TOOLS_BUILD_DIR="${BUILD_DIR}/llvm-native-tools-build"
+NATIVE_LLVM_TOOLS_DIR="${NATIVE_LLVM_TOOLS_DIR:-}"
 
 [[ -n "$ARCH" ]] || die "ARCH is required"
 [[ -n "$TARGET_TRIPLE" ]] || die "TARGET_TRIPLE is required"
-[[ -d "$LLVM_ROOT" ]] || die "missing LLVM root: ${LLVM_ROOT}"
+[[ -d "$PREBUILT_LLVM_ROOT" ]] || die "missing prebuilt LLVM root: ${PREBUILT_LLVM_ROOT}"
+[[ -x "${PREBUILT_LLVM_ROOT}/bin/clang" ]] || die "missing prebuilt clang: ${PREBUILT_LLVM_ROOT}/bin/clang"
+[[ -x "${PREBUILT_LLVM_ROOT}/bin/clang++" ]] || die "missing prebuilt clang++: ${PREBUILT_LLVM_ROOT}/bin/clang++"
 
 require_command curl
 require_command tar
@@ -131,31 +191,31 @@ esac
 [[ -d "${SDK_PREFIX}/include" ]] || die "missing SDK include dir: ${SDK_PREFIX}/include"
 [[ -d "${SDK_PREFIX}/lib" ]] || die "missing SDK lib dir: ${SDK_PREFIX}/lib"
 
-CC="${CC:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang-gcc}"
-CXX="${CXX:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang-g++}"
-AR="${AR:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-ar}"
-RANLIB="${RANLIB:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-ranlib}"
-STRIP="${STRIP:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-strip}"
-NM="${NM:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-nm}"
-OBJCOPY="${OBJCOPY:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-objcopy}"
+CC="${CC:-${PREBUILT_LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang-gcc}"
+CXX="${CXX:-${PREBUILT_LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang-g++}"
+AR="${AR:-${PREBUILT_LLVM_ROOT}/bin/${TARGET_TRIPLE}-ar}"
+RANLIB="${RANLIB:-${PREBUILT_LLVM_ROOT}/bin/${TARGET_TRIPLE}-ranlib}"
+STRIP="${STRIP:-${PREBUILT_LLVM_ROOT}/bin/${TARGET_TRIPLE}-strip}"
+NM="${NM:-${PREBUILT_LLVM_ROOT}/bin/${TARGET_TRIPLE}-nm}"
+OBJCOPY="${OBJCOPY:-${PREBUILT_LLVM_ROOT}/bin/${TARGET_TRIPLE}-objcopy}"
 
 if [[ ! -x "$CC" ]]; then
-  CC="${LLVM_ROOT}/bin/clang"
+  CC="${PREBUILT_LLVM_ROOT}/bin/clang"
   C_COMPILER_TARGET_ARG="-DCMAKE_C_COMPILER_TARGET=${TARGET_TRIPLE}"
 else
   C_COMPILER_TARGET_ARG="-DCMAKE_C_COMPILER_TARGET=${TARGET_TRIPLE}"
 fi
 if [[ ! -x "$CXX" ]]; then
-  CXX="${LLVM_ROOT}/bin/clang++"
+  CXX="${PREBUILT_LLVM_ROOT}/bin/clang++"
   CXX_COMPILER_TARGET_ARG="-DCMAKE_CXX_COMPILER_TARGET=${TARGET_TRIPLE}"
 else
   CXX_COMPILER_TARGET_ARG="-DCMAKE_CXX_COMPILER_TARGET=${TARGET_TRIPLE}"
 fi
-[[ -x "$AR" ]] || AR="${LLVM_ROOT}/bin/llvm-ar"
-[[ -x "$RANLIB" ]] || RANLIB="${LLVM_ROOT}/bin/llvm-ranlib"
-[[ -x "$STRIP" ]] || STRIP="${LLVM_ROOT}/bin/llvm-strip"
-[[ -x "$NM" ]] || NM="${LLVM_ROOT}/bin/llvm-nm"
-[[ -x "$OBJCOPY" ]] || OBJCOPY="${LLVM_ROOT}/bin/llvm-objcopy"
+[[ -x "$AR" ]] || AR="${PREBUILT_LLVM_ROOT}/bin/llvm-ar"
+[[ -x "$RANLIB" ]] || RANLIB="${PREBUILT_LLVM_ROOT}/bin/llvm-ranlib"
+[[ -x "$STRIP" ]] || STRIP="${PREBUILT_LLVM_ROOT}/bin/llvm-strip"
+[[ -x "$NM" ]] || NM="${PREBUILT_LLVM_ROOT}/bin/llvm-nm"
+[[ -x "$OBJCOPY" ]] || OBJCOPY="${PREBUILT_LLVM_ROOT}/bin/llvm-objcopy"
 
 LLVM_BUILD_DIR="${BUILD_DIR}/llvm-sdk-build"
 LINK_FLAGS="-L${SDK_PREFIX}/lib"
@@ -175,12 +235,20 @@ fi
 
 download_archive "$LLVM_ARCHIVE_URL" "$LLVM_ARCHIVE_NAME"
 LLVM_SOURCE_ROOT="$(extract_llvm_source)"
+if [[ -n "$NATIVE_LLVM_TOOLS_DIR" ]]; then
+  validate_native_llvm_tools "$NATIVE_LLVM_TOOLS_DIR"
+else
+  build_native_llvm_tools "$LLVM_SOURCE_ROOT"
+fi
 
 rm -rf "$LLVM_BUILD_DIR"
 mkdir -p "$LLVM_BUILD_DIR"
 
 log "Configuring LLVM SDK"
 log "Target triple: ${TARGET_TRIPLE}"
+log "Target LLVM version: ${LLVM_VERSION}"
+log "Prebuilt LLVM root: ${PREBUILT_LLVM_ROOT}"
+log "Native LLVM tools: ${NATIVE_LLVM_TOOLS_DIR}"
 log "LLVM targets: ${LLVM_TARGETS}"
 log "LLVM experimental targets: ${LLVM_EXPERIMENTAL_TARGETS}"
 
@@ -201,7 +269,7 @@ cmake -S "${LLVM_SOURCE_ROOT}/llvm" -B "$LLVM_BUILD_DIR" -G Ninja \
   -DCMAKE_NM="$NM" \
   -DCMAKE_OBJCOPY="$OBJCOPY" \
   -DCMAKE_SYSROOT="$SYSROOT" \
-  "-DCMAKE_FIND_ROOT_PATH=${SDK_PREFIX};${SYSROOT};${TARGET_ROOT};${LLVM_ROOT}" \
+  "-DCMAKE_FIND_ROOT_PATH=${SDK_PREFIX};${SYSROOT};${TARGET_ROOT}" \
   -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
   -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
   -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
@@ -211,11 +279,11 @@ cmake -S "${LLVM_SOURCE_ROOT}/llvm" -B "$LLVM_BUILD_DIR" -G Ninja \
   "-DCMAKE_SHARED_LINKER_FLAGS=${LINK_FLAGS}" \
   "$INSTALL_RPATH_ARG" \
   -DPython3_EXECUTABLE=/usr/bin/python3 \
-  "-DLLVM_NATIVE_TOOL_DIR=${LLVM_ROOT}/bin" \
-  "-DLLVM_TABLEGEN=${LLVM_ROOT}/bin/llvm-tblgen" \
-  "-DLLVM_NM=${LLVM_ROOT}/bin/llvm-nm" \
-  "-DLLVM_READOBJ=${LLVM_ROOT}/bin/llvm-readobj" \
-  "-DLLVM_CONFIG_PATH=${LLVM_ROOT}/bin/llvm-config" \
+  "-DLLVM_NATIVE_TOOL_DIR=${NATIVE_LLVM_TOOLS_DIR}" \
+  "-DLLVM_TABLEGEN=${NATIVE_LLVM_TOOLS_DIR}/llvm-tblgen" \
+  "-DLLVM_NM=${NATIVE_LLVM_TOOLS_DIR}/llvm-nm" \
+  "-DLLVM_READOBJ=${NATIVE_LLVM_TOOLS_DIR}/llvm-readobj" \
+  "-DLLVM_CONFIG_PATH=${NATIVE_LLVM_TOOLS_DIR}/llvm-config" \
   "-DLLVM_TARGETS_TO_BUILD=${LLVM_TARGETS}" \
   "-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=${LLVM_EXPERIMENTAL_TARGETS}" \
   "-DLLVM_HOST_TRIPLE=${TARGET_TRIPLE}" \
@@ -264,6 +332,7 @@ copy_runtime_dlls_to_bin
 
 render_template "${TEMPLATE_DIR}/README.llvmsdk.in" "${SDK_PREFIX}/README.llvmsdk" \
   "LLVM_VERSION=${LLVM_VERSION}" \
+  "BOOTSTRAP_LLVM_VERSION=${BOOTSTRAP_LLVM_VERSION}" \
   "TARGET_TRIPLE=${TARGET_TRIPLE}" \
   "TARGET_KIND=${TARGET_KIND}" \
   "LLVM_TARGETS=${LLVM_TARGETS}" \

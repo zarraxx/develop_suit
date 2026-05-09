@@ -177,8 +177,8 @@ prepare_llvmsdk_from_archive() {
   local tmp_extract="${sdk_dir}.extract"
   local extracted_dir=""
   local package_dir="llvmsdk-${LLVM_VERSION}-${TARGET_TRIPLE}"
-  local marker="${sdk_dir}/.stage-osxcross-llvmsdk-ready"
-  local deps_version="stage-osxcross-llvmsdk-v1"
+  local marker="${sdk_dir}/.package-osxcross-llvmsdk-ready"
+  local deps_version="package-osxcross-llvmsdk-v1"
 
   if [[ "$REFRESH_DEPS" -eq 0 && -f "$marker" ]] \
       && grep -qx "archive=${archive_path}" "$marker" \
@@ -218,8 +218,8 @@ prepare_llvm_deps_from_archive() {
   local tmp_extract="${deps_dir}.extract"
   local extracted_dir=""
   local package_dir="llvm_dependencies-${TARGET_TRIPLE}"
-  local marker="${deps_dir}/.stage-osxcross-llvm-deps-ready"
-  local deps_version="stage-osxcross-llvm-deps-v1"
+  local marker="${deps_dir}/.package-osxcross-llvm-deps-ready"
+  local deps_version="package-osxcross-llvm-deps-v1"
 
   if [[ "$REFRESH_DEPS" -eq 0 && -f "$marker" ]] \
       && grep -qx "archive=${archive_path}" "$marker" \

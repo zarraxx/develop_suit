@@ -2,6 +2,7 @@ LLVM SDK @LLVM_VERSION@
 
 Target triple: @TARGET_TRIPLE@
 Target kind: @TARGET_KIND@
+Bootstrap LLVM version: @BOOTSTRAP_LLVM_VERSION@
 
 This SDK intentionally builds LLVM without clang, lld, or clang-tools-extra.
 It includes LLVM headers, LLVM tools, libLLVM, libLTO, and the external

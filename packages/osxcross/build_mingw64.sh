@@ -38,7 +38,7 @@ find_default_archive() {
   local name="$1"
   local path=""
 
-  path="${PROJECT_ROOT}/tmp/stage-llvmsdk-run-25543143660-artifacts/llvmsdk-mingw64/${name}"
+  path="${PROJECT_ROOT}/tmp/package-llvmsdk-run-25543143660-artifacts/llvmsdk-mingw64/${name}"
   if [[ -f "$path" ]]; then
     printf '%s\n' "$path"
     return 0

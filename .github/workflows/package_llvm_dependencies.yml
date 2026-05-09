@@ -1,4 +1,4 @@
-name: stage_llvm_dependencies
+name: package_llvm_dependencies
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -81,10 +81,10 @@ jobs:
         uses: actions/cache@v5
         with:
           path: cache
-          key: ${{ runner.os }}-stage-llvm-dependencies-cache-v1
+          key: ${{ runner.os }}-package-llvm-dependencies-cache-v1
           restore-keys: |
-            ${{ runner.os }}-stage-llvm-dependencies-cache-
-            ${{ runner.os }}-stage-llvmsdk-cache-
+            ${{ runner.os }}-package-llvm-dependencies-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
             ${{ runner.os }}-stage-mingw64-cache-
             ${{ runner.os }}-stage-llvm-cache-
             ${{ runner.os }}-stage-python-cache-

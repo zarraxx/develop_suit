@@ -1,0 +1,16 @@
+Native LLVM build tools for LLVM @LLVM_VERSION@.
+
+This prefix is a workflow bootstrap artifact, not a distributable target SDK.
+It is built on the GitHub Actions Linux x86_64 runner and reused by target
+matrix jobs to avoid rebuilding same-version native LLVM helper tools for every
+target.
+
+Bootstrap LLVM version: @BOOTSTRAP_LLVM_VERSION@
+LLVM targets: @LLVM_TARGETS@
+LLVM experimental targets: @LLVM_EXPERIMENTAL_TARGETS@
+
+Included tools:
+  llvm-tblgen
+  llvm-config
+  llvm-nm
+  llvm-readobj

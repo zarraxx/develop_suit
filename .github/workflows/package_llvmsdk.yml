@@ -1,4 +1,4 @@
-name: stage_llvmsdk
+name: package_llvmsdk
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -27,9 +27,10 @@ on:
         required: false
         type: string
       dependency_release_tag:
-        description: "Release tag that contains llvm_dependencies-<triple>.tar.xz, defaults to llvm-dependencies-<llvm_version>"
+        description: "Release tag that contains llvm_dependencies-<triple>.tar.xz"
         required: false
         type: string
+        default: "llvm-dependencies-18.1.8"
       prerelease:
         description: "Mark the GitHub Release as prerelease"
         required: true
@@ -69,10 +70,51 @@ jobs:
             echo "llvm_version=${llvm_version}"
           } >> "${GITHUB_OUTPUT}"
 
+  build-native-llvmsdk:
+    name: native_llvmsdk
+    runs-on: ubuntu-24.04
+    needs: resolve-meta
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-package-llvmsdk-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-package-llvmsdk-cache-
+            ${{ runner.os }}-stage-mingw64-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+            ${{ runner.os }}-stage-python-cache-
+            ${{ runner.os }}-stage1-cache-
+
+      - name: Build native LLVM SDK tools
+        run: |
+          bash ./packages/llvm/build_native_tools.sh \
+            --llvm-version="${{ env.LLVM_SDK_VERSION }}" \
+            --bootstrap-llvm-version=18.1.8 \
+            --clean \
+            --pull \
+            --jobs=4
+
+      - name: Upload native LLVM SDK tools artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-llvmsdk
+          path: |
+            packages/llvm/build/dist/native_llvmsdk-${{ env.LLVM_SDK_VERSION }}-*.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
   build-sdk:
     name: llvmsdk-${{ matrix.target }}
     runs-on: ubuntu-24.04
-    needs: resolve-meta
+    needs:
+      - resolve-meta
+      - build-native-llvmsdk
     strategy:
       fail-fast: false
       matrix:
@@ -87,13 +129,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Download native LLVM SDK tools artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: native-llvmsdk
+          path: packages/llvm/build/native-tools
+
       - name: Cache source archives
         uses: actions/cache@v5
         with:
           path: cache
-          key: ${{ runner.os }}-stage-llvmsdk-cache-v1
+          key: ${{ runner.os }}-package-llvmsdk-cache-v1
           restore-keys: |
-            ${{ runner.os }}-stage-llvmsdk-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
             ${{ runner.os }}-stage-mingw64-cache-
             ${{ runner.os }}-stage-llvm-cache-
             ${{ runner.os }}-stage-python-cache-
@@ -111,7 +159,7 @@ jobs:
 
           dependency_release_tag="${INPUT_DEPENDENCY_RELEASE_TAG}"
           if [[ -z "${dependency_release_tag}" ]]; then
-            dependency_release_tag="llvm-dependencies-${LLVM_SDK_VERSION}"
+            dependency_release_tag="llvm-dependencies-18.1.8"
           fi
 
           case "${TARGET}" in
@@ -160,11 +208,18 @@ jobs:
             echo "missing downloaded llvm dependency archive" >&2
             exit 1
           }
+          native_tools_archive="$(find packages/llvm/build/native-tools -maxdepth 1 -name 'native_llvmsdk-*.tar.xz' -print -quit)"
+          [[ -n "${native_tools_archive}" ]] || {
+            echo "missing downloaded native LLVM tools archive" >&2
+            exit 1
+          }
 
           bash ./packages/llvm/build.sh \
             --target="${{ matrix.target }}" \
             --llvm-version="${{ env.LLVM_SDK_VERSION }}" \
+            --bootstrap-llvm-version=18.1.8 \
             --dependency-archive="${dependency_archive}" \
+            --native-tools-archive="${native_tools_archive}" \
             --clean \
             --pull \
             --jobs=4
