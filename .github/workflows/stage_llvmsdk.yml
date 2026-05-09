@@ -2,26 +2,32 @@ name: stage_llvmsdk
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  LLVM_SDK_VERSION: 18.1.8
+  LLVM_SDK_VERSION: ${{ inputs.llvm_version || '18.1.8' }}
 
 on:
   workflow_dispatch:
     inputs:
+      llvm_version:
+        description: "LLVM version to build and publish"
+        required: true
+        type: choice
+        default: "18.1.8"
+        options:
+          - "22.1.5"
+          - "21.1.8"
+          - "20.1.8"
+          - "18.1.8"
       publish_release:
         description: "Create or update a GitHub Release after building"
         required: true
         type: boolean
         default: true
-      release_tag:
-        description: "Release tag, defaults to llvmsdk-YYYY-MM-DD"
-        required: false
-        type: string
       release_name:
         description: "Release title, defaults to release_tag"
         required: false
         type: string
       dependency_release_tag:
-        description: "Release tag that contains llvm_dependencies-<triple>.tar.xz"
+        description: "Release tag that contains llvm_dependencies-<triple>.tar.xz, defaults to llvm-dependencies-<llvm_version>"
         required: false
         type: string
       prerelease:
@@ -40,18 +46,17 @@ jobs:
     outputs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
       release_name: ${{ steps.meta.outputs.release_name }}
+      llvm_version: ${{ steps.meta.outputs.llvm_version }}
 
     steps:
       - name: Resolve release metadata
         id: meta
         env:
-          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_LLVM_VERSION: ${{ inputs.llvm_version }}
           INPUT_RELEASE_NAME: ${{ inputs.release_name }}
         run: |
-          release_tag="${INPUT_RELEASE_TAG}"
-          if [[ -z "${release_tag}" ]]; then
-            release_tag="llvmsdk-$(date -u +%F)"
-          fi
+          llvm_version="${INPUT_LLVM_VERSION:-18.1.8}"
+          release_tag="llvmsdk-${llvm_version}"
 
           release_name="${INPUT_RELEASE_NAME}"
           if [[ -z "${release_name}" ]]; then
@@ -61,6 +66,7 @@ jobs:
           {
             echo "release_tag=${release_tag}"
             echo "release_name=${release_name}"
+            echo "llvm_version=${llvm_version}"
           } >> "${GITHUB_OUTPUT}"
 
   build-sdk:
@@ -98,13 +104,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           INPUT_DEPENDENCY_RELEASE_TAG: ${{ inputs.dependency_release_tag }}
+          LLVM_SDK_VERSION: ${{ env.LLVM_SDK_VERSION }}
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
 
           dependency_release_tag="${INPUT_DEPENDENCY_RELEASE_TAG}"
           if [[ -z "${dependency_release_tag}" ]]; then
-            dependency_release_tag="llvm-dependencies-$(date -u +%F)"
+            dependency_release_tag="llvm-dependencies-${LLVM_SDK_VERSION}"
           fi
 
           case "${TARGET}" in
