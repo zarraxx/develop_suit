@@ -88,6 +88,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Cache source archives
         uses: actions/cache@v5

@@ -1,0 +1,12 @@
+[submodule "packages/osxcross/upstream/apple-libtapi"]
+	path = packages/osxcross/upstream/apple-libtapi
+	url = https://github.com/tpoechtrager/apple-libtapi.git
+[submodule "packages/osxcross/upstream/cctools-port"]
+	path = packages/osxcross/upstream/cctools-port
+	url = https://github.com/tpoechtrager/cctools-port.git
+[submodule "packages/osxcross/upstream/osxcross"]
+	path = packages/osxcross/upstream/osxcross
+	url = https://github.com/tpoechtrager/osxcross.git
+[submodule "packages/osxcross/upstream/xar"]
+	path = packages/osxcross/upstream/xar
+	url = https://github.com/tpoechtrager/xar.git
