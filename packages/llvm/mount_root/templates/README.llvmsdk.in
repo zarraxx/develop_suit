@@ -6,7 +6,8 @@ Bootstrap LLVM version: @BOOTSTRAP_LLVM_VERSION@
 
 This SDK intentionally builds LLVM without clang, lld, or clang-tools-extra.
 It includes LLVM headers, LLVM tools, libLLVM, libLTO, and the external
-dependency prefix used to build them.
+dependency headers, libraries, and shared data used to build them.
+Dependency package executables are intentionally not shipped in this SDK.
 
 LLVM target backends:
   @LLVM_TARGETS@

@@ -7,7 +7,11 @@
 - `libLTO`
 - LLVM tools
 
-外部依赖来自 `packages/llvm_dependencies` 发布的 tarball。
+外部依赖来自 `packages/llvm_dependencies` 发布的 tarball。打包到
+`llvmsdk` 时只带入依赖前缀里的 `include/`、`lib/`、`share/`；依赖
+包自己的 `bin` 工具不进入最终 SDK。MinGW 目标会把依赖 DLL 作为运行
+时库从 dependency `bin/*.dll` 纳入 `lib/`，再由 SDK 打包逻辑复制到
+最终 `bin/` 供 Windows 可执行文件加载。
 
 ## 用法
 

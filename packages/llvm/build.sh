@@ -61,6 +61,7 @@ prepare_dependencies_from_archive() {
   local archive_path="$1"
   local tmp_extract="${OUT_DIR}.deps-extract"
   local extracted_dir=""
+  local subdir=""
 
   [[ -f "$archive_path" ]] || die "dependency archive not found: ${archive_path}"
 
@@ -77,7 +78,18 @@ prepare_dependencies_from_archive() {
     die "could not find dependency prefix in archive: ${archive_path}"
   fi
 
-  cp -a "${extracted_dir}/." "$OUT_DIR/"
+  for subdir in include lib share; do
+    if [[ -e "${extracted_dir}/${subdir}" ]]; then
+      cp -a "${extracted_dir}/${subdir}" "$OUT_DIR/"
+    fi
+  done
+
+  if [[ "$TARGET_KIND" == "mingw" && -d "${extracted_dir}/bin" ]]; then
+    mkdir -p "${OUT_DIR}/lib"
+    find "${extracted_dir}/bin" -maxdepth 1 -type f -name '*.dll' \
+      -exec cp -a {} "${OUT_DIR}/lib/" \;
+  fi
+
   rm -rf "$tmp_extract"
 }
 

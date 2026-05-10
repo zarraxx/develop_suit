@@ -1,0 +1,12 @@
+Native clang stage0 @LLVM_VERSION@.
+
+This prefix is a bootstrap package for building final target clang packages.
+It is built for @HOST_TRIPLE@ and uses the same-version host llvmsdk as the
+installed LLVM provider.
+
+Bootstrap compiler LLVM version: @BOOTSTRAP_LLVM_VERSION@
+Stage0 LLVM targets: @STAGE0_TARGETS@
+
+Included projects:
+  clang
+  lld
