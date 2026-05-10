@@ -1,0 +1,20 @@
+clang package.
+
+LLVM version: @LLVM_VERSION@
+Host triple: @TARGET_TRIPLE@
+
+This prefix contains clang, lld, clang-tools-extra, the matching LLVM SDK,
+and libc++/compiler-rt runtime files.
+
+Target driver configuration files are installed next to clang in bin/.
+Linux target cfg files expect sysroots outside this prefix:
+
+  <clang-prefix>/../sysroot/<triple>
+
+The Windows GNU cfg files expect the host-arch MinGW prefix outside this
+clang prefix:
+
+  <clang-prefix>/../x86_64-w64-windows-gnu
+
+This matches the container /opt layout and allows multiple clang versions to
+share the same sysroot prefixes.

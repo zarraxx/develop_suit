@@ -7,7 +7,8 @@ This package should not rebuild the LLVM SDK dependency prefix. It consumes:
 
 - `llvm_dependencies-<triple>.tar.xz`
 - `llvmsdk-<version>-<triple>.tar.xz`
-- `libcxx-<version>-<triple>.tar.xz`
+- `native-clang-stage0-<version>-x86_64-unknown-linux-gnu.tar.xz`
+- `libcxx-<version>-<triple>.tar.xz` for every supported runtime target
 
 The final package name is:
 
@@ -29,7 +30,7 @@ This package owns:
 - `clang++`
 - `lld`
 - `clang-tools-extra`
-- target configuration files and wrappers needed by the final clang package
+- target driver symlinks and `.cfg` files
 - final copy-and-run layout assembly
 
 This package does not own:
@@ -37,6 +38,8 @@ This package does not own:
 - LLVM SDK libraries and tools built by `packages/llvm`
 - external dependency prefixes built by `packages/llvm_dependencies`
 - standalone C++ runtime packages built by `packages/libcxx`
+- Linux sysroots
+- host-arch MinGW sysroot/binutils prefixes
 - stage rootfs image construction
 
 ## Targets
@@ -125,12 +128,61 @@ target.
 The final clang build should enable all available stable and experimental LLVM
 targets for user-facing clang/lld usage.
 
+The installed clang defaults match the staged LLVM toolchain policy:
+
+- default linker: `lld`
+- default C++ standard library: `libc++`
+- default runtime library: `compiler-rt`
+- default unwind library: `libunwind`
+- default objcopy: `llvm-objcopy`
+- `libclang.so` and `libclang-cpp.so` are required package outputs
+
 Expected helper scripts:
 
 ```text
 packages/clang/build.sh
 packages/clang/mount_root/container_clang.sh
 ```
+
+Build command:
+
+```sh
+./packages/clang/build.sh \
+  --target=x86_64 \
+  --llvm-version=22.1.5 \
+  --clean \
+  --jobs=4
+```
+
+The final package is assembled from the same-target `llvmsdk`, the native
+x86_64 Linux `llvmsdk` for build-time tools, the native x86_64 Linux stage0
+clang, and all five `libcxx` runtime packages.
+
+The output clang prefix intentionally does not contain Linux or MinGW sysroots.
+Its driver cfg files expect the container-style sibling layout:
+
+```text
+/opt/clang-<version>-<host-triple>/bin/clang
+/opt/sysroot/<linux-triple>
+/opt/x86_64-w64-windows-gnu/sysroot
+/opt/x86_64-w64-windows-gnu/bin
+```
+
+From `bin/*.cfg`, Linux sysroots are referenced through:
+
+```text
+<CFGDIR>/../../sysroot/<linux-triple>
+```
+
+The Windows GNU target is referenced through:
+
+```text
+<CFGDIR>/../../x86_64-w64-windows-gnu/sysroot
+<CFGDIR>/../../x86_64-w64-windows-gnu/bin
+```
+
+This keeps clang versions replaceable while allowing Linux sysroots and the
+host-arch MinGW sysroot/binutils prefix to be shared.
 
 ## C++ Runtime Package
 
@@ -183,9 +235,16 @@ For each target matrix job:
 ```text
 llvm_dependencies-<triple>.tar.xz
 llvmsdk-<version>-<triple>.tar.xz
-libcxx-<version>-<triple>.tar.xz
+libcxx-<version>-x86_64-unknown-linux-gnu.tar.xz
+libcxx-<version>-aarch64-unknown-linux-gnu.tar.xz
+libcxx-<version>-riscv64-unknown-linux-gnu.tar.xz
+libcxx-<version>-loongarch64-unknown-linux-gnu.tar.xz
+libcxx-<version>-x86_64-w64-windows-gnu.tar.xz
 native-clang-stage0-<version>-x86_64-unknown-linux-gnu.tar.xz
 ```
+
+`mingw64-sysroot-<host-triple>.tar.xz` may be provided to `build.sh` for local
+validation, but it is not copied into the final clang tarball.
 
 ## Expected Outputs
 
@@ -208,16 +267,27 @@ packages/clang/build/out/native-clang-stage0-<version>-x86_64-unknown-linux-gnu
 packages/clang/build/dist/native-clang-stage0-<version>-x86_64-unknown-linux-gnu.tar.xz
 ```
 
-## Current Status
+## Driver Layout
 
-This directory currently contains the package skeleton. The README defines the
-intended package boundary and workflow split.
+The final package creates clang driver symlinks and cfg files in `bin/`:
 
-Current implementation gaps:
+```text
+<linux-triple>-clang-gcc -> clang
+<linux-triple>-clang-g++ -> clang++
+x86_64-w64-windows-gnu-clang-gcc -> clang
+x86_64-w64-windows-gnu-clang-g++ -> clang++
+```
 
-- `build.sh` still points at `mount_root/container_build.sh`, but the final
-  clang package entry should use `container_clang.sh`.
-- `container_clang.sh` is empty.
+Linux targets also get LLVM binutils-style symlinks:
 
-Before enabling CI, the script entry points should be made consistent with this
-README and the package workflow should be named `package_clang`.
+```text
+<linux-triple>-ar -> llvm-ar
+<linux-triple>-nm -> llvm-nm
+<linux-triple>-objcopy -> llvm-objcopy
+<linux-triple>-ranlib -> llvm-ranlib
+<linux-triple>-strip -> llvm-strip
+```
+
+The MinGW target keeps binutils in the external host-arch
+`x86_64-w64-windows-gnu` prefix because those tools are host-architecture
+specific.

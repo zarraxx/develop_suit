@@ -957,6 +957,7 @@ fi
 
 copy_dependency_dlls_to_bin
 remove_static_libraries
+patch_linux_elf_rpaths "$SDK_PREFIX" "$TARGET_KIND"
 validate_dynamic_libraries
 
 render_template "${TEMPLATE_DIR}/README.llvmsdk-deps.in" "${SDK_PREFIX}/README.llvmsdk-deps" \

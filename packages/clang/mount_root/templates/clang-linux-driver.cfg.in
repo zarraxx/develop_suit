@@ -1,0 +1,12 @@
+# Default Linux cross configuration for @TARGET_TRIPLE@.
+--target=@TARGET_TRIPLE@
+--sysroot=<CFGDIR>/../../sysroot/@TARGET_TRIPLE@
+-resource-dir=<CFGDIR>/../lib/clang/@LLVM_MAJOR_VERSION@
+-B
+<CFGDIR>/../lib/clang/@LLVM_MAJOR_VERSION@/lib/@TARGET_TRIPLE@
+-L
+<CFGDIR>/../lib/clang/@LLVM_MAJOR_VERSION@/lib/@TARGET_TRIPLE@
+-L
+<CFGDIR>/../lib/@TARGET_TRIPLE@
+@CXX_ARGS@--rtlib=compiler-rt
+--unwindlib=libunwind

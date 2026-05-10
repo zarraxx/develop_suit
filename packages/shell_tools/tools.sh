@@ -30,6 +30,80 @@ render_template() {
   printf '%s\n' "$content" >"$output_path"
 }
 
+patch_linux_elf_rpaths() {
+  local prefix="$1"
+  local target_kind="${2:-${TARGET_KIND:-linux}}"
+  local file_path=""
+  local file_dir=""
+  local relative_lib_dir=""
+  local subdir=""
+  local rest=""
+  local depth=0
+  local i=0
+  local rpath=""
+
+  [[ "$target_kind" == "linux" ]] || return 0
+  [[ -d "$prefix" ]] || return 0
+
+  require_command patchelf
+
+  while IFS= read -r -d '' file_path; do
+    patchelf --print-needed "$file_path" >/dev/null 2>&1 || continue
+
+    file_dir="$(dirname "$file_path")"
+    case "$file_dir" in
+      "$prefix")
+        relative_lib_dir="lib"
+        ;;
+      "${prefix}/lib")
+        relative_lib_dir="."
+        ;;
+      "${prefix}/lib/"*)
+        subdir="${file_dir#"${prefix}/lib/"}"
+        IFS='/' read -r -a rpath_parts <<<"$subdir"
+        depth="${#rpath_parts[@]}"
+        relative_lib_dir=""
+        for ((i = 0; i < depth; i++)); do
+          relative_lib_dir+="${relative_lib_dir:+/}.."
+        done
+        ;;
+      "${prefix}/"*)
+        subdir="${file_dir#"${prefix}/"}"
+        IFS='/' read -r -a rpath_parts <<<"$subdir"
+        depth="${#rpath_parts[@]}"
+        relative_lib_dir=""
+        for ((i = 0; i < depth; i++)); do
+          relative_lib_dir+="${relative_lib_dir:+/}.."
+        done
+        relative_lib_dir+="/lib"
+        ;;
+      *)
+        continue
+        ;;
+    esac
+
+    if [[ "$relative_lib_dir" == "." ]]; then
+      rpath="\$ORIGIN"
+    else
+      rpath="\$ORIGIN/${relative_lib_dir}"
+    fi
+
+    case "$file_path" in
+      "${prefix}/lib/"*)
+        if [[ "$rpath" != "\$ORIGIN" ]]; then
+          rpath="\$ORIGIN:${rpath}"
+        fi
+        ;;
+    esac
+
+    patchelf --set-rpath "$rpath" "$file_path"
+  done < <(
+    find "${prefix}/bin" "${prefix}/lib" \
+      -type f \( -perm /111 -o -name '*.so' -o -name '*.so.*' \) \
+      -print0 2>/dev/null
+  )
+}
+
 make_host_writable() {
   local path="$1"
 

@@ -1,0 +1,731 @@
+name: package_clang
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  LLVM_PACKAGE_VERSION: ${{ inputs.llvm_version || '18.1.8' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      llvm_version:
+        description: "LLVM/clang version to build and publish"
+        required: true
+        type: choice
+        default: "18.1.8"
+        options:
+          - "22.1.5"
+          - "21.1.8"
+          - "20.1.8"
+          - "18.1.8"
+      publish_release:
+        description: "Create or update a GitHub Release after building"
+        required: true
+        type: boolean
+        default: true
+      release_name:
+        description: "Release title, defaults to release_tag"
+        required: false
+        type: string
+      llvmsdk_release_tag:
+        description: "Release tag that contains llvmsdk-<version>-<triple>.tar.xz; defaults to llvmsdk-<version>"
+        required: false
+        type: string
+      mingw_sysroot_release_tag:
+        description: "Release tag that contains mingw64-sysroot-x86_64-unknown-linux-gnu.tar.xz"
+        required: false
+        type: string
+        default: "llvm-18.1.8"
+      linux_sysroot_release_tag:
+        description: "Release tag that contains linux-sysroot.tar.xz"
+        required: false
+        type: string
+        default: "llvm-18.1.8"
+      prerelease:
+        description: "Mark the GitHub Release as prerelease"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-meta:
+    name: resolve-meta
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      llvmsdk_release_tag: ${{ steps.meta.outputs.llvmsdk_release_tag }}
+      llvm_version: ${{ steps.meta.outputs.llvm_version }}
+
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_LLVM_VERSION: ${{ inputs.llvm_version }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+          INPUT_LLVMSDK_RELEASE_TAG: ${{ inputs.llvmsdk_release_tag }}
+        run: |
+          set -euo pipefail
+
+          llvm_version="${INPUT_LLVM_VERSION:-18.1.8}"
+          release_tag="clang-${llvm_version}"
+
+          release_name="${INPUT_RELEASE_NAME}"
+          if [[ -z "${release_name}" ]]; then
+            release_name="${release_tag}"
+          fi
+
+          llvmsdk_release_tag="${INPUT_LLVMSDK_RELEASE_TAG}"
+          if [[ -z "${llvmsdk_release_tag}" ]]; then
+            llvmsdk_release_tag="llvmsdk-${llvm_version}"
+          fi
+
+          {
+            echo "release_tag=${release_tag}"
+            echo "release_name=${release_name}"
+            echo "llvmsdk_release_tag=${llvmsdk_release_tag}"
+            echo "llvm_version=${llvm_version}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build-native-stage0:
+    name: native-clang-stage0
+    runs-on: ubuntu-24.04
+    needs: resolve-meta
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-package-clang-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-package-clang-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+
+      - name: Download host LLVM SDK archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          LLVMSDK_RELEASE_TAG: ${{ needs.resolve-meta.outputs.llvmsdk_release_tag }}
+          LLVM_PACKAGE_VERSION: ${{ env.LLVM_PACKAGE_VERSION }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p packages/clang/build/inputs
+          gh release download "${LLVMSDK_RELEASE_TAG}" \
+            --pattern "llvmsdk-${LLVM_PACKAGE_VERSION}-x86_64-unknown-linux-gnu.tar.xz" \
+            --dir packages/clang/build/inputs
+
+      - name: Build native clang stage0
+        run: |
+          set -euo pipefail
+
+          host_llvmsdk_archive="$(find packages/clang/build/inputs -maxdepth 1 -name 'llvmsdk-*-x86_64-unknown-linux-gnu.tar.xz' -print -quit)"
+          [[ -n "${host_llvmsdk_archive}" ]] || {
+            echo "missing downloaded x86_64 llvmsdk archive" >&2
+            exit 1
+          }
+
+          bash ./packages/clang/build_native_stage0.sh \
+            --llvm-version="${{ env.LLVM_PACKAGE_VERSION }}" \
+            --bootstrap-llvm-version=18.1.8 \
+            --llvmsdk-archive="${host_llvmsdk_archive}" \
+            --clean \
+            --pull \
+            --jobs=4
+
+      - name: Upload native clang stage0 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-clang-stage0
+          path: |
+            packages/clang/build/dist/native-clang-stage0-${{ env.LLVM_PACKAGE_VERSION }}-*.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  build-libcxx:
+    name: libcxx-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    needs:
+      - resolve-meta
+      - build-native-stage0
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64
+          - aarch64
+          - riscv64
+          - loongarch64
+          - mingw64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download native clang stage0 artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: native-clang-stage0
+          path: packages/clang/build/native-stage0
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-package-clang-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-package-clang-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+
+      - name: Build libcxx runtime package
+        run: |
+          set -euo pipefail
+
+          native_stage0_archive="$(find packages/clang/build/native-stage0 -maxdepth 1 -name 'native-clang-stage0-*.tar.xz' -print -quit)"
+          [[ -n "${native_stage0_archive}" ]] || {
+            echo "missing native clang stage0 archive" >&2
+            exit 1
+          }
+
+          bash ./packages/clang/build_libcxx.sh \
+            --target="${{ matrix.target }}" \
+            --llvm-version="${{ env.LLVM_PACKAGE_VERSION }}" \
+            --bootstrap-llvm-version=18.1.8 \
+            --native-stage0-archive="${native_stage0_archive}" \
+            --clean \
+            --pull \
+            --jobs=4
+
+      - name: Upload libcxx artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: libcxx-${{ matrix.target }}
+          path: |
+            packages/clang/build/dist/libcxx-${{ env.LLVM_PACKAGE_VERSION }}-*.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  build-clang:
+    name: clang-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    needs:
+      - resolve-meta
+      - build-native-stage0
+      - build-libcxx
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64
+          - aarch64
+          - riscv64
+          - loongarch64
+          - mingw64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download native clang stage0 artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: native-clang-stage0
+          path: packages/clang/build/native-stage0
+
+      - name: Download libcxx artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: packages/clang/build/libcxx-artifacts
+          pattern: libcxx-*
+          merge-multiple: true
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-package-clang-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-package-clang-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+
+      - name: Download LLVM SDK archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TARGET: ${{ matrix.target }}
+          LLVMSDK_RELEASE_TAG: ${{ needs.resolve-meta.outputs.llvmsdk_release_tag }}
+          LLVM_PACKAGE_VERSION: ${{ env.LLVM_PACKAGE_VERSION }}
+        run: |
+          set -euo pipefail
+
+          case "${TARGET}" in
+            x86_64)
+              triple="x86_64-unknown-linux-gnu"
+              ;;
+            aarch64)
+              triple="aarch64-unknown-linux-gnu"
+              ;;
+            riscv64)
+              triple="riscv64-unknown-linux-gnu"
+              ;;
+            loongarch64)
+              triple="loongarch64-unknown-linux-gnu"
+              ;;
+            mingw64)
+              triple="x86_64-w64-windows-gnu"
+              ;;
+            *)
+              echo "unsupported target: ${TARGET}" >&2
+              exit 1
+              ;;
+          esac
+
+          mkdir -p packages/clang/build/inputs
+          gh release download "${LLVMSDK_RELEASE_TAG}" \
+            --pattern "llvmsdk-${LLVM_PACKAGE_VERSION}-x86_64-unknown-linux-gnu.tar.xz" \
+            --dir packages/clang/build/inputs \
+            --clobber
+          gh release download "${LLVMSDK_RELEASE_TAG}" \
+            --pattern "llvmsdk-${LLVM_PACKAGE_VERSION}-${triple}.tar.xz" \
+            --dir packages/clang/build/inputs \
+            --clobber
+
+      - name: Download MinGW sysroot archive
+        if: ${{ matrix.target == 'mingw64' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          MINGW_SYSROOT_RELEASE_TAG: ${{ inputs.mingw_sysroot_release_tag }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p packages/clang/build/inputs
+          gh release download "${MINGW_SYSROOT_RELEASE_TAG}" \
+            --pattern "mingw64-sysroot-x86_64-unknown-linux-gnu.tar.xz" \
+            --dir packages/clang/build/inputs
+
+      - name: Build clang package
+        run: |
+          set -euo pipefail
+
+          case "${{ matrix.target }}" in
+            x86_64)
+              triple="x86_64-unknown-linux-gnu"
+              ;;
+            aarch64)
+              triple="aarch64-unknown-linux-gnu"
+              ;;
+            riscv64)
+              triple="riscv64-unknown-linux-gnu"
+              ;;
+            loongarch64)
+              triple="loongarch64-unknown-linux-gnu"
+              ;;
+            mingw64)
+              triple="x86_64-w64-windows-gnu"
+              ;;
+            *)
+              echo "unsupported target: ${{ matrix.target }}" >&2
+              exit 1
+              ;;
+          esac
+
+          llvmsdk_archive="packages/clang/build/inputs/llvmsdk-${{ env.LLVM_PACKAGE_VERSION }}-${triple}.tar.xz"
+          native_llvmsdk_archive="packages/clang/build/inputs/llvmsdk-${{ env.LLVM_PACKAGE_VERSION }}-x86_64-unknown-linux-gnu.tar.xz"
+          native_stage0_archive="$(find packages/clang/build/native-stage0 -maxdepth 1 -name 'native-clang-stage0-*.tar.xz' -print -quit)"
+
+          [[ -f "${llvmsdk_archive}" ]] || {
+            echo "missing downloaded llvmsdk archive" >&2
+            exit 1
+          }
+          [[ -f "${native_llvmsdk_archive}" ]] || {
+            echo "missing downloaded native x86_64 llvmsdk archive" >&2
+            exit 1
+          }
+          [[ -n "${native_stage0_archive}" ]] || {
+            echo "missing native clang stage0 archive" >&2
+            exit 1
+          }
+
+          args=(
+            --target="${{ matrix.target }}"
+            --llvm-version="${{ env.LLVM_PACKAGE_VERSION }}"
+            --bootstrap-llvm-version=18.1.8
+            --llvmsdk-archive="${llvmsdk_archive}"
+            --native-llvmsdk-archive="${native_llvmsdk_archive}"
+            --native-stage0-archive="${native_stage0_archive}"
+            --clean
+            --pull
+            --jobs=4
+          )
+
+          if [[ "${{ matrix.target }}" == "mingw64" ]]; then
+            mingw_sysroot_archive="$(find packages/clang/build/inputs -maxdepth 1 -name 'mingw64-sysroot-x86_64-unknown-linux-gnu.tar.xz' -print -quit)"
+            [[ -n "${mingw_sysroot_archive}" ]] || {
+              echo "missing mingw64 sysroot archive" >&2
+              exit 1
+            }
+            args+=(--mingw-sysroot-archive="${mingw_sysroot_archive}")
+          fi
+
+          for libcxx_archive in packages/clang/build/libcxx-artifacts/libcxx-*.tar.xz; do
+            args+=(--libcxx-archive="${libcxx_archive}")
+          done
+
+          bash ./packages/clang/build.sh "${args[@]}"
+
+      - name: Upload clang artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: clang-${{ matrix.target }}
+          path: |
+            packages/clang/build/dist/clang-${{ env.LLVM_PACKAGE_VERSION }}-*.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  test-linux-clang:
+    name: test-linux-clang-${{ matrix.host }}
+    runs-on: ubuntu-24.04
+    needs:
+      - resolve-meta
+      - build-clang
+    strategy:
+      fail-fast: false
+      matrix:
+        host:
+          - x86_64
+          - aarch64
+          - riscv64
+          - loongarch64
+
+    steps:
+      - name: Download clang artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: clang-${{ matrix.host }}
+          path: artifacts/clang
+
+      - name: Install qemu and wine
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends file qemu-user-static wine64
+
+      - name: Download test sysroots
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          HOST: ${{ matrix.host }}
+          LINUX_SYSROOT_RELEASE_TAG: ${{ inputs.linux_sysroot_release_tag }}
+          MINGW_SYSROOT_RELEASE_TAG: ${{ inputs.mingw_sysroot_release_tag }}
+        run: |
+          set -euo pipefail
+
+          case "${HOST}" in
+            x86_64)
+              host_triple="x86_64-unknown-linux-gnu"
+              ;;
+            aarch64)
+              host_triple="aarch64-unknown-linux-gnu"
+              ;;
+            riscv64)
+              host_triple="riscv64-unknown-linux-gnu"
+              ;;
+            loongarch64)
+              host_triple="loongarch64-unknown-linux-gnu"
+              ;;
+            *)
+              echo "unsupported host: ${HOST}" >&2
+              exit 1
+              ;;
+          esac
+
+          mkdir -p artifacts/sysroots
+          gh release download "${LINUX_SYSROOT_RELEASE_TAG}" \
+            --pattern "linux-sysroot.tar.xz" \
+            --dir artifacts/sysroots \
+            --clobber
+          gh release download "${MINGW_SYSROOT_RELEASE_TAG}" \
+            --pattern "mingw64-sysroot-${host_triple}.tar.xz" \
+            --dir artifacts/sysroots \
+            --clobber
+
+      - name: Test Linux-host clang package
+        env:
+          HOST: ${{ matrix.host }}
+          LLVM_PACKAGE_VERSION: ${{ env.LLVM_PACKAGE_VERSION }}
+        run: |
+          set -euo pipefail
+
+          case "${HOST}" in
+            x86_64)
+              host_triple="x86_64-unknown-linux-gnu"
+              host_qemu=()
+              ;;
+            aarch64)
+              host_triple="aarch64-unknown-linux-gnu"
+              host_qemu=(qemu-aarch64-static)
+              ;;
+            riscv64)
+              host_triple="riscv64-unknown-linux-gnu"
+              host_qemu=(qemu-riscv64-static)
+              ;;
+            loongarch64)
+              host_triple="loongarch64-unknown-linux-gnu"
+              host_qemu=(qemu-loongarch64-static)
+              ;;
+            *)
+              echo "unsupported host: ${HOST}" >&2
+              exit 1
+              ;;
+          esac
+
+          test_root="${PWD}/test-root/${HOST}"
+          rm -rf "${test_root}"
+          mkdir -p "${test_root}" "${test_root}/src" "${test_root}/out" "${test_root}/extract"
+
+          tar -xf "artifacts/clang/clang-${LLVM_PACKAGE_VERSION}-${host_triple}.tar.xz" -C "${test_root}"
+          clang_root="${test_root}/clang-${LLVM_PACKAGE_VERSION}-${host_triple}"
+          [[ -x "${clang_root}/bin/clang" ]] || {
+            echo "missing Linux clang binary: ${clang_root}/bin/clang" >&2
+            exit 1
+          }
+
+          tar -xf artifacts/sysroots/linux-sysroot.tar.xz -C "${test_root}/extract"
+          if [[ -d "${test_root}/extract/opt/sysroot" ]]; then
+            ln -sfn "${test_root}/extract/opt/sysroot" "${test_root}/sysroot"
+          elif [[ -d "${test_root}/extract/sysroot" ]]; then
+            ln -sfn "${test_root}/extract/sysroot" "${test_root}/sysroot"
+          else
+            sysroot_parent="$(find "${test_root}/extract" -type d -path '*/x86_64-unknown-linux-gnu' -print -quit)"
+            [[ -n "${sysroot_parent}" ]] || {
+              echo "could not locate extracted Linux sysroot root" >&2
+              find "${test_root}/extract" -maxdepth 3 -type d | sort >&2
+              exit 1
+            }
+            ln -sfn "$(dirname "${sysroot_parent}")" "${test_root}/sysroot"
+          fi
+
+          mkdir -p "${test_root}/mingw-extract"
+          tar -xf "artifacts/sysroots/mingw64-sysroot-${host_triple}.tar.xz" -C "${test_root}/mingw-extract"
+          mingw_root="$(find "${test_root}/mingw-extract" -type d -path '*/sysroot/usr/x86_64-w64-windows-gnu/include' -print -quit)"
+          [[ -n "${mingw_root}" ]] || {
+            echo "could not locate extracted MinGW sysroot" >&2
+            find "${test_root}/mingw-extract" -maxdepth 4 -type d | sort >&2
+            exit 1
+          }
+          mingw_prefix="$(dirname "$(dirname "$(dirname "$(dirname "${mingw_root}")")")")"
+          ln -sfn "${mingw_prefix}" "${test_root}/x86_64-w64-windows-gnu"
+
+          cat >"${test_root}/src/hello.c" <<'EOF'
+          #include <stdio.h>
+          int main(void) {
+            puts("hello from c");
+            return 0;
+          }
+          EOF
+          cat >"${test_root}/src/hello.cpp" <<'EOF'
+          #include <iostream>
+          int main() {
+            std::cout << "hello from c++" << std::endl;
+            return 0;
+          }
+          EOF
+
+          run_host() {
+            local exe="$1"
+            shift
+
+            if [[ "${#host_qemu[@]}" -eq 0 ]]; then
+              LD_LIBRARY_PATH="${clang_root}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" "$exe" "$@"
+            else
+              QEMU_LD_PREFIX="${test_root}/sysroot/${host_triple}" \
+                "${host_qemu[@]}" \
+                -L "${test_root}/sysroot/${host_triple}" \
+                -E "LD_LIBRARY_PATH=${clang_root}/lib" \
+                "$exe" "$@"
+            fi
+          }
+
+          run_target_linux() {
+            local triple="$1"
+            local exe="$2"
+            local target_arch="${triple%%-*}"
+            local qemu=()
+
+            case "${target_arch}" in
+              x86_64)
+                qemu=()
+                ;;
+              aarch64)
+                qemu=(qemu-aarch64-static)
+                ;;
+              riscv64)
+                qemu=(qemu-riscv64-static)
+                ;;
+              loongarch64)
+                qemu=(qemu-loongarch64-static)
+                ;;
+              *)
+                echo "unsupported target arch: ${target_arch}" >&2
+                exit 1
+                ;;
+            esac
+
+            if [[ "${#qemu[@]}" -eq 0 ]]; then
+              LD_LIBRARY_PATH="${clang_root}/lib/${triple}:${clang_root}/lib/clang/${LLVM_PACKAGE_VERSION%%.*}/lib/${triple}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" "$exe"
+            else
+              QEMU_LD_PREFIX="${test_root}/sysroot/${triple}" \
+                "${qemu[@]}" \
+                -L "${test_root}/sysroot/${triple}" \
+                -E "LD_LIBRARY_PATH=${clang_root}/lib/${triple}:${clang_root}/lib/clang/${LLVM_PACKAGE_VERSION%%.*}/lib/${triple}" \
+                "$exe"
+            fi
+          }
+
+          linux_targets=(
+            x86_64-unknown-linux-gnu
+            aarch64-unknown-linux-gnu
+            riscv64-unknown-linux-gnu
+            loongarch64-unknown-linux-gnu
+          )
+
+          run_host "${clang_root}/bin/clang" --version
+
+          for triple in "${linux_targets[@]}"; do
+            c_out="${test_root}/out/hello-c-${triple}"
+            cxx_out="${test_root}/out/hello-cxx-${triple}"
+
+            run_host "${clang_root}/bin/${triple}-clang-gcc" "${test_root}/src/hello.c" -o "${c_out}"
+            run_host "${clang_root}/bin/${triple}-clang-g++" "${test_root}/src/hello.cpp" -o "${cxx_out}"
+
+            file "${c_out}" "${cxx_out}"
+            run_target_linux "${triple}" "${c_out}"
+            run_target_linux "${triple}" "${cxx_out}"
+          done
+
+          win_c_out="${test_root}/out/hello-c-x86_64-w64-windows-gnu.exe"
+          win_cxx_out="${test_root}/out/hello-cxx-x86_64-w64-windows-gnu.exe"
+          run_host "${clang_root}/bin/x86_64-w64-windows-gnu-clang-gcc" "${test_root}/src/hello.c" -o "${win_c_out}"
+          run_host "${clang_root}/bin/x86_64-w64-windows-gnu-clang-g++" "${test_root}/src/hello.cpp" -o "${win_cxx_out}"
+          file "${win_c_out}" "${win_cxx_out}"
+
+          export WINEDEBUG=-all
+          export WINEPATH="${clang_root}/bin;${test_root}/x86_64-w64-windows-gnu/bin;${test_root}/x86_64-w64-windows-gnu/sysroot/usr/x86_64-w64-windows-gnu/bin"
+          wine "${win_c_out}"
+          wine "${win_cxx_out}"
+
+  test-mingw-native-clang:
+    name: test-mingw-native-clang
+    runs-on: windows-2022
+    needs:
+      - resolve-meta
+      - build-clang
+
+    steps:
+      - name: Download MinGW clang artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: clang-mingw64
+          path: artifacts/clang
+
+      - name: Test MinGW native clang package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $archive = Get-ChildItem -Path artifacts/clang -Filter "clang-${{ env.LLVM_PACKAGE_VERSION }}-x86_64-w64-windows-gnu.tar.xz" | Select-Object -First 1
+          if (-not $archive) {
+            throw "missing MinGW clang archive"
+          }
+
+          New-Item -ItemType Directory -Force -Path test-root | Out-Null
+          tar -xf $archive.FullName -C test-root
+
+          $clangRoot = Get-ChildItem -Path test-root -Directory -Filter "clang-${{ env.LLVM_PACKAGE_VERSION }}-x86_64-w64-windows-gnu" | Select-Object -First 1
+          if (-not $clangRoot) {
+            throw "missing extracted MinGW clang prefix"
+          }
+
+          $binDir = Join-Path $clangRoot.FullName "bin"
+          $targetBinDir = Join-Path $clangRoot.FullName "x86_64-w64-windows-gnu/bin"
+          $targetDllDir = Join-Path $clangRoot.FullName "x86_64-w64-windows-gnu/sysroot/usr/x86_64-w64-windows-gnu/bin"
+          $env:PATH = "${binDir};${targetBinDir};${targetDllDir};${env:PATH}"
+
+          New-Item -ItemType Directory -Force -Path test-root/src,test-root/out | Out-Null
+          @'
+          #include <stdio.h>
+          int main(void) {
+            puts("hello from native mingw c");
+            return 0;
+          }
+          '@ | Set-Content -Path test-root/src/hello.c -NoNewline -Encoding ascii
+          @'
+          #include <iostream>
+          int main() {
+            std::cout << "hello from native mingw c++" << std::endl;
+            return 0;
+          }
+          '@ | Set-Content -Path test-root/src/hello.cpp -NoNewline -Encoding ascii
+
+          & (Join-Path $binDir "clang.exe") --version
+          & (Join-Path $binDir "x86_64-w64-windows-gnu-clang-gcc.exe") test-root/src/hello.c -o test-root/out/hello-c.exe
+          & (Join-Path $binDir "x86_64-w64-windows-gnu-clang-g++.exe") test-root/src/hello.cpp -o test-root/out/hello-cxx.exe
+          & (Resolve-Path test-root/out/hello-c.exe)
+          & (Resolve-Path test-root/out/hello-cxx.exe)
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-meta
+      - build-clang
+      - test-linux-clang
+      - test-mingw-native-clang
+    if: ${{ inputs.publish_release }}
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: clang-*
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve-meta.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.resolve-meta.outputs.release_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          LLVM_PACKAGE_VERSION: ${{ env.LLVM_PACKAGE_VERSION }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            prerelease_flag=(--prerelease)
+          fi
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}" \
+              --notes "Clang ${LLVM_PACKAGE_VERSION}"
+          fi
+
+          gh release upload "${RELEASE_TAG}" artifacts/*.tar.xz --clobber

@@ -329,6 +329,7 @@ log "Installing LLVM SDK"
 cmake --install "$LLVM_BUILD_DIR"
 copy_linux_cxx_runtime_libraries
 copy_runtime_dlls_to_bin
+patch_linux_elf_rpaths "$SDK_PREFIX" "$TARGET_KIND"
 
 render_template "${TEMPLATE_DIR}/README.llvmsdk.in" "${SDK_PREFIX}/README.llvmsdk" \
   "LLVM_VERSION=${LLVM_VERSION}" \

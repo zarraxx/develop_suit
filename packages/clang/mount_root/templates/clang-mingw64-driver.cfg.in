@@ -1,0 +1,16 @@
+# Default Windows GNU cross configuration for @TARGET_TRIPLE@.
+--target=@TARGET_TRIPLE@
+--sysroot=@MINGW_ROOT@/sysroot
+-resource-dir=<CFGDIR>/../lib/clang/@LLVM_MAJOR_VERSION@
+-B
+@MINGW_ROOT@/bin
+@CXX_ARGS@-isystem
+@MINGW_ROOT@/sysroot/usr/@TARGET_TRIPLE@/include
+-L
+@MINGW_ROOT@/sysroot/usr/@TARGET_TRIPLE@/lib
+-L
+<CFGDIR>/../lib/clang/@LLVM_MAJOR_VERSION@/lib/@TARGET_TRIPLE@
+-L
+<CFGDIR>/../lib/@TARGET_TRIPLE@
+--rtlib=compiler-rt
+--unwindlib=libunwind
