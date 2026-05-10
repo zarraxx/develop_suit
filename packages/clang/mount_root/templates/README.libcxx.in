@@ -1,0 +1,17 @@
+libc++ runtime package @LLVM_VERSION@
+
+Target triple: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+
+Included runtime families:
+  compiler-rt builtins and runtime libraries
+  libunwind
+  libc++abi
+  libc++
+
+This package intentionally contains runtime headers and libraries only. It does
+not contain the full LLVM SDK, clang, lld, or clang-tools-extra.
+
+Unlike general SDK dependency packages, this runtime package preserves both
+shared libraries and static runtime archives such as libc++.a, libc++abi.a,
+libunwind.a, and compiler-rt archives.

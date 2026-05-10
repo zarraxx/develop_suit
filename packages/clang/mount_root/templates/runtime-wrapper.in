@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec "@DRIVER@" \
+  --target="@TARGET_TRIPLE@" \
+  --sysroot="@SYSROOT@" \
+  -resource-dir="@RESOURCE_DIR@" \
+  -Qunused-arguments \
+  -fuse-ld=lld \
+  -B"@RESOURCE_LIB_DIR@" \
+  -B"@TARGET_BIN_DIR@" \
+  -L"@RESOURCE_LIB_DIR@" \
+  -L"@RUNTIME_LIB_DIR@" \
+@TARGET_TOOLCHAIN_ARGS@@LINUX_RPATH_LINK_ARGS@@RUNTIME_LINK_ARGS@@CXX_INCLUDE_ARGS@  "$@"

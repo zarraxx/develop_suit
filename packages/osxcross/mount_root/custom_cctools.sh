@@ -59,7 +59,7 @@ CXXFLAGS="$TARGET_CXXFLAGS" \
 CPPFLAGS="$TARGET_CPPFLAGS" \
 LDFLAGS="$TARGET_LDFLAGS" \
 LD="${LLVM_ROOT}/bin/ld.lld" \
-LIBS="-lxml2 -lz -lm" \
+LIBS="-lxml2 -lz -lm -pthread" \
 "${CCTOOLS_SRC}/cctools/configure" \
   --prefix="$OUT_DIR" \
   --build=x86_64-unknown-linux-gnu \

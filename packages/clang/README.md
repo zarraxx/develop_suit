@@ -152,7 +152,19 @@ It must not contain the rest of LLVM.
 Expected helper script:
 
 ```text
+packages/clang/build_libcxx.sh
 packages/clang/mount_root/container_libcxx.sh
+```
+
+Build command:
+
+```sh
+./packages/clang/build_libcxx.sh \
+  --target=x86_64 \
+  --llvm-version=22.1.5 \
+  --native-stage0-archive=packages/clang/build/dist/native-clang-stage0-22.1.5-x86_64-unknown-linux-gnu.tar.xz \
+  --clean \
+  --jobs=8
 ```
 
 The runtime build order is:
@@ -205,7 +217,6 @@ Current implementation gaps:
 
 - `build.sh` still points at `mount_root/container_build.sh`, but the final
   clang package entry should use `container_clang.sh`.
-- `container_libcxx.sh` is empty.
 - `container_clang.sh` is empty.
 
 Before enabling CI, the script entry points should be made consistent with this

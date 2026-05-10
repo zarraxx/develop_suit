@@ -51,6 +51,7 @@ require_command patch
 require_command make
 require_command cmake
 require_command ninja
+require_command patchelf
 
 [[ -x "$CC" ]] || die "missing target clang: ${TARGET_TRIPLE}-clang-gcc"
 [[ -x "$CXX" ]] || die "missing target clang++: ${TARGET_TRIPLE}-clang-g++"
@@ -59,6 +60,8 @@ require_command ninja
 [[ -x "$STRIP" ]] || die "missing target strip: ${TARGET_TRIPLE}-strip"
 [[ -x "$NM" ]] || die "missing target nm: ${TARGET_TRIPLE}-nm"
 [[ -x "$OBJCOPY" ]] || die "missing target objcopy: ${TARGET_TRIPLE}-objcopy"
+LLVM_READELF="${LLVM_ROOT}/bin/llvm-readelf"
+[[ -x "$LLVM_READELF" ]] || die "missing LLVM readelf: ${LLVM_READELF}"
 [[ -d "$SYSROOT" ]] || die "missing target sysroot: ${SYSROOT}"
 [[ -d "$DEPS_USR" ]] || die "missing host dependency prefix: ${DEPS_USR}"
 [[ -f "${DEPS_USR}/include/bzlib.h" ]] || die "missing host dependency bzip2 header: ${DEPS_USR}/include/bzlib.h"
@@ -79,6 +82,21 @@ echo "-- host dependency prefix: ${DEPS_USR}"
 echo "-- LLVM SDK root: ${LLVM_SDK_ROOT:-not set}"
 echo "-- build python: ${Python3_EXECUTABLE}"
 echo "-- modules: ${CUSTOM_MODULES}"
+
+normalize_package_rpaths() {
+  local out_dir="$1"
+  local package_rpath='$ORIGIN/../lib'
+  local patched=0
+
+  while IFS= read -r -d '' path; do
+    if "$LLVM_READELF" -d "$path" >/dev/null 2>&1; then
+      patchelf --set-rpath "$package_rpath" "$path"
+      patched=$((patched + 1))
+    fi
+  done < <(find "${out_dir}/bin" "${out_dir}/lib" -type f -print0 2>/dev/null)
+
+  echo "-- normalized package ELF rpaths: ${patched} files"
+}
 
 for module in $CUSTOM_MODULES; do
   case "$module" in
@@ -108,5 +126,7 @@ for module in $CUSTOM_MODULES; do
       ;;
   esac
 done
+
+normalize_package_rpaths "$OUT_DIR"
 
 echo "-- osxcross package modules ok: ${OUT_DIR}"
