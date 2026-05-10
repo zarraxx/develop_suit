@@ -41,6 +41,9 @@ patch_linux_elf_rpaths() {
   local depth=0
   local i=0
   local rpath=""
+  local needed_before=""
+  local needed_after=""
+  local backup_path=""
 
   [[ "$target_kind" == "linux" ]] || return 0
   [[ -d "$prefix" ]] || return 0
@@ -48,7 +51,8 @@ patch_linux_elf_rpaths() {
   require_command patchelf
 
   while IFS= read -r -d '' file_path; do
-    patchelf --print-needed "$file_path" >/dev/null 2>&1 || continue
+    needed_before="$(patchelf --print-needed "$file_path" 2>/dev/null || true)"
+    [[ -n "$needed_before" ]] || continue
 
     file_dir="$(dirname "$file_path")"
     case "$file_dir" in
@@ -96,7 +100,21 @@ patch_linux_elf_rpaths() {
         ;;
     esac
 
-    patchelf --set-rpath "$rpath" "$file_path"
+    backup_path="$(mktemp "${file_path}.rpath-backup.XXXXXX")"
+    cp -p "$file_path" "$backup_path"
+    if ! patchelf --set-rpath "$rpath" "$file_path"; then
+      mv -f "$backup_path" "$file_path"
+      echo "warning: patchelf failed for ${file_path}; rpath left unchanged" >&2
+      continue
+    fi
+
+    needed_after="$(patchelf --print-needed "$file_path" 2>/dev/null || true)"
+    if [[ "$needed_after" != "$needed_before" ]]; then
+      mv -f "$backup_path" "$file_path"
+      echo "warning: patchelf changed DT_NEEDED for ${file_path}; rpath left unchanged" >&2
+      continue
+    fi
+    rm -f "$backup_path"
   done < <(
     find "${prefix}/bin" "${prefix}/lib" \
       -type f \( -perm /111 -o -name '*.so' -o -name '*.so.*' \) \

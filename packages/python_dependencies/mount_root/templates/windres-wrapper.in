@@ -1,0 +1,2 @@
+#!/usr/bin/env sh
+exec "@REAL_WINDRES@" -I"@SYSROOT@/usr/@TARGET_TRIPLE@/include" -I"@TARGET_ROOT@/include" "$@"

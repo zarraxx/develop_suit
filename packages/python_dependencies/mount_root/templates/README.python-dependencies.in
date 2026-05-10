@@ -1,0 +1,16 @@
+Python dependency prefix.
+
+This prefix extends llvm_dependencies for building Python and Python-adjacent
+tools.
+
+Target triple: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+
+Included additional dependency sources:
+  curl @CURL_VERSION@
+  util-linux/libuuid @UTIL_LINUX_VERSION@ (Linux only)
+  expat @EXPAT_VERSION@
+  sqlite @SQLITE_VERSION@
+  gdbm @GDBM_VERSION@ (Linux only)
+  libxslt @LIBXSLT_VERSION@
+  icu4c @ICU_VERSION@
