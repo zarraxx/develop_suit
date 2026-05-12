@@ -1,0 +1,8 @@
+Python package prefix.
+
+This prefix contains CPython plus the copied python_dependencies runtime
+libraries used to build it.
+
+Target triple: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+Python version: @PYTHON_VERSION@

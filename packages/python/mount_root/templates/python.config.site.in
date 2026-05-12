@@ -1,0 +1,3 @@
+ac_cv_buggy_getaddrinfo=@AC_CV_BUGGY_GETADDRINFO@
+ac_cv_file__dev_ptmx=@AC_CV_FILE_DEV_PTMX@
+ac_cv_file__dev_ptc=@AC_CV_FILE_DEV_PTC@
