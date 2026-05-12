@@ -1,0 +1,200 @@
+name: package_python_dependencies
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  LLVM_DEPENDENCY_VERSION: 18.1.8
+  PYTHON_DEPENDENCIES_SERIES: "3"
+  PYTHON_DEPENDENCIES_RELEASE_PREFIX: pyhton_dependencies-3
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Create or update a GitHub Release after building"
+        required: true
+        type: boolean
+        default: true
+      release_tag:
+        description: "Release tag"
+        required: false
+        type: string
+        default: pyhton_dependencies-3
+      release_name:
+        description: "Release title, defaults to release_tag"
+        required: false
+        type: string
+      dependency_release_tag:
+        description: "Release tag that contains llvm_dependencies-<triple>.tar.xz"
+        required: false
+        type: string
+        default: llvm-dependencies-18.1.8
+      prerelease:
+        description: "Mark the GitHub Release as prerelease"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-meta:
+    name: resolve-meta
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      dependency_release_tag: ${{ steps.meta.outputs.dependency_release_tag }}
+
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+          INPUT_DEPENDENCY_RELEASE_TAG: ${{ inputs.dependency_release_tag }}
+        run: |
+          set -euo pipefail
+
+          release_tag="${INPUT_RELEASE_TAG}"
+          if [[ -z "${release_tag}" ]]; then
+            release_tag="pyhton_dependencies-3"
+          fi
+
+          release_name="${INPUT_RELEASE_NAME}"
+          if [[ -z "${release_name}" ]]; then
+            release_name="${release_tag}"
+          fi
+
+          dependency_release_tag="${INPUT_DEPENDENCY_RELEASE_TAG}"
+          if [[ -z "${dependency_release_tag}" ]]; then
+            dependency_release_tag="llvm-dependencies-18.1.8"
+          fi
+
+          {
+            echo "release_tag=${release_tag}"
+            echo "release_name=${release_name}"
+            echo "dependency_release_tag=${dependency_release_tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build-python-dependencies:
+    name: pyhton-dependencies-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    needs: resolve-meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64
+            triple: x86_64-unknown-linux-gnu
+          - target: aarch64
+            triple: aarch64-unknown-linux-gnu
+          - target: riscv64
+            triple: riscv64-unknown-linux-gnu
+          - target: loongarch64
+            triple: loongarch64-unknown-linux-gnu
+          - target: mingw64
+            triple: x86_64-w64-windows-gnu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-package-python-dependencies-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-package-python-dependencies-cache-
+            ${{ runner.os }}-package-llvm-dependencies-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
+            ${{ runner.os }}-stage-mingw64-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+            ${{ runner.os }}-stage-python-cache-
+            ${{ runner.os }}-stage1-cache-
+
+      - name: Download LLVM dependency archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          DEPENDENCY_RELEASE_TAG: ${{ needs.resolve-meta.outputs.dependency_release_tag }}
+          DEPENDENCY_TRIPLE: ${{ matrix.triple }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p packages/python_dependencies/build/inputs
+          gh release download "${DEPENDENCY_RELEASE_TAG}" \
+            --pattern "llvm_dependencies-${DEPENDENCY_TRIPLE}.tar.xz" \
+            --dir packages/python_dependencies/build/inputs
+
+      - name: Build Python dependency package
+        run: |
+          set -euo pipefail
+
+          dependency_archive="packages/python_dependencies/build/inputs/llvm_dependencies-${{ matrix.triple }}.tar.xz"
+          [[ -f "${dependency_archive}" ]] || {
+            echo "missing downloaded llvm dependency archive: ${dependency_archive}" >&2
+            exit 1
+          }
+
+          bash ./packages/python_dependencies/build.sh \
+            --target="${{ matrix.target }}" \
+            --llvm-deps-archive="${dependency_archive}" \
+            --package-name="${{ env.PYTHON_DEPENDENCIES_RELEASE_PREFIX }}-${{ matrix.triple }}" \
+            --clean \
+            --pull \
+            --jobs=4
+
+      - name: Upload Python dependency artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pyhton-dependencies-${{ matrix.target }}
+          path: |
+            packages/python_dependencies/build/dist/${{ env.PYTHON_DEPENDENCIES_RELEASE_PREFIX }}-${{ matrix.triple }}.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-meta
+      - build-python-dependencies
+    if: ${{ inputs.publish_release }}
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: pyhton-dependencies-*
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve-meta.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.resolve-meta.outputs.release_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            prerelease_flag=(--prerelease)
+          fi
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}" \
+              --notes "Python dependency packages, series ${PYTHON_DEPENDENCIES_SERIES}"
+          fi
+
+          gh release upload "${RELEASE_TAG}" artifacts/*.tar.xz --clobber

@@ -66,12 +66,20 @@ python_dependencies-<triple>/
 
 ## Release 产物
 
+GitHub Actions 发布使用 Python 3 依赖系列名。当前默认 release tag 是：
+
 ```text
-python_dependencies-x86_64-unknown-linux-gnu.tar.xz
-python_dependencies-aarch64-unknown-linux-gnu.tar.xz
-python_dependencies-riscv64-unknown-linux-gnu.tar.xz
-python_dependencies-loongarch64-unknown-linux-gnu.tar.xz
-python_dependencies-x86_64-w64-windows-gnu.tar.xz
+pyhton_dependencies-3
+```
+
+该 release 下的产物名：
+
+```text
+pyhton_dependencies-3-x86_64-unknown-linux-gnu.tar.xz
+pyhton_dependencies-3-aarch64-unknown-linux-gnu.tar.xz
+pyhton_dependencies-3-riscv64-unknown-linux-gnu.tar.xz
+pyhton_dependencies-3-loongarch64-unknown-linux-gnu.tar.xz
+pyhton_dependencies-3-x86_64-w64-windows-gnu.tar.xz
 ```
 
 ## 上游组件
