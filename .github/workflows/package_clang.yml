@@ -623,10 +623,16 @@ jobs:
           run_host "${clang_root}/bin/x86_64-w64-windows-gnu-clang-g++" "${test_root}/src/hello.cpp" -o "${win_cxx_out}"
           file "${win_c_out}" "${win_cxx_out}"
 
+          wine_cmd="$(command -v wine || command -v wine64 || true)"
+          [[ -n "${wine_cmd}" ]] || {
+            echo "wine command not found after installing wine64" >&2
+            exit 1
+          }
+
           export WINEDEBUG=-all
           export WINEPATH="${clang_root}/bin;${test_root}/x86_64-w64-windows-gnu/bin;${test_root}/x86_64-w64-windows-gnu/sysroot/usr/x86_64-w64-windows-gnu/bin"
-          wine "${win_c_out}"
-          wine "${win_cxx_out}"
+          "${wine_cmd}" "${win_c_out}"
+          "${wine_cmd}" "${win_cxx_out}"
 
   test-mingw-native-clang:
     name: test-mingw-native-clang
@@ -674,7 +680,14 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path test-root | Out-Null
           Write-Host "extracting $($archive.FullName)"
-          tar -xf $archive.FullName -C test-root
+          New-Item -ItemType Directory -Force -Path test-root-archive | Out-Null
+          7z x $archive.FullName "-otest-root-archive" -y
+          $tarArchive = Get-ChildItem -Path test-root-archive -Filter "*.tar" | Select-Object -First 1
+          if (-not $tarArchive) {
+            throw "7z did not produce an intermediate tar archive"
+          }
+          Write-Host "extracting $($tarArchive.FullName)"
+          7z x $tarArchive.FullName "-otest-root" -y
           Write-Host "archive extracted"
 
           $clangRoot = Get-ChildItem -Path test-root -Directory -Filter "clang-${{ env.LLVM_PACKAGE_VERSION }}-x86_64-w64-windows-gnu" | Select-Object -First 1
