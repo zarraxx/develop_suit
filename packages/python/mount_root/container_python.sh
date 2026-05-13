@@ -22,6 +22,24 @@ download_archive() {
   fi
 }
 
+python_archive_url() {
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    printf '%s\n' "${PYTHON_MINGW_ARCHIVE_URL:-https://github.com/msys2-contrib/cpython-mingw/archive/refs/heads/mingw-v${PYTHON_VERSION}.tar.gz}"
+    return 0
+  fi
+
+  printf '%s\n' "${PYTHON_ARCHIVE_URL:-https://www.python.org/ftp/python/${PYTHON_VERSION}/${PYTHON_ARCHIVE_NAME}}"
+}
+
+python_archive_name() {
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    printf '%s\n' "${PYTHON_MINGW_ARCHIVE_NAME:-cpython-mingw-v${PYTHON_VERSION}.tar.gz}"
+    return 0
+  fi
+
+  printf '%s\n' "$PYTHON_ARCHIVE_NAME"
+}
+
 extract_archive_source() {
   local source_dir="$1"
   local archive_path="$2"
@@ -50,6 +68,16 @@ write_clang_wrapper() {
     "REAL_COMPILER=${real_compiler}" \
     "TARGET_TRIPLE=${TARGET_TRIPLE}" \
     "SYSROOT=${SYSROOT}"
+  chmod +x "$wrapper_path"
+}
+
+write_windres_wrapper() {
+  local wrapper_path="$1"
+
+  render_template "${TEMPLATE_DIR}/windres-wrapper.in" "$wrapper_path" \
+    "REAL_WINDRES=${RC}" \
+    "WINDRES_TARGET=${WINDRES_TARGET}" \
+    "MINGW_INCLUDE_DIR=${MINGW_INCLUDE_DIR}"
   chmod +x "$wrapper_path"
 }
 
@@ -99,6 +127,29 @@ copy_cxx_runtime_libraries() {
   done
 }
 
+copy_mingw_dependency_dlls_to_bin() {
+  [[ "$TARGET_KIND" == "mingw" ]] || return 0
+  [[ -d "${SDK_PREFIX}/bin" ]] || mkdir -p "${SDK_PREFIX}/bin"
+
+  find "${SDK_PREFIX}/lib" \
+    \( -type f -name '*.dll' -o -type l -name '*.dll' \) \
+    -exec cp -f {} "${SDK_PREFIX}/bin/" \; 2>/dev/null || true
+
+  find "${SDK_PREFIX}/bin" -maxdepth 1 -type f -name '*.dll' | grep -q . \
+    || die "missing MinGW runtime DLLs in ${SDK_PREFIX}/bin"
+}
+
+apply_mingw_patches() {
+  [[ "$TARGET_KIND" == "mingw" ]] || return 0
+
+  require_command patch
+  log "Applying cpython-mingw generated configure patches"
+  (
+    cd "$PYTHON_SOURCE_DIR"
+    patch -Np1 -i /work/mount_root/patch/cpython-mingw-configure-cross-host-platform.patch
+  )
+}
+
 build_host_python() {
   if [[ -x "${HOST_BUILD_DIR}/python" ]]; then
     log "Reusing host Python helper: ${HOST_BUILD_DIR}/python"
@@ -122,7 +173,7 @@ build_host_python() {
       CFLAGS= \
       CXXFLAGS= \
       LDFLAGS= \
-      "${PYTHON_SOURCE_DIR}/configure" \
+      "${HOST_PYTHON_SOURCE_DIR}/configure" \
         --prefix="${BUILD_TOOLS}/host-python" \
         --with-ensurepip=no
     make -j "$JOBS"
@@ -131,6 +182,9 @@ build_host_python() {
 
 build_target_python() {
   local configure_build_triple="$CONFIGURE_BUILD_TRIPLE"
+  local configure_args=()
+  local libuuid_cflags="-I${SDK_PREFIX}/include/uuid"
+  local libuuid_libs="-luuid"
 
   rm -rf "$TARGET_BUILD_DIR"
   mkdir -p "$TARGET_BUILD_DIR"
@@ -138,7 +192,36 @@ build_target_python() {
   render_template "${TEMPLATE_DIR}/python.config.site.in" "$CONFIG_SITE" \
     "AC_CV_BUGGY_GETADDRINFO=no" \
     "AC_CV_FILE_DEV_PTMX=yes" \
-    "AC_CV_FILE_DEV_PTC=no"
+    "AC_CV_FILE_DEV_PTC=no" \
+    "AX_CV_C_FLOAT_WORDS_BIGENDIAN=no" \
+    "AC_CV_FUNC_ACOSH=yes" \
+    "AC_CV_FUNC_ASINH=yes" \
+    "AC_CV_FUNC_ATANH=yes" \
+    "AC_CV_FUNC_ERF=yes" \
+    "AC_CV_FUNC_ERFC=yes" \
+    "AC_CV_FUNC_EXPM1=yes" \
+    "AC_CV_FUNC_LOG1P=yes" \
+    "AC_CV_FUNC_LOG2=yes"
+
+  configure_args=(
+    --build="$configure_build_triple"
+    --host="$CONFIGURE_HOST_TRIPLE"
+    --prefix="$SDK_PREFIX"
+    --enable-shared
+    --with-build-python="${HOST_BUILD_DIR}/python"
+    --with-openssl="$SDK_PREFIX"
+    --with-system-expat
+    --with-ensurepip=no
+  )
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    libuuid_cflags=
+    libuuid_libs=
+    configure_args+=(
+      --enable-loadable-sqlite-extensions
+      --without-c-locale-coercion
+      --with-tzpath="${SDK_PREFIX}/share/zoneinfo"
+    )
+  fi
 
   log "Configuring Python ${PYTHON_VERSION} for ${TARGET_TRIPLE}"
   (
@@ -148,6 +231,8 @@ build_target_python() {
       CONFIG_SITE="$CONFIG_SITE" \
       HOSTRUNNER="${HOSTRUNNER:-}" \
       PYTHON_FOR_BUILD="${HOST_BUILD_DIR}/python" \
+      MINGW_PREFIX="${MINGW_PREFIX:-}" \
+      MSYSTEM="${MSYSTEM:-}" \
       CC="$CC" \
       CXX="$CXX" \
       LD="$LD" \
@@ -157,6 +242,9 @@ build_target_python() {
       NM="$NM" \
       OBJCOPY="$OBJCOPY" \
       READELF="$READELF" \
+      WINDRES="${RC:-}" \
+      RC="${RC:-}" \
+      DLLTOOL="${DLLTOOL:-}" \
       CC_FOR_BUILD="$BUILD_CC" \
       CXX_FOR_BUILD="$BUILD_CXX" \
       CPP_FOR_BUILD="${BUILD_CC} -E" \
@@ -168,8 +256,9 @@ build_target_python() {
       CFLAGS="$COMMON_CFLAGS ${CFLAGS:-}" \
       CXXFLAGS="$COMMON_CXXFLAGS ${CXXFLAGS:-}" \
       LDFLAGS="$COMMON_LDFLAGS ${LDFLAGS:-}" \
-      LIBUUID_CFLAGS="-I${SDK_PREFIX}/include/uuid" \
-      LIBUUID_LIBS="-luuid" \
+      LIBS="$COMMON_LIBS ${LIBS:-}" \
+      LIBUUID_CFLAGS="$libuuid_cflags" \
+      LIBUUID_LIBS="$libuuid_libs" \
       LIBSQLITE3_CFLAGS="-I${SDK_PREFIX}/include" \
       LIBSQLITE3_LIBS="-lsqlite3" \
       GDBM_CFLAGS="-I${SDK_PREFIX}/include" \
@@ -187,14 +276,7 @@ build_target_python() {
       LIBFFI_CFLAGS="-I${SDK_PREFIX}/include" \
       LIBFFI_LIBS="-lffi" \
       "${PYTHON_SOURCE_DIR}/configure" \
-        --build="$configure_build_triple" \
-        --host="$TARGET_TRIPLE" \
-        --prefix="$SDK_PREFIX" \
-        --enable-shared \
-        --with-build-python="${HOST_BUILD_DIR}/python" \
-        --with-openssl="$SDK_PREFIX" \
-        --with-system-expat \
-        --with-ensurepip=no
+        "${configure_args[@]}"
 
     log "Building Python ${PYTHON_VERSION}"
     make -j "$JOBS"
@@ -204,6 +286,16 @@ build_target_python() {
 
 validate_python() {
   local python_bin="${SDK_PREFIX}/bin/python3.14"
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    python_bin="${SDK_PREFIX}/bin/python3.14.exe"
+    [[ -f "$python_bin" ]] || die "missing Python executable: ${python_bin}"
+    [[ -f "${SDK_PREFIX}/bin/libpython3.14.dll" || -f "${SDK_PREFIX}/bin/libpython314.dll" ]] \
+      || die "missing MinGW Python DLL"
+    [[ -f "${SDK_PREFIX}/lib/libpython3.14.dll.a" || -f "${SDK_PREFIX}/lib/libpython314.dll.a" ]] \
+      || die "missing MinGW Python import library"
+    return 0
+  fi
 
   [[ -x "$python_bin" ]] || die "missing Python executable: ${python_bin}"
   [[ -f "${SDK_PREFIX}/lib/libpython3.14.so" ]] || die "missing libpython3.14.so"
@@ -243,11 +335,9 @@ BUILD_DIR="${BUILD_DIR:-/work/build}"
 LLVM_ROOT="${LLVM_ROOT:-/opt/llvm-${LLVM_VERSION}}"
 PYTHON_ARCHIVE="${PYTHON_ARCHIVE:-}"
 PYTHON_ARCHIVE_NAME="Python-${PYTHON_VERSION}.tar.xz"
-PYTHON_ARCHIVE_URL="${PYTHON_ARCHIVE_URL:-https://www.python.org/ftp/python/${PYTHON_VERSION}/${PYTHON_ARCHIVE_NAME}}"
 
 [[ -n "$ARCH" ]] || die "ARCH is required"
 [[ -n "$TARGET_TRIPLE" ]] || die "TARGET_TRIPLE is required"
-[[ "$TARGET_KIND" == "linux" ]] || die "initial packages/python build only supports Linux targets"
 [[ -d "$LLVM_ROOT" ]] || die "missing LLVM root: ${LLVM_ROOT}"
 [[ -d "$SDK_PREFIX" ]] || die "missing Python dependency prefix: ${SDK_PREFIX}"
 
@@ -256,13 +346,30 @@ require_command tar
 require_command make
 require_command pkg-config
 
-SYSROOT="${SYSROOT:-/opt/sysroot/${TARGET_TRIPLE}}"
+case "$TARGET_KIND" in
+  linux)
+    SYSROOT="${SYSROOT:-/opt/sysroot/${TARGET_TRIPLE}}"
+    TARGET_ROOT="$SYSROOT"
+    CONFIGURE_HOST_TRIPLE="${CONFIGURE_HOST_TRIPLE:-$TARGET_TRIPLE}"
+    ;;
+  mingw)
+    TARGET_ROOT="${TARGET_ROOT:-/opt/${TARGET_TRIPLE}}"
+    SYSROOT="${SYSROOT:-${TARGET_ROOT}/sysroot}"
+    CONFIGURE_HOST_TRIPLE="${CONFIGURE_HOST_TRIPLE:-x86_64-w64-mingw32}"
+    MINGW_PREFIX="${MINGW_PREFIX:-$SDK_PREFIX}"
+    MSYSTEM="${MSYSTEM:-CLANG64}"
+    WINDRES_TARGET="${WINDRES_TARGET:-pe-x86-64}"
+    ;;
+  *)
+    die "unsupported TARGET_KIND: ${TARGET_KIND}"
+    ;;
+esac
 [[ -d "$SYSROOT" ]] || die "missing sysroot: ${SYSROOT}"
 
 BUILD_TRIPLE="$("${LLVM_ROOT}/bin/clang" -dumpmachine 2>/dev/null || echo x86_64-unknown-linux-gnu)"
 CONFIGURE_BUILD_TRIPLE="${CONFIGURE_BUILD_TRIPLE:-$BUILD_TRIPLE}"
-if [[ "$CONFIGURE_BUILD_TRIPLE" == "$TARGET_TRIPLE" ]]; then
-  CONFIGURE_BUILD_TRIPLE="${ARCH}-buildroot-linux-gnu"
+if [[ "$CONFIGURE_BUILD_TRIPLE" == "$CONFIGURE_HOST_TRIPLE" ]]; then
+  CONFIGURE_BUILD_TRIPLE="${ARCH}-pythonbuild-linux-gnu"
 fi
 
 BUILD_CC="${BUILD_CC:-${LLVM_ROOT}/bin/clang}"
@@ -276,6 +383,8 @@ STRIP="${STRIP:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-strip}"
 NM="${NM:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-nm}"
 OBJCOPY="${OBJCOPY:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-objcopy}"
 READELF="${READELF:-${LLVM_ROOT}/bin/llvm-readelf}"
+RC="${RC:-${LLVM_ROOT}/bin/llvm-windres}"
+DLLTOOL="${DLLTOOL:-${LLVM_ROOT}/bin/llvm-dlltool}"
 
 [[ -x "$AR" ]] || AR="${LLVM_ROOT}/bin/llvm-ar"
 [[ -x "$LD" ]] || LD="${LLVM_ROOT}/bin/ld.lld"
@@ -284,9 +393,12 @@ READELF="${READELF:-${LLVM_ROOT}/bin/llvm-readelf}"
 [[ -x "$NM" ]] || NM="${LLVM_ROOT}/bin/llvm-nm"
 [[ -x "$OBJCOPY" ]] || OBJCOPY="${LLVM_ROOT}/bin/llvm-objcopy"
 [[ -x "$READELF" ]] || READELF="${LLVM_ROOT}/bin/llvm-readelf"
+[[ -x "$RC" ]] || RC="${LLVM_ROOT}/bin/llvm-rc"
+[[ -x "$DLLTOOL" ]] || DLLTOOL="${LLVM_ROOT}/bin/llvm-dlltool"
 
 SOURCE_ROOT="${BUILD_DIR}/src"
 PYTHON_SOURCE_DIR="${SOURCE_ROOT}/python"
+HOST_PYTHON_SOURCE_DIR="${SOURCE_ROOT}/python-host"
 HOST_BUILD_DIR="${BUILD_DIR}/build-python"
 TARGET_BUILD_DIR="${BUILD_DIR}/target-python"
 BUILD_TOOLS="${BUILD_DIR}/tools"
@@ -303,25 +415,52 @@ if [[ ! -x "$CXX" ]]; then
   write_clang_wrapper "${BUILD_TOOLS}/${TARGET_TRIPLE}-cxx" "${LLVM_ROOT}/bin/clang++"
   CXX="${BUILD_TOOLS}/${TARGET_TRIPLE}-cxx"
 fi
+if [[ "$TARGET_KIND" == "mingw" ]]; then
+  MINGW_INCLUDE_DIR="${MINGW_INCLUDE_DIR:-${SYSROOT}/usr/${TARGET_TRIPLE}/include}"
+  [[ -d "$MINGW_INCLUDE_DIR" ]] || die "missing MinGW include directory: ${MINGW_INCLUDE_DIR}"
+  write_windres_wrapper "${BUILD_TOOLS}/${TARGET_TRIPLE}-windres"
+  RC="${BUILD_TOOLS}/${TARGET_TRIPLE}-windres"
+fi
 
 COMMON_CPPFLAGS="-I${SDK_PREFIX}/include -I${SDK_PREFIX}/include/uuid -I${SDK_PREFIX}/include/ncursesw"
 COMMON_CFLAGS="${COMMON_CFLAGS:-}"
 COMMON_CXXFLAGS="${COMMON_CXXFLAGS:-}"
-COMMON_LDFLAGS="-L${SDK_PREFIX}/lib -Wl,-rpath-link,${SDK_PREFIX}/lib -Wl,-rpath-link,${SYSROOT}/usr/lib -Wl,-rpath-link,${SYSROOT}/usr/lib64 -Wl,-rpath-link,${SYSROOT}/lib -Wl,-rpath-link,${SYSROOT}/lib64"
+COMMON_LDFLAGS="-L${SDK_PREFIX}/lib"
+COMMON_LIBS="${COMMON_LIBS:-}"
+if [[ "$TARGET_KIND" == "linux" ]]; then
+  COMMON_LDFLAGS="${COMMON_LDFLAGS} -Wl,-rpath-link,${SDK_PREFIX}/lib -Wl,-rpath-link,${SYSROOT}/usr/lib -Wl,-rpath-link,${SYSROOT}/usr/lib64 -Wl,-rpath-link,${SYSROOT}/lib -Wl,-rpath-link,${SYSROOT}/lib64"
+else
+  COMMON_CPPFLAGS="-I${PYTHON_SOURCE_DIR}/PC ${COMMON_CPPFLAGS}"
+  COMMON_CFLAGS="${COMMON_CFLAGS} -DNT_THREADS"
+  COMMON_CXXFLAGS="${COMMON_CXXFLAGS} -DNT_THREADS"
+  COMMON_LIBS="${COMMON_LIBS} -lpthread"
+fi
 
 rewrite_dependency_prefixes
 
 if [[ -z "$PYTHON_ARCHIVE" ]]; then
+  PYTHON_ARCHIVE_NAME="$(python_archive_name)"
+  PYTHON_ARCHIVE_URL="$(python_archive_url)"
   download_archive "$PYTHON_ARCHIVE_URL" "$PYTHON_ARCHIVE_NAME"
   PYTHON_ARCHIVE="${CACHE_DIR}/${PYTHON_ARCHIVE_NAME}"
 fi
+if [[ "$TARGET_KIND" == "mingw" ]]; then
+  HOST_PYTHON_ARCHIVE_NAME="Python-${PYTHON_VERSION}.tar.xz"
+  HOST_PYTHON_ARCHIVE_URL="https://www.python.org/ftp/python/${PYTHON_VERSION}/${HOST_PYTHON_ARCHIVE_NAME}"
+  download_archive "$HOST_PYTHON_ARCHIVE_URL" "$HOST_PYTHON_ARCHIVE_NAME"
+  extract_archive_source "$HOST_PYTHON_SOURCE_DIR" "${CACHE_DIR}/${HOST_PYTHON_ARCHIVE_NAME}" "configure"
+else
+  HOST_PYTHON_SOURCE_DIR="$PYTHON_SOURCE_DIR"
+fi
 
 extract_archive_source "$PYTHON_SOURCE_DIR" "$PYTHON_ARCHIVE" "configure"
+apply_mingw_patches
 
 log "Installing Python ${PYTHON_VERSION} into ${SDK_PREFIX}"
 build_host_python
 build_target_python
 rewrite_dependency_prefixes
+copy_mingw_dependency_dlls_to_bin
 copy_cxx_runtime_libraries
 remove_static_libraries
 patch_linux_elf_rpaths "$SDK_PREFIX" "$TARGET_KIND"

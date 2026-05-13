@@ -11,8 +11,13 @@ This package builds CPython only. It consumes the dependency prefix produced by
 `packages/python_dependencies`; it does not rebuild zlib, OpenSSL, libffi,
 sqlite, readline, ncurses, expat, libuuid, gdbm, libxslt, or ICU.
 
-The initial implementation supports Linux targets. The first tested target is
-`x86_64-unknown-linux-gnu`.
+Supported targets:
+
+- `x86_64-unknown-linux-gnu`
+- `aarch64-unknown-linux-gnu`
+- `riscv64-unknown-linux-gnu`
+- `loongarch64-unknown-linux-gnu`
+- `x86_64-w64-windows-gnu`
 
 ## Build
 
@@ -40,6 +45,21 @@ For Python 3.14.5 on x86_64 Linux:
 
 ```text
 packages/python/build/dist/python-3.14.5-x86_64-unknown-linux-gnu.tar.xz
+```
+
+GitHub Actions publishes one release per Python version and target triple. The
+release tag and asset name are the same stem:
+
+```text
+python-<version>-<triple>
+python-<version>-<triple>.tar.xz
+```
+
+Examples:
+
+```text
+python-3.14.5-x86_64-unknown-linux-gnu
+python-3.14.5-x86_64-w64-windows-gnu
 ```
 
 ## CPython Configure
@@ -70,3 +90,8 @@ uuid, sqlite, gdbm, readline, zlib, bzip2, lzma, zstd, and ffi.
 After install, ordinary `.a` and `.la` files are removed, Linux ELF rpaths are
 patched to `$ORIGIN`-relative paths, and the x86_64 build runs an import smoke
 test for core extension modules.
+
+For MinGW, the package follows the MSYS2 `cpython-mingw` direction. It uses the
+MSYS2 MinGW CPython branch, regenerates `configure` before the container build,
+uses the Windows GNU sysroot resource headers for `llvm-windres`, keeps MinGW
+`*.dll.a` import libraries, and validates the Windows executable layout.

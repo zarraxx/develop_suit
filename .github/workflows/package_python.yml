@@ -1,0 +1,162 @@
+name: package_python
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  PYTHON_PACKAGE_VERSION: ${{ inputs.python_version || '3.14.5' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      python_version:
+        description: "CPython version to build and publish"
+        required: false
+        type: string
+        default: "3.14.5"
+      publish_release:
+        description: "Create or update per-target GitHub Releases after building"
+        required: true
+        type: boolean
+        default: true
+      python_dependencies_release_tag:
+        description: "Release tag that contains pyhton_dependencies-3-<triple>.tar.xz"
+        required: false
+        type: string
+        default: pyhton_dependencies-3
+      python_dependencies_asset_prefix:
+        description: "Asset prefix for python dependency archives"
+        required: false
+        type: string
+        default: pyhton_dependencies-3
+      prerelease:
+        description: "Mark GitHub Releases as prerelease"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-python:
+    name: python-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64
+            triple: x86_64-unknown-linux-gnu
+          - target: aarch64
+            triple: aarch64-unknown-linux-gnu
+          - target: riscv64
+            triple: riscv64-unknown-linux-gnu
+          - target: loongarch64
+            triple: loongarch64-unknown-linux-gnu
+          - target: mingw64
+            triple: x86_64-w64-windows-gnu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-package-python-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-package-python-cache-
+            ${{ runner.os }}-package-python-dependencies-cache-
+            ${{ runner.os }}-package-llvm-dependencies-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
+            ${{ runner.os }}-stage-mingw64-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+            ${{ runner.os }}-stage-python-cache-
+            ${{ runner.os }}-stage1-cache-
+
+      - name: Download Python dependency archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          DEPENDENCY_RELEASE_TAG: ${{ inputs.python_dependencies_release_tag }}
+          DEPENDENCY_ASSET_PREFIX: ${{ inputs.python_dependencies_asset_prefix }}
+          DEPENDENCY_TRIPLE: ${{ matrix.triple }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p packages/python/build/inputs
+          dependency_asset="${DEPENDENCY_ASSET_PREFIX}-${DEPENDENCY_TRIPLE}.tar.xz"
+
+          for attempt in $(seq 1 72); do
+            if gh release download "${DEPENDENCY_RELEASE_TAG}" \
+              --pattern "${dependency_asset}" \
+              --dir packages/python/build/inputs; then
+              exit 0
+            fi
+
+            echo "dependency asset not ready yet: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset} (attempt ${attempt}/72)"
+            sleep 300
+          done
+
+          echo "timed out waiting for dependency asset: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset}" >&2
+          exit 1
+
+      - name: Build Python package
+        run: |
+          set -euo pipefail
+
+          package_name="python-${{ env.PYTHON_PACKAGE_VERSION }}-${{ matrix.triple }}"
+          dependency_archive="packages/python/build/inputs/${{ inputs.python_dependencies_asset_prefix }}-${{ matrix.triple }}.tar.xz"
+          [[ -f "${dependency_archive}" ]] || {
+            echo "missing downloaded python dependency archive: ${dependency_archive}" >&2
+            exit 1
+          }
+
+          bash ./packages/python/build.sh \
+            --target="${{ matrix.target }}" \
+            --python-version="${{ env.PYTHON_PACKAGE_VERSION }}" \
+            --python-deps-archive="${dependency_archive}" \
+            --package-name="${package_name}" \
+            --clean \
+            --pull \
+            --jobs=4
+
+      - name: Upload Python artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-${{ matrix.target }}
+          path: |
+            packages/python/build/dist/python-${{ env.PYTHON_PACKAGE_VERSION }}-${{ matrix.triple }}.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create or update release
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: python-${{ env.PYTHON_PACKAGE_VERSION }}-${{ matrix.triple }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            prerelease_flag=(--prerelease)
+          fi
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --title "${RELEASE_TAG}" \
+              "${prerelease_flag[@]}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --title "${RELEASE_TAG}" \
+              "${prerelease_flag[@]}" \
+              --notes "CPython ${{ env.PYTHON_PACKAGE_VERSION }} package for ${{ matrix.triple }}."
+          fi
+
+          gh release upload \
+            "${RELEASE_TAG}" \
+            "packages/python/build/dist/${RELEASE_TAG}.tar.xz" \
+            --clobber

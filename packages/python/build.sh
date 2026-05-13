@@ -102,6 +102,35 @@ copy_or_extract_base_prefix() {
   fi
 }
 
+prepare_mingw_python_source() {
+  local source_dir="${BUILD_DIR}/src/python"
+  local archive_name="${PYTHON_MINGW_ARCHIVE_NAME:-cpython-mingw-v${PYTHON_VERSION}.tar.gz}"
+  local archive_url="${PYTHON_MINGW_ARCHIVE_URL:-https://github.com/msys2-contrib/cpython-mingw/archive/refs/heads/mingw-v${PYTHON_VERSION}.tar.gz}"
+  local archive_path="${CACHE_DIR}/${archive_name}"
+  local autoconf_image="${PYTHON_AUTOCONF_IMAGE:-ghcr.io/python/autoconf:2025.01.02.12581854023}"
+
+  [[ "$TARGET_KIND" == "mingw" ]] || return 0
+  [[ -z "$PYTHON_ARCHIVE" ]] || return 0
+
+  if [[ ! -s "$archive_path" ]]; then
+    rm -f "${archive_path}" "${archive_path}.tmp"
+    echo "-- downloading MinGW Python source: ${archive_name}"
+    curl -L --fail --retry 3 -o "${archive_path}.tmp" "$archive_url"
+    mv "${archive_path}.tmp" "$archive_path"
+  fi
+
+  rm -rf "$source_dir"
+  mkdir -p "$source_dir"
+  tar -xf "$archive_path" -C "$source_dir" --strip-components=1
+  printf '%s\n' "$archive_name" >"${source_dir}/.python-source-archive"
+
+  echo "-- regenerating MinGW CPython configure with ${autoconf_image}"
+  docker run --rm --platform linux/amd64 \
+    -v "${source_dir}:/src" \
+    "$autoconf_image" \
+    /bin/sh -lc 'cd /src && autoreconf -ivf'
+}
+
 validate_base_prefix() {
   local dir="$1"
 
@@ -270,6 +299,9 @@ fi
 if [[ "$PULL" -eq 1 ]]; then
   echo "-- pulling build image: ${BUILD_IMAGE}"
   docker pull --platform linux/amd64 "$BUILD_IMAGE"
+  if [[ "$TARGET_KIND" == "mingw" && -z "$PYTHON_ARCHIVE" ]]; then
+    docker pull --platform linux/amd64 "${PYTHON_AUTOCONF_IMAGE:-ghcr.io/python/autoconf:2025.01.02.12581854023}"
+  fi
 fi
 
 echo "-- Python build"
@@ -283,6 +315,11 @@ if [[ -n "$PYTHON_DEPS_ARCHIVE" ]]; then
   echo "-- base dependency archive: ${PYTHON_DEPS_ARCHIVE}"
 else
   echo "-- base dependency dir: ${PYTHON_DEPS_DIR}"
+fi
+
+if [[ "$TARGET_KIND" == "mingw" && -z "$PYTHON_ARCHIVE" ]]; then
+  require_command curl
+  prepare_mingw_python_source
 fi
 
 docker_args=(

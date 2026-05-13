@@ -1,3 +1,12 @@
 ac_cv_buggy_getaddrinfo=@AC_CV_BUGGY_GETADDRINFO@
 ac_cv_file__dev_ptmx=@AC_CV_FILE_DEV_PTMX@
 ac_cv_file__dev_ptc=@AC_CV_FILE_DEV_PTC@
+ax_cv_c_float_words_bigendian=@AX_CV_C_FLOAT_WORDS_BIGENDIAN@
+ac_cv_func_acosh=@AC_CV_FUNC_ACOSH@
+ac_cv_func_asinh=@AC_CV_FUNC_ASINH@
+ac_cv_func_atanh=@AC_CV_FUNC_ATANH@
+ac_cv_func_erf=@AC_CV_FUNC_ERF@
+ac_cv_func_erfc=@AC_CV_FUNC_ERFC@
+ac_cv_func_expm1=@AC_CV_FUNC_EXPM1@
+ac_cv_func_log1p=@AC_CV_FUNC_LOG1P@
+ac_cv_func_log2=@AC_CV_FUNC_LOG2@
