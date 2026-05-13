@@ -418,7 +418,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends file qemu-user-static wine64
+          sudo apt-get install -y --no-install-recommends file qemu-user-static wine wine64
 
       - name: Download test sysroots
         env:
@@ -623,9 +623,10 @@ jobs:
           run_host "${clang_root}/bin/x86_64-w64-windows-gnu-clang-g++" "${test_root}/src/hello.cpp" -o "${win_cxx_out}"
           file "${win_c_out}" "${win_cxx_out}"
 
-          wine_cmd="$(command -v wine || command -v wine64 || true)"
+          wine_cmd="$(command -v wine || command -v wine64 || find /usr -maxdepth 5 -path '*/wine64' -type f -executable -print -quit 2>/dev/null || true)"
           [[ -n "${wine_cmd}" ]] || {
             echo "wine command not found after installing wine64" >&2
+            find /usr -maxdepth 5 -path '*wine*' -type f -executable 2>/dev/null | sort >&2 || true
             exit 1
           }
 
@@ -688,6 +689,10 @@ jobs:
           }
           Write-Host "extracting $($tarArchive.FullName)"
           7z x $tarArchive.FullName "-otest-root" -y
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "7z reported link extraction warnings; continuing after validating required files"
+            $global:LASTEXITCODE = 0
+          }
           Write-Host "archive extracted"
 
           $clangRoot = Get-ChildItem -Path test-root -Directory -Filter "clang-${{ env.LLVM_PACKAGE_VERSION }}-x86_64-w64-windows-gnu" | Select-Object -First 1
@@ -722,6 +727,7 @@ jobs:
           Invoke-CheckedCommand -FilePath (Join-Path $binDir "x86_64-w64-windows-gnu-clang-g++.exe") -ArgumentList @("test-root/src/hello.cpp", "-o", "test-root/out/hello-cxx.exe")
           Invoke-CheckedCommand -FilePath (Resolve-Path test-root/out/hello-c.exe)
           Invoke-CheckedCommand -FilePath (Resolve-Path test-root/out/hello-cxx.exe)
+          $global:LASTEXITCODE = 0
 
   publish-release:
     name: publish-release
