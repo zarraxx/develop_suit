@@ -414,11 +414,17 @@ jobs:
           name: clang-${{ matrix.host }}
           path: artifacts/clang
 
-      - name: Install qemu and wine
+      - name: Install qemu and optional wine
+        env:
+          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends file qemu-user-static wine wine64
+          packages=(file qemu-user-static)
+          if [[ "${HOST}" == "x86_64" ]]; then
+            packages+=(wine wine64)
+          fi
+          sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
       - name: Download test sysroots
         env:
@@ -622,6 +628,10 @@ jobs:
           run_host "${clang_root}/bin/x86_64-w64-windows-gnu-clang-gcc" "${test_root}/src/hello.c" -o "${win_c_out}"
           run_host "${clang_root}/bin/x86_64-w64-windows-gnu-clang-g++" "${test_root}/src/hello.cpp" -o "${win_cxx_out}"
           file "${win_c_out}" "${win_cxx_out}"
+
+          if [[ "${HOST}" != "x86_64" ]]; then
+            exit 0
+          fi
 
           wine_cmd="$(command -v wine || command -v wine64 || find /usr -maxdepth 5 -path '*/wine64' -type f -executable -print -quit 2>/dev/null || true)"
           [[ -n "${wine_cmd}" ]] || {
