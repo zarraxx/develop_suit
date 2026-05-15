@@ -172,6 +172,8 @@ make_native_tool_dir() {
   local native_build_cc="${PREBUILT_LLVM_ROOT}/bin/x86_64-unknown-linux-gnu-clang-gcc"
   local native_build_cxx="${PREBUILT_LLVM_ROOT}/bin/x86_64-unknown-linux-gnu-clang-g++"
   local confusable_gen_src="${LLVM_SOURCE_ROOT}/clang-tools-extra/clang-tidy/misc/ConfusableTable/BuildConfusableTable.cpp"
+  local build_targets=(clang-tblgen)
+  local needs_pseudo_gen=0
 
   if [[ ! -x "$native_build_cc" ]]; then
     native_build_cc="${PREBUILT_LLVM_ROOT}/bin/clang"
@@ -188,7 +190,12 @@ make_native_tool_dir() {
   ln -s "${NATIVE_LLVMSDK_PREFIX}/bin/llvm-nm" "${NATIVE_TOOL_DIR}/bin/llvm-nm"
   ln -s "${NATIVE_LLVMSDK_PREFIX}/bin/llvm-readobj" "${NATIVE_TOOL_DIR}/bin/llvm-readobj"
 
-  if [[ ! -x "$native_clang_tblgen" || ! -x "$native_pseudo_gen" ]]; then
+  if [[ -f "${LLVM_SOURCE_ROOT}/clang-tools-extra/pseudo/gen/CMakeLists.txt" ]]; then
+    needs_pseudo_gen=1
+    build_targets+=(clang-pseudo-gen)
+  fi
+
+  if [[ ! -x "$native_clang_tblgen" || ( "$needs_pseudo_gen" == "1" && ! -x "$native_pseudo_gen" ) ]]; then
     rm -rf "$NATIVE_CLANG_TOOLS_BUILD_DIR"
     mkdir -p "$NATIVE_CLANG_TOOLS_BUILD_DIR"
 
@@ -223,13 +230,15 @@ make_native_tool_dir() {
       -DLLVM_INCLUDE_EXAMPLES=OFF
 
     log "Building native clang host tools"
-    cmake --build "$NATIVE_CLANG_TOOLS_BUILD_DIR" --parallel "$JOBS" --target clang-tblgen clang-pseudo-gen
+    cmake --build "$NATIVE_CLANG_TOOLS_BUILD_DIR" --parallel "$JOBS" --target "${build_targets[@]}"
   fi
 
   [[ -x "$native_clang_tblgen" ]] || die "missing native clang-tblgen"
-  [[ -x "$native_pseudo_gen" ]] || die "missing native clang-pseudo-gen"
   ln -s "$native_clang_tblgen" "${NATIVE_TOOL_DIR}/bin/clang-tblgen"
-  ln -s "$native_pseudo_gen" "${NATIVE_TOOL_DIR}/bin/clang-pseudo-gen"
+  if [[ "$needs_pseudo_gen" == "1" ]]; then
+    [[ -x "$native_pseudo_gen" ]] || die "missing native clang-pseudo-gen"
+    ln -s "$native_pseudo_gen" "${NATIVE_TOOL_DIR}/bin/clang-pseudo-gen"
+  fi
 
   if [[ ! -x "$native_confusable_gen" ]]; then
     local llvm_cxxflags=()
