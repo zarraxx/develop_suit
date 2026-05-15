@@ -167,6 +167,7 @@ set_stage_llvm_policy_args() {
 
 make_native_tool_dir() {
   local native_clang_tblgen="${NATIVE_CLANG_TOOLS_BUILD_DIR}/bin/clang-tblgen"
+  local native_pseudo_gen="${NATIVE_CLANG_TOOLS_BUILD_DIR}/bin/clang-pseudo-gen"
   local native_confusable_gen="${NATIVE_TOOL_DIR}/bin/clang-tidy-confusable-chars-gen"
   local native_build_cc="${PREBUILT_LLVM_ROOT}/bin/x86_64-unknown-linux-gnu-clang-gcc"
   local native_build_cxx="${PREBUILT_LLVM_ROOT}/bin/x86_64-unknown-linux-gnu-clang-g++"
@@ -187,11 +188,11 @@ make_native_tool_dir() {
   ln -s "${NATIVE_LLVMSDK_PREFIX}/bin/llvm-nm" "${NATIVE_TOOL_DIR}/bin/llvm-nm"
   ln -s "${NATIVE_LLVMSDK_PREFIX}/bin/llvm-readobj" "${NATIVE_TOOL_DIR}/bin/llvm-readobj"
 
-  if [[ ! -x "$native_clang_tblgen" ]]; then
+  if [[ ! -x "$native_clang_tblgen" || ! -x "$native_pseudo_gen" ]]; then
     rm -rf "$NATIVE_CLANG_TOOLS_BUILD_DIR"
     mkdir -p "$NATIVE_CLANG_TOOLS_BUILD_DIR"
 
-    log "Configuring native clang-tblgen"
+    log "Configuring native clang host tools"
     cmake -S "${LLVM_SOURCE_ROOT}/clang" -B "$NATIVE_CLANG_TOOLS_BUILD_DIR" -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_C_COMPILER="$native_build_cc" \
@@ -206,11 +207,13 @@ make_native_tool_dir() {
       "-DLLVM_CONFIG_PATH=${NATIVE_LLVMSDK_PREFIX}/bin/llvm-config" \
       "-DLLVM_TARGETS_TO_BUILD=${LLVM_TARGETS}" \
       "-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=${LLVM_EXPERIMENTAL_TARGETS}" \
+      "-DLLVM_EXTERNAL_CLANG_TOOLS_EXTRA_SOURCE_DIR=${LLVM_SOURCE_ROOT}/clang-tools-extra" \
       "${LLVM_VCS_VERSION_ARGS[@]}" \
       -DLLVM_LINK_LLVM_DYLIB=ON \
       -DCLANG_BUILD_TOOLS=ON \
       -DCLANG_INCLUDE_TESTS=OFF \
       -DCLANG_INCLUDE_DOCS=OFF \
+      -DCLANG_TOOLS_EXTRA_INCLUDE_DOCS=OFF \
       -DCLANG_BUILD_EXAMPLES=OFF \
       -DCLANG_ENABLE_ARCMT=OFF \
       -DCLANG_ENABLE_STATIC_ANALYZER=OFF \
@@ -219,12 +222,14 @@ make_native_tool_dir() {
       -DLLVM_INCLUDE_DOCS=OFF \
       -DLLVM_INCLUDE_EXAMPLES=OFF
 
-    log "Building native clang-tblgen"
-    cmake --build "$NATIVE_CLANG_TOOLS_BUILD_DIR" --parallel "$JOBS" --target clang-tblgen
+    log "Building native clang host tools"
+    cmake --build "$NATIVE_CLANG_TOOLS_BUILD_DIR" --parallel "$JOBS" --target clang-tblgen clang-pseudo-gen
   fi
 
   [[ -x "$native_clang_tblgen" ]] || die "missing native clang-tblgen"
+  [[ -x "$native_pseudo_gen" ]] || die "missing native clang-pseudo-gen"
   ln -s "$native_clang_tblgen" "${NATIVE_TOOL_DIR}/bin/clang-tblgen"
+  ln -s "$native_pseudo_gen" "${NATIVE_TOOL_DIR}/bin/clang-pseudo-gen"
 
   if [[ ! -x "$native_confusable_gen" ]]; then
     local llvm_cxxflags=()
@@ -293,6 +298,8 @@ build_clang_and_tools() {
     "-DCLANG_TABLEGEN=${NATIVE_TOOL_DIR}/bin/clang-tblgen" \
     "-DCLANG_TABLEGEN_EXE=${NATIVE_TOOL_DIR}/bin/clang-tblgen" \
     "-DCLANG_TABLEGEN_TARGET=${NATIVE_TOOL_DIR}/bin/clang-tblgen" \
+    "-DCLANG_PSEUDO_GEN=${NATIVE_TOOL_DIR}/bin/clang-pseudo-gen" \
+    "-DCLANG_TIDY_CONFUSABLE_CHARS_GEN=${NATIVE_TOOL_DIR}/bin/clang-tidy-confusable-chars-gen" \
     "-DLLVM_CONFIG_PATH=${NATIVE_TOOL_DIR}/bin/llvm-config" \
     "-DClang_NATIVE_BUILD=${NATIVE_CLANG_TOOLS_BUILD_DIR}" \
     "-DClang_NATIVE_STAMP=${NATIVE_CLANG_TOOLS_BUILD_DIR}-stamps" \
