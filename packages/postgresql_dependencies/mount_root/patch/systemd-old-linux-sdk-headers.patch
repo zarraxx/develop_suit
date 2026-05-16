@@ -1,0 +1,60 @@
+diff --git a/src/fundamental/memory-util-fundamental.h b/src/fundamental/memory-util-fundamental.h
+index bd00240ae2..629c85b173 100644
+--- a/src/fundamental/memory-util-fundamental.h
++++ b/src/fundamental/memory-util-fundamental.h
+@@ -21,8 +21,14 @@
+ 
+ #if !SD_BOOT
+ static inline void *explicit_bzero_safe(void *p, size_t l) {
+-        if (p && l > 0)
++        if (p && l > 0) {
++#if defined(HAVE_EXPLICIT_BZERO) && HAVE_EXPLICIT_BZERO
+                 explicit_bzero(p, l);
++#else
++                memset(p, 0, l);
++                __asm__ __volatile__("" : : "r"(p) : "memory");
++#endif
++        }
+ 
+         return p;
+ }
+diff --git a/src/include/override/sys/stat.h b/src/include/override/sys/stat.h
+index 75833d0e03..8f0805f7da 100644
+--- a/src/include/override/sys/stat.h
++++ b/src/include/override/sys/stat.h
+@@ -3,6 +3,10 @@
+ 
+ #include_next <sys/stat.h>      /* IWYU pragma: export */
+ 
++#ifndef STATX_TYPE
++#include <linux/stat.h>         /* IWYU pragma: export */
++#endif
++
+ /* Supported since kernel v6.6 (78252deb023cf0879256fcfbafe37022c390762b). */
+ #if !HAVE_FCHMODAT2
+ int missing_fchmodat2(int dirfd, const char *path, mode_t mode, int flags);
+diff --git a/src/include/override/sys/xattr.h b/src/include/override/sys/xattr.h
+index 7a296800ae..9b144eebd0 100644
+--- a/src/include/override/sys/xattr.h
++++ b/src/include/override/sys/xattr.h
+@@ -1,11 +1,16 @@
+ /* SPDX-License-Identifier: LGPL-2.1-or-later */
+ #pragma once
+ 
+-/* To make struct xattr_args defined, which is used by setxattrat(). Note, the kernel header must be
+- * included before the glibc header, otherwise the struct will not be defined. */
+-#include <linux/xattr.h>        /* IWYU pragma: export */
+-
+ #include_next <sys/xattr.h>     /* IWYU pragma: export */
++#include <linux/types.h>
++
++#ifndef __USE_KERNEL_XATTR_DEFS
++struct xattr_args {
++        __aligned_u64 value;
++        __u32 size;
++        __u32 flags;
++};
++#endif
+ 
+ /* Supported since kernel v6.13 (6140be90ec70c39fa844741ca3cc807dd0866394). */
+ #if !HAVE_SETXATTRAT

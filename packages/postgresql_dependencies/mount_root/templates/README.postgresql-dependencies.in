@@ -1,0 +1,16 @@
+PostgreSQL dependency prefix.
+
+Target triple: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+
+Included dependency sources:
+  krb5 @KRB5_VERSION@
+  keyutils @KEYUTILS_VERSION@ (Linux only)
+  cyrus-sasl @CYRUS_SASL_VERSION@
+  OpenLDAP @OPENLDAP_VERSION@
+  json-c @JSON_C_VERSION@
+  libxcrypt @LIBXCRYPT_VERSION@ (Linux only)
+  libevent @LIBEVENT_VERSION@
+  liburing @LIBURING_VERSION@ (Linux only)
+  Linux-PAM @LINUX_PAM_VERSION@ (Linux only)
+  systemd @SYSTEMD_VERSION@ SDK libsystemd (Linux only)

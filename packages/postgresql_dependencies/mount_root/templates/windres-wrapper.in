@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec "@REAL_WINDRES@" \
+  --target="@TARGET_TRIPLE@" \
+  -I"@SYSROOT@/usr/@TARGET_TRIPLE@/include" \
+  -I"@TARGET_ROOT@/include" \
+  "$@"

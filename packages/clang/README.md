@@ -30,6 +30,7 @@ This package owns:
 - `clang++`
 - `lld`
 - `clang-tools-extra`
+- `lldb`
 - target driver symlinks and `.cfg` files
 - final copy-and-run layout assembly
 
@@ -158,8 +159,9 @@ The final package is assembled from the same-target `llvmsdk`, the native
 x86_64 Linux `llvmsdk` for build-time tools, the native x86_64 Linux stage0
 clang, and all five `libcxx` runtime packages.
 
-The output clang prefix intentionally does not contain Linux or MinGW sysroots.
-Its driver cfg files expect the container-style sibling layout:
+For Linux-host packages, the output clang prefix intentionally does not contain
+Linux or MinGW sysroots. Its driver cfg files expect the container-style sibling
+layout:
 
 ```text
 /opt/clang-<version>-<host-triple>/bin/clang
@@ -181,8 +183,21 @@ The Windows GNU target is referenced through:
 <CFGDIR>/../../x86_64-w64-windows-gnu/bin
 ```
 
-This keeps clang versions replaceable while allowing Linux sysroots and the
-host-arch MinGW sysroot/binutils prefix to be shared.
+This keeps Linux-host clang versions replaceable while allowing Linux sysroots
+and the host-arch MinGW sysroot/binutils prefix to be shared.
+
+For the `x86_64-w64-windows-gnu` native package, the prefix itself is the
+Windows GNU sysroot. The final layout follows the stage_mingw64 native package:
+
+```text
+/opt/clang-<version>-x86_64-w64-windows-gnu/bin/clang++.exe
+/opt/clang-<version>-x86_64-w64-windows-gnu/include/_mingw.h
+/opt/clang-<version>-x86_64-w64-windows-gnu/lib/crt2.o
+```
+
+Its `x86_64-w64-windows-gnu-clang-*.cfg` files only select the target and
+`-B <CFGDIR>`, so `bin/clang++.exe` can run directly after extraction on
+Windows without a nested `x86_64-w64-windows-gnu/sysroot` directory.
 
 ## C++ Runtime Package
 
@@ -269,7 +284,7 @@ packages/clang/build/dist/native-clang-stage0-<version>-x86_64-unknown-linux-gnu
 
 ## Driver Layout
 
-The final package creates clang driver symlinks and cfg files in `bin/`:
+The Linux-host packages create clang driver symlinks and cfg files in `bin/`:
 
 ```text
 <linux-triple>-clang-gcc -> clang
@@ -288,6 +303,31 @@ Linux targets also get LLVM binutils-style symlinks:
 <linux-triple>-strip -> llvm-strip
 ```
 
-The MinGW target keeps binutils in the external host-arch
+The MinGW native package uses copied `.exe` driver aliases instead of symlinks.
+Linux-host packages keep MinGW binutils in the external host-arch
 `x86_64-w64-windows-gnu` prefix because those tools are host-architecture
 specific.
+
+## LLDB
+
+The clang package builds and installs LLDB next to clang and lld:
+
+```text
+bin/lldb
+bin/lldb-server
+lib/liblldb.so
+```
+
+For `x86_64-w64-windows-gnu`, the installed tools use the Windows executable
+suffix:
+
+```text
+bin/lldb.exe
+bin/lldb-server.exe
+bin/liblldb.dll
+```
+
+LLDB Python scripting is currently disabled. Enabling it requires both the
+target `python-3.14.5-<triple>` package and SWIG 4+ in the build dependency
+chain; the Python package is available now, but SWIG is not part of the clang
+package inputs yet.

@@ -1,0 +1,12 @@
+# CentOS 7 libsystemd SDK metadata, rewritten for this package prefix.
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: systemd
+Description: systemd Library
+URL: https://www.freedesktop.org/wiki/Software/systemd/
+Version: @SYSTEMD_PC_VERSION@
+Libs: -L${libdir} -lsystemd
+Cflags: -I${includedir}

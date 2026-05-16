@@ -1,0 +1,4 @@
+# Default Windows GNU target selection for @TARGET_TRIPLE@.
+--target=@TARGET_TRIPLE@
+-B
+<CFGDIR>

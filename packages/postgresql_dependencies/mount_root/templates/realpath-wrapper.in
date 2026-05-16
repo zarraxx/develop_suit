@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+args=()
+relative_to=""
+while [[ $# -gt 0 ]]; do
+  arg="$1"
+  shift
+  case "$arg" in
+    -s|--strip|--no-symlinks)
+      ;;
+    --relative-to=*)
+      relative_to="${arg#*=}"
+      ;;
+    --relative-to)
+      [[ $# -gt 0 ]] || exit 1
+      relative_to="$1"
+      shift
+      ;;
+    *)
+      args+=("$arg")
+      ;;
+  esac
+done
+
+if [[ -n "$relative_to" ]]; then
+  python3 - "$relative_to" "${args[@]}" <<'PY'
+import os
+import sys
+
+base = sys.argv[1]
+for path in sys.argv[2:]:
+    print(os.path.relpath(os.path.realpath(path), os.path.realpath(base)))
+PY
+  exit 0
+fi
+
+exec /usr/bin/realpath "${args[@]}"

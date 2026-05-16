@@ -3,18 +3,23 @@ clang package.
 LLVM version: @LLVM_VERSION@
 Host triple: @TARGET_TRIPLE@
 
-This prefix contains clang, lld, clang-tools-extra, the matching LLVM SDK,
-and libc++/compiler-rt runtime files.
+This prefix contains clang, lld, lldb, clang-tools-extra, the matching LLVM
+SDK, and libc++/compiler-rt runtime files.
+
+LLDB Python scripting is disabled in this package. Enabling it also requires
+SWIG 4+ in the build dependency chain.
 
 Target driver configuration files are installed next to clang in bin/.
 Linux target cfg files expect sysroots outside this prefix:
 
   <clang-prefix>/../sysroot/<triple>
 
-The Windows GNU cfg files expect the host-arch MinGW prefix outside this
-clang prefix:
+In Linux-host packages, the Windows GNU cfg files expect the host-arch
+MinGW prefix outside this clang prefix:
 
   <clang-prefix>/../x86_64-w64-windows-gnu
 
-This matches the container /opt layout and allows multiple clang versions to
-share the same sysroot prefixes.
+In the x86_64-w64-windows-gnu native package, this prefix itself is the
+Windows GNU sysroot. Its bin/, include/, and lib/ layout follows the
+stage_mingw64 native package so bin/clang++.exe can run directly after
+extraction.

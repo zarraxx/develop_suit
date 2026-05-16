@@ -610,6 +610,7 @@ jobs:
           )
 
           run_host "${clang_root}/bin/clang" --version
+          run_host "${clang_root}/bin/lldb" --version
 
           for triple in "${linux_targets[@]}"; do
             c_out="${test_root}/out/hello-c-${triple}"
@@ -733,6 +734,7 @@ jobs:
           '@ | Set-Content -Path test-root/src/hello.cpp -NoNewline -Encoding ascii
 
           Invoke-CheckedCommand -FilePath (Join-Path $binDir "clang.exe") -ArgumentList @("--version")
+          Invoke-CheckedCommand -FilePath (Join-Path $binDir "lldb.exe") -ArgumentList @("--version")
           Invoke-CheckedCommand -FilePath (Join-Path $binDir "x86_64-w64-windows-gnu-clang-gcc.exe") -ArgumentList @("test-root/src/hello.c", "-o", "test-root/out/hello-c.exe")
           Invoke-CheckedCommand -FilePath (Join-Path $binDir "x86_64-w64-windows-gnu-clang-g++.exe") -ArgumentList @("test-root/src/hello.cpp", "-o", "test-root/out/hello-cxx.exe")
           Invoke-CheckedCommand -FilePath (Resolve-Path test-root/out/hello-c.exe)

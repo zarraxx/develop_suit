@@ -25,7 +25,7 @@ download_archive() {
 extract_llvm_source() {
   local extract_dir="${BUILD_DIR}/llvm-project-${LLVM_VERSION}.src"
 
-  if [[ ! -f "${extract_dir}/clang/CMakeLists.txt" || ! -f "${extract_dir}/lld/CMakeLists.txt" ]]; then
+  if [[ ! -f "${extract_dir}/clang/CMakeLists.txt" || ! -f "${extract_dir}/lld/CMakeLists.txt" || ! -f "${extract_dir}/lldb/CMakeLists.txt" ]]; then
     rm -rf "$extract_dir"
     mkdir -p "$extract_dir"
     tar -xf "${CACHE_DIR}/${LLVM_ARCHIVE_NAME}" -C "$extract_dir" --strip-components=1
@@ -33,6 +33,7 @@ extract_llvm_source() {
 
   [[ -f "${extract_dir}/clang/CMakeLists.txt" ]] || die "invalid clang source tree: ${extract_dir}"
   [[ -f "${extract_dir}/lld/CMakeLists.txt" ]] || die "invalid lld source tree: ${extract_dir}"
+  [[ -f "${extract_dir}/lldb/CMakeLists.txt" ]] || die "invalid lldb source tree: ${extract_dir}"
   [[ -f "${extract_dir}/clang-tools-extra/CMakeLists.txt" ]] || die "invalid clang-tools-extra source tree: ${extract_dir}"
   printf '%s\n' "$extract_dir"
 }
@@ -44,6 +45,14 @@ copy_prefix() {
   [[ -d "$source_dir" ]] || die "prefix directory not found: ${source_dir}"
   mkdir -p "$dest_dir"
   cp -a "${source_dir}/." "$dest_dir/"
+}
+
+copy_prefix_if_exists() {
+  local source_dir="$1"
+  local dest_dir="$2"
+
+  [[ -d "$source_dir" ]] || return 0
+  copy_prefix "$source_dir" "$dest_dir"
 }
 
 assemble_sdk_prefix() {
@@ -90,9 +99,35 @@ copy_mingw64_sysroot_to_prefix() {
   [[ "$TARGET_KIND" == "mingw" ]] || return 0
   [[ -d "$MINGW_SYSROOT_PREFIX" ]] || die "missing mingw64 sysroot prefix: ${MINGW_SYSROOT_PREFIX}"
 
-  log "Copying mingw64 sysroot into final clang prefix"
+  local source_sysroot_target="${MINGW_SYSROOT_PREFIX}/sysroot/usr/${TARGET_TRIPLE}"
+  local source_runtime_lib_dir="${MINGW_SYSROOT_PREFIX}/lib/${TARGET_TRIPLE}"
+  local builtins_source="${SDK_PREFIX}/lib/clang/${LLVM_MAJOR_VERSION}/lib/${TARGET_TRIPLE}/libclang_rt.builtins.a"
+  local builtins_dest="${SDK_PREFIX}/lib/clang/${LLVM_MAJOR_VERSION}/lib/windows/libclang_rt.builtins-x86_64.a"
+
+  [[ -d "${source_sysroot_target}/include" ]] || die "missing mingw64 CRT include dir: ${source_sysroot_target}/include"
+  [[ -d "${source_sysroot_target}/lib" ]] || die "missing mingw64 CRT lib dir: ${source_sysroot_target}/lib"
+
+  log "Overlaying mingw64 native sysroot layout into final clang prefix"
+  mkdir -p \
+    "${SDK_PREFIX}/bin" \
+    "${SDK_PREFIX}/include" \
+    "${SDK_PREFIX}/lib" \
+    "${SDK_PREFIX}/lib/clang/${LLVM_MAJOR_VERSION}/lib/windows"
+
+  copy_prefix "${source_sysroot_target}/include" "${SDK_PREFIX}/include"
+  copy_prefix "${source_sysroot_target}/lib" "${SDK_PREFIX}/lib"
+  copy_prefix_if_exists "${MINGW_SYSROOT_PREFIX}/include" "${SDK_PREFIX}/include"
+  copy_prefix_if_exists "${MINGW_SYSROOT_PREFIX}/lib" "${SDK_PREFIX}/lib"
+  rm -rf "${SDK_PREFIX}/lib/bfd-plugins"
+  copy_prefix_if_exists "$source_runtime_lib_dir" "${SDK_PREFIX}/lib"
+
+  if [[ -f "$builtins_source" ]]; then
+    cp -f "$builtins_source" "$builtins_dest"
+  fi
+
+  find "${MINGW_SYSROOT_PREFIX}/bin" "${MINGW_SYSROOT_PREFIX}/sysroot" \
+    -type f -name '*.dll' -exec cp -f {} "${SDK_PREFIX}/bin/" \; 2>/dev/null || true
   rm -rf "${SDK_PREFIX:?}/${TARGET_TRIPLE}"
-  copy_prefix "$MINGW_SYSROOT_PREFIX" "${SDK_PREFIX}/${TARGET_TRIPLE}"
 }
 
 llvm_target_arch_name_for_arch() {
@@ -167,6 +202,7 @@ set_stage_llvm_policy_args() {
 
 make_native_tool_dir() {
   local native_clang_tblgen="${NATIVE_CLANG_TOOLS_BUILD_DIR}/bin/clang-tblgen"
+  local native_lldb_tblgen="${NATIVE_LLDB_TOOLS_BUILD_DIR}/bin/lldb-tblgen"
   local native_pseudo_gen="${NATIVE_CLANG_TOOLS_BUILD_DIR}/bin/clang-pseudo-gen"
   local native_confusable_gen="${NATIVE_TOOL_DIR}/bin/clang-tidy-confusable-chars-gen"
   local native_build_cc="${PREBUILT_LLVM_ROOT}/bin/x86_64-unknown-linux-gnu-clang-gcc"
@@ -262,6 +298,48 @@ make_native_tool_dir() {
   fi
 
   [[ -x "$native_confusable_gen" ]] || die "missing native clang-tidy-confusable-chars-gen"
+
+  if [[ ! -x "$native_lldb_tblgen" ]]; then
+    rm -rf "$NATIVE_LLDB_TOOLS_BUILD_DIR"
+    mkdir -p "$NATIVE_LLDB_TOOLS_BUILD_DIR"
+
+    log "Configuring native lldb host tools"
+    cmake -S "${LLVM_SOURCE_ROOT}/lldb" -B "$NATIVE_LLDB_TOOLS_BUILD_DIR" -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_COMPILER="$native_build_cc" \
+      -DCMAKE_CXX_COMPILER="$native_build_cxx" \
+      -DCMAKE_LINKER="${PREBUILT_LLVM_ROOT}/bin/ld.lld" \
+      "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -B${PREBUILT_LLVM_ROOT}/bin" \
+      "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld -B${PREBUILT_LLVM_ROOT}/bin" \
+      "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld -B${PREBUILT_LLVM_ROOT}/bin" \
+      "-DCMAKE_PREFIX_PATH=${NATIVE_LLVMSDK_PREFIX};${NATIVE_STAGE0_PREFIX}" \
+      "-DLLVM_DIR=${NATIVE_LLVMSDK_PREFIX}/lib/cmake/llvm" \
+      "-DClang_DIR=${NATIVE_STAGE0_PREFIX}/lib/cmake/clang" \
+      "-DLLVM_TABLEGEN=${NATIVE_LLVMSDK_PREFIX}/bin/llvm-tblgen" \
+      "-DLLVM_CONFIG_PATH=${NATIVE_LLVMSDK_PREFIX}/bin/llvm-config" \
+      "-DLLVM_EXTERNAL_CLANG_SOURCE_DIR=${LLVM_SOURCE_ROOT}/clang" \
+      -DPython3_EXECUTABLE=/usr/bin/python3 \
+      "${LLVM_VCS_VERSION_ARGS[@]}" \
+      -DLLVM_LINK_LLVM_DYLIB=ON \
+      -DLLDB_ENABLE_PYTHON=OFF \
+      -DLLDB_ENABLE_LUA=OFF \
+      -DLLDB_ENABLE_LIBEDIT=OFF \
+      -DLLDB_ENABLE_CURSES=OFF \
+      -DLLDB_ENABLE_LZMA=OFF \
+      -DLLDB_ENABLE_LIBXML2=ON \
+      -DLLDB_ENABLE_PROTOCOL_SERVERS=OFF \
+      -DLLDB_ENABLE_FBSDVMCORE=OFF \
+      -DLLDB_INCLUDE_TESTS=OFF \
+      -DLLVM_INCLUDE_TESTS=OFF \
+      -DLLVM_INCLUDE_DOCS=OFF \
+      -DLLVM_INCLUDE_EXAMPLES=OFF
+
+    log "Building native lldb host tools"
+    cmake --build "$NATIVE_LLDB_TOOLS_BUILD_DIR" --parallel "$JOBS" --target lldb-tblgen
+  fi
+
+  [[ -x "$native_lldb_tblgen" ]] || die "missing native lldb-tblgen"
+  ln -s "$native_lldb_tblgen" "${NATIVE_TOOL_DIR}/bin/lldb-tblgen"
 }
 
 build_clang_and_tools() {
@@ -366,6 +444,66 @@ build_lld() {
   cmake --build "$LLD_BUILD_DIR" --parallel "$JOBS" --target install
 }
 
+build_lldb() {
+  rm -rf "$LLDB_BUILD_DIR"
+  mkdir -p "$LLDB_BUILD_DIR"
+
+  log "Configuring lldb for ${TARGET_TRIPLE}"
+  cmake -S "${LLVM_SOURCE_ROOT}/lldb" -B "$LLDB_BUILD_DIR" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_SYSTEM_NAME="$CMAKE_SYSTEM_NAME" \
+    -DCMAKE_SYSTEM_PROCESSOR="$CMAKE_SYSTEM_PROCESSOR" \
+    -DCMAKE_INSTALL_PREFIX="$SDK_PREFIX" \
+    -DCMAKE_C_COMPILER="${NATIVE_STAGE0_PREFIX}/bin/clang" \
+    -DCMAKE_CXX_COMPILER="${NATIVE_STAGE0_PREFIX}/bin/clang++" \
+    -DCMAKE_C_COMPILER_TARGET="$TARGET_TRIPLE" \
+    -DCMAKE_CXX_COMPILER_TARGET="$TARGET_TRIPLE" \
+    -DCMAKE_SYSROOT="$SYSROOT" \
+    "-DCMAKE_FIND_ROOT_PATH=${SDK_PREFIX};${TARGET_ROOT};${SYSROOT}" \
+    -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+    -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+    "-DCMAKE_PREFIX_PATH=${SDK_PREFIX}" \
+    "${CMAKE_RPATH_ARGS[@]}" \
+    -DCMAKE_TRY_COMPILE_TARGET_TYPE=EXECUTABLE \
+    -DCMAKE_AR="${PREBUILT_LLVM_ROOT}/bin/llvm-ar" \
+    -DCMAKE_NM="${PREBUILT_LLVM_ROOT}/bin/llvm-nm" \
+    -DCMAKE_OBJCOPY="${PREBUILT_LLVM_ROOT}/bin/llvm-objcopy" \
+    -DCMAKE_RANLIB="${PREBUILT_LLVM_ROOT}/bin/llvm-ranlib" \
+    -DCMAKE_STRIP="${PREBUILT_LLVM_ROOT}/bin/llvm-strip" \
+    "-DCMAKE_C_FLAGS=${TARGET_C_FLAGS}" \
+    "-DCMAKE_CXX_FLAGS=${TARGET_CXX_FLAGS}" \
+    "-DCMAKE_EXE_LINKER_FLAGS=${TARGET_LINK_FLAGS}" \
+    "-DCMAKE_SHARED_LINKER_FLAGS=${TARGET_LINK_FLAGS}" \
+    "-DCMAKE_MODULE_LINKER_FLAGS=${TARGET_LINK_FLAGS}" \
+    "${CMAKE_STANDARD_LIBRARY_ARGS[@]}" \
+    -DPython3_EXECUTABLE=/usr/bin/python3 \
+    "-DLLVM_DIR=${SDK_PREFIX}/lib/cmake/llvm" \
+    "-DClang_DIR=${SDK_PREFIX}/lib/cmake/clang" \
+    "-DLLVM_TABLEGEN_EXE=${NATIVE_TOOL_DIR}/bin/llvm-tblgen" \
+    "-DLLVM_TABLEGEN_TARGET=${NATIVE_TOOL_DIR}/bin/llvm-tblgen" \
+    "-DLLDB_TABLEGEN_EXE=${NATIVE_TOOL_DIR}/bin/lldb-tblgen" \
+    "-DLLDB_TABLEGEN_TARGET=${NATIVE_TOOL_DIR}/bin/lldb-tblgen" \
+    "-DLLVM_CONFIG_PATH=${NATIVE_TOOL_DIR}/bin/llvm-config" \
+    "-DLLVM_EXTERNAL_CLANG_SOURCE_DIR=${LLVM_SOURCE_ROOT}/clang" \
+    "-DLLDB_EXTERNAL_CLANG_RESOURCE_DIR=${RESOURCE_DIR}" \
+    "${LLVM_VCS_VERSION_ARGS[@]}" \
+    "${STAGE_LLD_LLVM_ARGS[@]}" \
+    -DLLDB_ENABLE_PYTHON=OFF \
+    -DLLDB_ENABLE_LUA=OFF \
+    -DLLDB_ENABLE_LIBEDIT=OFF \
+    -DLLDB_ENABLE_CURSES=OFF \
+    -DLLDB_ENABLE_LZMA=OFF \
+    -DLLDB_ENABLE_LIBXML2=ON \
+    -DLLDB_ENABLE_PROTOCOL_SERVERS=OFF \
+    -DLLDB_ENABLE_FBSDVMCORE=OFF \
+    -DLLDB_INCLUDE_TESTS=OFF
+
+  log "Installing lldb"
+  cmake --build "$LLDB_BUILD_DIR" --parallel "$JOBS" --target install
+}
+
 render_linux_driver_cfg() {
   local triple="$1"
   local cfg_path="$2"
@@ -388,11 +526,14 @@ render_mingw64_driver_cfg() {
   local cxx_args=""
   local mingw_root="<CFGDIR>/../../x86_64-w64-windows-gnu"
 
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    render_template "${TEMPLATE_DIR}/clang-mingw64-native-driver.cfg.in" "$cfg_path" \
+      "TARGET_TRIPLE=x86_64-w64-windows-gnu"
+    return 0
+  fi
+
   if [[ "$add_cxx" == "1" ]]; then
     cxx_args=$'-stdlib=libc++\n-isystem\n<CFGDIR>/../include/c++/v1\n-isystem\n<CFGDIR>/../include/x86_64-w64-windows-gnu/c++/v1\n'
-  fi
-  if [[ "$TARGET_KIND" == "mingw" ]]; then
-    mingw_root="<CFGDIR>/../x86_64-w64-windows-gnu"
   fi
 
   render_template "${TEMPLATE_DIR}/clang-mingw64-driver.cfg.in" "$cfg_path" \
@@ -443,20 +584,36 @@ create_driver_links_and_cfgs() {
   fi
 }
 
+create_mingw64_native_toolchain_file() {
+  [[ "$TARGET_KIND" == "mingw" ]] || return 0
+
+  render_template "${TEMPLATE_DIR}/mingw64-native-toolchain.cmake.in" "${SDK_PREFIX}/toolchain.cmake" \
+    "TARGET_TRIPLE=${TARGET_TRIPLE}"
+}
+
 validate_outputs() {
   if [[ "$TARGET_KIND" == "mingw" ]]; then
     [[ -x "${SDK_PREFIX}/bin/clang.exe" ]] || die "missing clang.exe"
     [[ -x "${SDK_PREFIX}/bin/clang++.exe" ]] || die "missing clang++.exe"
     [[ -x "${SDK_PREFIX}/bin/lld.exe" ]] || die "missing lld.exe"
+    [[ -x "${SDK_PREFIX}/bin/lldb.exe" ]] || die "missing lldb.exe"
     [[ -x "${SDK_PREFIX}/bin/ld.lld.exe" ]] || die "missing ld.lld.exe"
     [[ -x "${SDK_PREFIX}/bin/clang-tidy.exe" ]] || die "missing clang-tidy.exe"
     [[ -e "${SDK_PREFIX}/bin/libclang.dll" ]] || die "missing libclang.dll"
     [[ -e "${SDK_PREFIX}/bin/libclang-cpp.dll" ]] || die "missing libclang-cpp.dll"
     [[ -x "${SDK_PREFIX}/bin/${TARGET_TRIPLE}-clang-gcc.exe" ]] || die "missing host target clang driver"
+    [[ ! -e "${SDK_PREFIX}/${TARGET_TRIPLE}" ]] || die "unexpected nested mingw64 sysroot directory"
+    [[ -f "${SDK_PREFIX}/include/_mingw.h" ]] || die "missing flattened mingw64 CRT headers"
+    [[ -f "${SDK_PREFIX}/lib/crt2.o" ]] || die "missing flattened mingw64 CRT startup objects"
+    [[ -f "${SDK_PREFIX}/lib/libmingw32.a" ]] || die "missing flattened mingw64 import libraries"
+    [[ -f "${SDK_PREFIX}/lib/clang/${LLVM_MAJOR_VERSION}/lib/windows/libclang_rt.builtins-x86_64.a" ]] \
+      || die "missing Windows compiler-rt builtins alias"
+    [[ -f "${SDK_PREFIX}/toolchain.cmake" ]] || die "missing mingw64 native CMake toolchain"
   else
     [[ -x "${SDK_PREFIX}/bin/clang" ]] || die "missing clang"
     [[ -x "${SDK_PREFIX}/bin/clang++" ]] || die "missing clang++"
     [[ -x "${SDK_PREFIX}/bin/lld" ]] || die "missing lld"
+    [[ -x "${SDK_PREFIX}/bin/lldb" ]] || die "missing lldb"
     [[ -x "${SDK_PREFIX}/bin/ld.lld" ]] || die "missing ld.lld"
     [[ -x "${SDK_PREFIX}/bin/clang-tidy" ]] || die "missing clang-tidy"
     [[ -e "${SDK_PREFIX}/lib/libclang.so" ]] || die "missing libclang.so"
@@ -523,8 +680,10 @@ RESOURCE_LIB_DIR="${RESOURCE_DIR}/lib/${TARGET_TRIPLE}"
 RUNTIME_LIB_DIR="${SDK_PREFIX}/lib/${TARGET_TRIPLE}"
 NATIVE_TOOL_DIR="${BUILD_DIR}/native-tools"
 NATIVE_CLANG_TOOLS_BUILD_DIR="${BUILD_DIR}/native-clang-tools-build"
+NATIVE_LLDB_TOOLS_BUILD_DIR="${BUILD_DIR}/native-lldb-tools-build"
 CLANG_BUILD_DIR="${BUILD_DIR}/clang-final-build"
 LLD_BUILD_DIR="${BUILD_DIR}/lld-final-build"
+LLDB_BUILD_DIR="${BUILD_DIR}/lldb-final-build"
 
 [[ -n "$ARCH" ]] || die "ARCH is required"
 [[ -n "$TARGET_TRIPLE" ]] || die "TARGET_TRIPLE is required"
@@ -569,6 +728,7 @@ export LD_LIBRARY_PATH="${NATIVE_STAGE0_PREFIX}/lib:${NATIVE_LLVMSDK_PREFIX}/lib
 
 build_clang_and_tools
 build_lld
+build_lldb
 
 if [[ -x "${SDK_PREFIX}/bin/clang" && ! -e "${SDK_PREFIX}/bin/clang++" ]]; then
   ln -s clang "${SDK_PREFIX}/bin/clang++"
@@ -578,6 +738,7 @@ if [[ -x "${SDK_PREFIX}/bin/lld" && ! -e "${SDK_PREFIX}/bin/ld.lld" ]]; then
 fi
 
 create_driver_links_and_cfgs
+create_mingw64_native_toolchain_file
 
 patch_linux_elf_rpaths "$SDK_PREFIX" "$TARGET_KIND"
 

@@ -1,0 +1,135 @@
+#ifndef POSTGRESQL_DEPENDENCIES_COMPAT_H
+#define POSTGRESQL_DEPENDENCIES_COMPAT_H
+
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+#ifndef O_TMPFILE
+#define O_TMPFILE 020200000
+#endif
+
+#ifndef F_OFD_SETLK
+#define F_OFD_SETLK 37
+#endif
+
+#ifndef F_OFD_SETLKW
+#define F_OFD_SETLKW 38
+#endif
+
+#ifndef F_ADD_SEALS
+#define F_ADD_SEALS 1033
+#endif
+
+#ifndef F_GET_SEALS
+#define F_GET_SEALS 1034
+#endif
+
+#ifndef F_SEAL_SEAL
+#define F_SEAL_SEAL 0x0001
+#endif
+
+#ifndef F_SEAL_SHRINK
+#define F_SEAL_SHRINK 0x0002
+#endif
+
+#ifndef F_SEAL_GROW
+#define F_SEAL_GROW 0x0004
+#endif
+
+#ifndef F_SEAL_WRITE
+#define F_SEAL_WRITE 0x0008
+#endif
+
+#ifndef MFD_CLOEXEC
+#define MFD_CLOEXEC 0x0001U
+#endif
+
+#ifndef MFD_ALLOW_SEALING
+#define MFD_ALLOW_SEALING 0x0002U
+#endif
+
+#ifndef MFD_NOEXEC_SEAL
+#define MFD_NOEXEC_SEAL 0x0008U
+#endif
+
+#ifndef __NR_close_range
+#define __NR_close_range 436
+#endif
+
+#ifndef __NR_renameat2
+#if defined(__x86_64__)
+#define __NR_renameat2 316
+#else
+#define __NR_renameat2 276
+#endif
+#endif
+
+#ifndef __NR_gettid
+#if defined(__x86_64__)
+#define __NR_gettid 186
+#else
+#define __NR_gettid 178
+#endif
+#endif
+
+#ifndef __NR_memfd_create
+#if defined(__x86_64__)
+#define __NR_memfd_create 319
+#else
+#define __NR_memfd_create 279
+#endif
+#endif
+
+#if !defined(__GLIBC_PREREQ) || !__GLIBC_PREREQ(2, 26)
+static inline void *reallocarray(void *ptr, size_t nmemb, size_t size) {
+        if (nmemb != 0 && size > SIZE_MAX / nmemb) {
+                errno = ENOMEM;
+                return NULL;
+        }
+
+        return realloc(ptr, nmemb * size);
+}
+#endif
+
+#if !defined(__GLIBC_PREREQ) || !__GLIBC_PREREQ(2, 32)
+static inline const char *strerrorname_np(int errnum) {
+        (void) errnum;
+        return NULL;
+}
+#endif
+
+#if !defined(__GLIBC_PREREQ) || !__GLIBC_PREREQ(2, 34)
+static inline int close_range(unsigned int first, unsigned int last, int flags) {
+        return (int) syscall(__NR_close_range, first, last, flags);
+}
+#endif
+
+#if !defined(__GLIBC_PREREQ) || !__GLIBC_PREREQ(2, 28)
+static inline int renameat2(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, unsigned int flags) {
+        return (int) syscall(__NR_renameat2, olddirfd, oldpath, newdirfd, newpath, flags);
+}
+#endif
+
+#if !defined(__GLIBC_PREREQ) || !__GLIBC_PREREQ(2, 30)
+static inline pid_t gettid(void) {
+        return (pid_t) syscall(__NR_gettid);
+}
+#endif
+
+#if !defined(__GLIBC_PREREQ) || !__GLIBC_PREREQ(2, 27)
+static inline int memfd_create(const char *name, unsigned int flags) {
+        return (int) syscall(__NR_memfd_create, name, flags);
+}
+#endif
+
+#endif
