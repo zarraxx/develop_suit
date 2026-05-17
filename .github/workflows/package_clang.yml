@@ -746,17 +746,25 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - resolve-meta
+      - build-libcxx
       - build-clang
       - test-linux-clang
       - test-mingw-native-clang
     if: ${{ inputs.publish_release }}
 
     steps:
-      - name: Download artifacts
+      - name: Download clang artifacts
         uses: actions/download-artifact@v8
         with:
           path: artifacts
           pattern: clang-*
+          merge-multiple: true
+
+      - name: Download libcxx artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: libcxx-*
           merge-multiple: true
 
       - name: Create or update release
