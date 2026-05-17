@@ -138,6 +138,23 @@ validate_mingw_sysroot_dir() {
   [[ -d "${dir}/sysroot/usr/x86_64-w64-windows-gnu/lib" ]] || die "missing mingw CRT libraries: ${dir}"
 }
 
+prune_broken_symlinks() {
+  local dir="$1"
+  local broken_links=()
+  local path=""
+
+  [[ -d "$dir" ]] || return 0
+
+  while IFS= read -r -d '' path; do
+    broken_links+=("$path")
+  done < <(find "$dir" -xtype l -print0)
+
+  if [[ "${#broken_links[@]}" -gt 0 ]]; then
+    echo "-- pruning broken symlinks before packaging: ${#broken_links[@]}"
+    rm -f -- "${broken_links[@]}"
+  fi
+}
+
 prepare_single_input() {
   local kind="$1"
   local archive_path="$2"
@@ -462,6 +479,13 @@ make_host_writable "$OUT_DIR"
 make_host_writable "$DIST_DIR"
 
 rm -f "$ARCHIVE_PATH"
-tar -C "$OUT_BASE" -cJf "$ARCHIVE_PATH" "$PACKAGE_NAME"
+prune_broken_symlinks "$OUT_DIR"
+
+tar_args=(-C "$OUT_BASE" -cJf "$ARCHIVE_PATH")
+if [[ "$TARGET_KIND" == "mingw" ]]; then
+  tar_args=(--dereference --hard-dereference "${tar_args[@]}")
+fi
+
+tar "${tar_args[@]}" "$PACKAGE_NAME"
 
 echo "-- clang archive ready: ${ARCHIVE_PATH}"
