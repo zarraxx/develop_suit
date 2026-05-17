@@ -483,6 +483,7 @@ build_lldb() {
     "-DClang_DIR=${SDK_PREFIX}/lib/cmake/clang" \
     "-DLLVM_TABLEGEN_EXE=${NATIVE_TOOL_DIR}/bin/llvm-tblgen" \
     "-DLLVM_TABLEGEN_TARGET=${NATIVE_TOOL_DIR}/bin/llvm-tblgen" \
+    "-DLLVM_TABLEGEN=${NATIVE_TOOL_DIR}/bin/llvm-tblgen" \
     "-DLLDB_TABLEGEN_EXE=${NATIVE_TOOL_DIR}/bin/lldb-tblgen" \
     "-DLLDB_TABLEGEN_TARGET=${NATIVE_TOOL_DIR}/bin/lldb-tblgen" \
     "-DLLVM_CONFIG_PATH=${NATIVE_TOOL_DIR}/bin/llvm-config" \
@@ -707,7 +708,6 @@ set_stage_llvm_policy_args
 
 assemble_sdk_prefix
 copy_host_runtime_shared_libraries_to_lib
-copy_mingw64_sysroot_to_prefix
 make_native_tool_dir
 
 TARGET_C_FLAGS="--target=${TARGET_TRIPLE} --sysroot=${SYSROOT} -resource-dir=${RESOURCE_DIR}"
@@ -729,6 +729,7 @@ export LD_LIBRARY_PATH="${NATIVE_STAGE0_PREFIX}/lib:${NATIVE_LLVMSDK_PREFIX}/lib
 build_clang_and_tools
 build_lld
 build_lldb
+copy_mingw64_sysroot_to_prefix
 
 if [[ -x "${SDK_PREFIX}/bin/clang" && ! -e "${SDK_PREFIX}/bin/clang++" ]]; then
   ln -s clang "${SDK_PREFIX}/bin/clang++"
