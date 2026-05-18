@@ -47,7 +47,7 @@ apply_source_patches() {
   shopt -s nullglob
   for patch_file in "${patch_dir}/llvm-${LLVM_VERSION}-"*.patch; do
     log "Applying $(basename "$patch_file")"
-    patch -d "$LLVM_SOURCE_ROOT" -p1 <"$patch_file"
+    (cd "$LLVM_SOURCE_ROOT" && patch -p 1 -i "$patch_file")
   done
   shopt -u nullglob
 }
