@@ -670,11 +670,21 @@ jobs:
             param(
               [Parameter(Mandatory = $true)][string]$FilePath,
               [Parameter()][string[]]$ArgumentList = @(),
-              [Parameter()][int]$TimeoutSeconds = 300
+              [Parameter()][int]$TimeoutSeconds = 300,
+              [Parameter()][string]$WorkingDirectory = ""
             )
 
             Write-Host "running: $FilePath $($ArgumentList -join ' ')"
-            $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -NoNewWindow -PassThru
+            $startInfo = @{
+              FilePath = $FilePath
+              ArgumentList = $ArgumentList
+              NoNewWindow = $true
+              PassThru = $true
+            }
+            if ($WorkingDirectory) {
+              $startInfo.WorkingDirectory = $WorkingDirectory
+            }
+            $process = Start-Process @startInfo
             $finished = $process.WaitForExit($TimeoutSeconds * 1000)
             if (-not $finished) {
               Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
@@ -716,6 +726,7 @@ jobs:
           $targetDllDir = Join-Path $clangRoot.FullName "x86_64-w64-windows-gnu/sysroot/usr/x86_64-w64-windows-gnu/bin"
           $env:PATH = "${binDir};${targetBinDir};${targetDllDir};${env:PATH}"
           Write-Host "clang root: $($clangRoot.FullName)"
+          Write-Host "bin dir: ${binDir}"
 
           New-Item -ItemType Directory -Force -Path test-root/src,test-root/out | Out-Null
           @'
@@ -733,10 +744,10 @@ jobs:
           }
           '@ | Set-Content -Path test-root/src/hello.cpp -NoNewline -Encoding ascii
 
-          Invoke-CheckedCommand -FilePath (Join-Path $binDir "clang.exe") -ArgumentList @("--version")
-          Invoke-CheckedCommand -FilePath (Join-Path $binDir "lldb.exe") -ArgumentList @("--version")
-          Invoke-CheckedCommand -FilePath (Join-Path $binDir "x86_64-w64-windows-gnu-clang-gcc.exe") -ArgumentList @("test-root/src/hello.c", "-o", "test-root/out/hello-c.exe")
-          Invoke-CheckedCommand -FilePath (Join-Path $binDir "x86_64-w64-windows-gnu-clang-g++.exe") -ArgumentList @("test-root/src/hello.cpp", "-o", "test-root/out/hello-cxx.exe")
+          Invoke-CheckedCommand -FilePath ".\clang.exe" -ArgumentList @("--version") -WorkingDirectory $binDir
+          Invoke-CheckedCommand -FilePath ".\lldb.exe" -ArgumentList @("--version") -WorkingDirectory $binDir
+          Invoke-CheckedCommand -FilePath ".\x86_64-w64-windows-gnu-clang-gcc.exe" -ArgumentList @("test-root/src/hello.c", "-o", "test-root/out/hello-c.exe") -WorkingDirectory $binDir
+          Invoke-CheckedCommand -FilePath ".\x86_64-w64-windows-gnu-clang-g++.exe" -ArgumentList @("test-root/src/hello.cpp", "-o", "test-root/out/hello-cxx.exe") -WorkingDirectory $binDir
           Invoke-CheckedCommand -FilePath (Resolve-Path test-root/out/hello-c.exe)
           Invoke-CheckedCommand -FilePath (Resolve-Path test-root/out/hello-cxx.exe)
           $global:LASTEXITCODE = 0

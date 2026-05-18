@@ -38,6 +38,20 @@ extract_llvm_source() {
   printf '%s\n' "$extract_dir"
 }
 
+apply_source_patches() {
+  local patch_dir="${PATCH_DIR:-/work/mount_root/patch}"
+  local patch_file=""
+
+  [[ -d "$patch_dir" ]] || return 0
+
+  shopt -s nullglob
+  for patch_file in "${patch_dir}/llvm-${LLVM_VERSION}-"*.patch; do
+    log "Applying $(basename "$patch_file")"
+    patch -d "$LLVM_SOURCE_ROOT" -p1 <"$patch_file"
+  done
+  shopt -u nullglob
+}
+
 copy_prefix() {
   local source_dir="$1"
   local dest_dir="$2"
@@ -128,6 +142,27 @@ copy_mingw64_sysroot_to_prefix() {
   find "${MINGW_SYSROOT_PREFIX}/bin" "${MINGW_SYSROOT_PREFIX}/sysroot" \
     -type f -name '*.dll' -exec cp -f {} "${SDK_PREFIX}/bin/" \; 2>/dev/null || true
   rm -rf "${SDK_PREFIX:?}/${TARGET_TRIPLE}"
+}
+
+strip_mingw64_crt_debug_sections() {
+  [[ "$TARGET_KIND" == "mingw" ]] || return 0
+
+  local strip_tool="${PREBUILT_LLVM_ROOT}/bin/llvm-strip"
+  local path=""
+  local count=0
+
+  [[ -x "$strip_tool" ]] || die "missing llvm-strip: ${strip_tool}"
+
+  log "Stripping debug sections from bundled mingw64 CRT objects and static archives"
+  while IFS= read -r -d '' path; do
+    "$strip_tool" --strip-debug "$path"
+    count=$((count + 1))
+  done < <(
+    find "${SDK_PREFIX}/lib" \
+      \( -type f -name '*.o' -o -type f -name '*.a' ! -name '*.dll.a' \) \
+      -print0
+  )
+  log "Stripped mingw64 CRT debug sections from ${count} files"
 }
 
 llvm_target_arch_name_for_arch() {
@@ -700,9 +735,11 @@ require_command curl
 require_command tar
 require_command cmake
 require_command ninja
+require_command patch
 
 download_archive "$LLVM_ARCHIVE_URL" "$LLVM_ARCHIVE_NAME"
 LLVM_SOURCE_ROOT="$(extract_llvm_source)"
+apply_source_patches
 
 set_stage_llvm_policy_args
 
@@ -730,6 +767,7 @@ build_clang_and_tools
 build_lld
 build_lldb
 copy_mingw64_sysroot_to_prefix
+strip_mingw64_crt_debug_sections
 
 if [[ -x "${SDK_PREFIX}/bin/clang" && ! -e "${SDK_PREFIX}/bin/clang++" ]]; then
   ln -s clang "${SDK_PREFIX}/bin/clang++"
