@@ -140,7 +140,7 @@ copy_mingw64_sysroot_to_prefix() {
   fi
 
   find "${MINGW_SYSROOT_PREFIX}/bin" "${MINGW_SYSROOT_PREFIX}/sysroot" \
-    -type f -name '*.dll' -exec cp -f {} "${SDK_PREFIX}/bin/" \; 2>/dev/null || true
+    \( -type f -o -type l \) -name '*.dll' -exec cp -Lf {} "${SDK_PREFIX}/bin/" \; 2>/dev/null || true
   rm -rf "${SDK_PREFIX:?}/${TARGET_TRIPLE}"
 }
 
@@ -547,7 +547,7 @@ render_linux_driver_cfg() {
   local cxx_args=""
 
   if [[ "$add_cxx" == "1" ]]; then
-    cxx_args=$'-stdlib=libc++\n-isystem\n<CFGDIR>/../include/c++/v1\n-isystem\n<CFGDIR>/../include/'"${triple}"$'/c++/v1\n'
+    cxx_args=$'-stdlib=libc++\n-isystem\n<CFGDIR>/../include/'"${triple}"$'/c++/v1\n-isystem\n<CFGDIR>/../include/c++/v1\n'
   fi
 
   render_template "${TEMPLATE_DIR}/clang-linux-driver.cfg.in" "$cfg_path" \
@@ -563,13 +563,18 @@ render_mingw64_driver_cfg() {
   local mingw_root="<CFGDIR>/../../x86_64-w64-windows-gnu"
 
   if [[ "$TARGET_KIND" == "mingw" ]]; then
+    if [[ "$add_cxx" == "1" ]]; then
+      cxx_args=$'-stdlib=libc++\n-isystem\n<CFGDIR>/../include/x86_64-w64-windows-gnu/c++/v1\n-isystem\n<CFGDIR>/../include/c++/v1\n'
+    fi
     render_template "${TEMPLATE_DIR}/clang-mingw64-native-driver.cfg.in" "$cfg_path" \
-      "TARGET_TRIPLE=x86_64-w64-windows-gnu"
+      "TARGET_TRIPLE=x86_64-w64-windows-gnu" \
+      "LLVM_MAJOR_VERSION=${LLVM_MAJOR_VERSION}" \
+      "CXX_ARGS=${cxx_args}"
     return 0
   fi
 
   if [[ "$add_cxx" == "1" ]]; then
-    cxx_args=$'-stdlib=libc++\n-isystem\n<CFGDIR>/../include/c++/v1\n-isystem\n<CFGDIR>/../include/x86_64-w64-windows-gnu/c++/v1\n'
+    cxx_args=$'-stdlib=libc++\n-isystem\n<CFGDIR>/../include/x86_64-w64-windows-gnu/c++/v1\n-isystem\n<CFGDIR>/../include/c++/v1\n'
   fi
 
   render_template "${TEMPLATE_DIR}/clang-mingw64-driver.cfg.in" "$cfg_path" \
@@ -642,6 +647,9 @@ validate_outputs() {
     [[ -f "${SDK_PREFIX}/include/_mingw.h" ]] || die "missing flattened mingw64 CRT headers"
     [[ -f "${SDK_PREFIX}/lib/crt2.o" ]] || die "missing flattened mingw64 CRT startup objects"
     [[ -f "${SDK_PREFIX}/lib/libmingw32.a" ]] || die "missing flattened mingw64 import libraries"
+    [[ -f "${SDK_PREFIX}/bin/libstdc++-6.dll" ]] || die "missing bundled mingw64 libstdc++ runtime DLL"
+    [[ -f "${SDK_PREFIX}/bin/libgcc_s_seh-1.dll" ]] || die "missing bundled mingw64 libgcc runtime DLL"
+    [[ -f "${SDK_PREFIX}/bin/libwinpthread-1.dll" ]] || die "missing bundled mingw64 pthread runtime DLL"
     [[ -f "${SDK_PREFIX}/lib/clang/${LLVM_MAJOR_VERSION}/lib/windows/libclang_rt.builtins-x86_64.a" ]] \
       || die "missing Windows compiler-rt builtins alias"
     [[ -f "${SDK_PREFIX}/toolchain.cmake" ]] || die "missing mingw64 native CMake toolchain"
@@ -748,7 +756,7 @@ copy_host_runtime_shared_libraries_to_lib
 make_native_tool_dir
 
 TARGET_C_FLAGS="--target=${TARGET_TRIPLE} --sysroot=${SYSROOT} -resource-dir=${RESOURCE_DIR}"
-TARGET_CXX_FLAGS="${TARGET_C_FLAGS} -stdlib=libc++ -isystem ${SDK_PREFIX}/include/c++/v1 -isystem ${SDK_PREFIX}/include/${TARGET_TRIPLE}/c++/v1"
+TARGET_CXX_FLAGS="${TARGET_C_FLAGS} -stdlib=libc++ -isystem ${SDK_PREFIX}/include/${TARGET_TRIPLE}/c++/v1 -isystem ${SDK_PREFIX}/include/c++/v1"
 if [[ "$TARGET_KIND" == "linux" ]]; then
   TARGET_C_FLAGS+=" -pthread"
   TARGET_CXX_FLAGS+=" -pthread"

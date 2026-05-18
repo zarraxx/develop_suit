@@ -1,4 +1,18 @@
 # Default Windows GNU target selection for @TARGET_TRIPLE@.
 --target=@TARGET_TRIPLE@
+--sysroot=<CFGDIR>/..
+-resource-dir=<CFGDIR>/../lib/clang/@LLVM_MAJOR_VERSION@
 -B
 <CFGDIR>
+-B
+<CFGDIR>/../lib/clang/@LLVM_MAJOR_VERSION@/lib/windows
+@CXX_ARGS@-isystem
+<CFGDIR>/../include
+-L
+<CFGDIR>/../lib
+-L
+<CFGDIR>/../lib/clang/@LLVM_MAJOR_VERSION@/lib/windows
+-L
+<CFGDIR>/../lib/@TARGET_TRIPLE@
+--rtlib=compiler-rt
+--unwindlib=libunwind
