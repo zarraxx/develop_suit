@@ -1,6 +1,26 @@
 --- a/lldb/source/Plugins/Process/Linux/NativeRegisterContextLinux_loongarch64.cpp
 +++ b/lldb/source/Plugins/Process/Linux/NativeRegisterContextLinux_loongarch64.cpp
-@@ -539,7 +539,7 @@ llvm::Error NativeRegisterContextLinux_loongarch64::ReadHardwareDebugInfo() {
+@@ -47,6 +47,19 @@
+ #define NT_LOONGARCH_HW_WATCH 0xa06
+ #endif
+ 
++// Match LLVM 22's local ptrace watch state definition. Older sysroots may not
++// provide the new LoongArch hardware watchpoint type, and LLVM 20 used the old
++// Linux header name directly.
++struct loongarch_user_watch_state {
++  uint64_t dbg_info;
++  struct {
++    uint64_t addr;
++    uint64_t mask;
++    uint32_t ctrl;
++    uint32_t pad;
++  } dbg_regs[14];
++};
++
+ #define REG_CONTEXT_SIZE                                                       \
+   (GetGPRSize() + GetFPRSize() + sizeof(m_lsx) + sizeof(m_lasx))
+ 
+@@ -539,7 +552,7 @@
  
    int regset = NT_LOONGARCH_HW_WATCH;
    struct iovec ioVec;
@@ -9,7 +29,7 @@
    Status error;
  
    ioVec.iov_base = &dreg_state;
-@@ -567,7 +567,7 @@ llvm::Error NativeRegisterContextLinux_loongarch64::ReadHardwareDebugInfo() {
+@@ -567,7 +580,7 @@
  llvm::Error NativeRegisterContextLinux_loongarch64::WriteHardwareDebugRegs(
      DREGType hwbType) {
    struct iovec ioVec;

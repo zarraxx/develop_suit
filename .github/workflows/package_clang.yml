@@ -729,27 +729,33 @@ jobs:
           Write-Host "bin dir: ${binDir}"
 
           New-Item -ItemType Directory -Force -Path test-root/src,test-root/out | Out-Null
+          $srcDir = (Resolve-Path test-root/src).Path
+          $outDir = (Resolve-Path test-root/out).Path
+          $clangExe = Join-Path $binDir "clang.exe"
+          $lldbExe = Join-Path $binDir "lldb.exe"
+          $clangCExe = Join-Path $binDir "x86_64-w64-windows-gnu-clang-gcc.exe"
+          $clangCxxExe = Join-Path $binDir "x86_64-w64-windows-gnu-clang-g++.exe"
           @'
           #include <stdio.h>
           int main(void) {
             puts("hello from native mingw c");
             return 0;
           }
-          '@ | Set-Content -Path test-root/src/hello.c -NoNewline -Encoding ascii
+          '@ | Set-Content -Path (Join-Path $srcDir "hello.c") -NoNewline -Encoding ascii
           @'
           #include <iostream>
           int main() {
             std::cout << "hello from native mingw c++" << std::endl;
             return 0;
           }
-          '@ | Set-Content -Path test-root/src/hello.cpp -NoNewline -Encoding ascii
+          '@ | Set-Content -Path (Join-Path $srcDir "hello.cpp") -NoNewline -Encoding ascii
 
-          Invoke-CheckedCommand -FilePath ".\clang.exe" -ArgumentList @("--version") -WorkingDirectory $binDir
-          Invoke-CheckedCommand -FilePath ".\lldb.exe" -ArgumentList @("--version") -WorkingDirectory $binDir
-          Invoke-CheckedCommand -FilePath ".\x86_64-w64-windows-gnu-clang-gcc.exe" -ArgumentList @("test-root/src/hello.c", "-o", "test-root/out/hello-c.exe") -WorkingDirectory $binDir
-          Invoke-CheckedCommand -FilePath ".\x86_64-w64-windows-gnu-clang-g++.exe" -ArgumentList @("test-root/src/hello.cpp", "-o", "test-root/out/hello-cxx.exe") -WorkingDirectory $binDir
-          Invoke-CheckedCommand -FilePath (Resolve-Path test-root/out/hello-c.exe)
-          Invoke-CheckedCommand -FilePath (Resolve-Path test-root/out/hello-cxx.exe)
+          Invoke-CheckedCommand -FilePath $clangExe -ArgumentList @("--version") -WorkingDirectory $binDir
+          Invoke-CheckedCommand -FilePath $lldbExe -ArgumentList @("--version") -WorkingDirectory $binDir
+          Invoke-CheckedCommand -FilePath $clangCExe -ArgumentList @((Join-Path $srcDir "hello.c"), "-o", (Join-Path $outDir "hello-c.exe")) -WorkingDirectory $binDir
+          Invoke-CheckedCommand -FilePath $clangCxxExe -ArgumentList @((Join-Path $srcDir "hello.cpp"), "-o", (Join-Path $outDir "hello-cxx.exe")) -WorkingDirectory $binDir
+          Invoke-CheckedCommand -FilePath (Join-Path $outDir "hello-c.exe")
+          Invoke-CheckedCommand -FilePath (Join-Path $outDir "hello-cxx.exe")
           $global:LASTEXITCODE = 0
 
   publish-release:
