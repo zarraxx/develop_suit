@@ -70,13 +70,17 @@ copy_prefix_if_exists() {
 }
 
 assemble_sdk_prefix() {
-  local runtime_dir=""
-
   rm -rf "${SDK_PREFIX:?}/"*
   mkdir -p "$SDK_PREFIX"
 
   log "Copying target llvmsdk into final clang prefix"
   copy_prefix "$LLVMSDK_PREFIX" "$SDK_PREFIX"
+
+  overlay_libcxx_runtime_packages
+}
+
+overlay_libcxx_runtime_packages() {
+  local runtime_dir=""
 
   log "Overlaying libcxx runtime packages"
   shopt -s nullglob
@@ -668,6 +672,10 @@ validate_outputs() {
   [[ -f "${SDK_PREFIX}/bin/x86_64-w64-windows-gnu-clang-g++.cfg" ]] || die "missing mingw64 clang++ cfg"
   [[ -d "${SDK_PREFIX}/lib/clang/${LLVM_MAJOR_VERSION}/include" ]] || die "missing clang resource headers"
   [[ -d "${SDK_PREFIX}/lib/clang/${LLVM_MAJOR_VERSION}/lib/x86_64-w64-windows-gnu" ]] || die "missing mingw64 compiler-rt resource libraries"
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    grep -q '__configuration/abi.h' "${SDK_PREFIX}/include/c++/v1/__config" \
+      || die "mingw64 libc++ headers were overwritten by an incompatible sysroot copy"
+  fi
 }
 
 ARCH="${ARCH:-}"
@@ -775,6 +783,7 @@ build_clang_and_tools
 build_lld
 build_lldb
 copy_mingw64_sysroot_to_prefix
+overlay_libcxx_runtime_packages
 strip_mingw64_crt_debug_sections
 
 if [[ -x "${SDK_PREFIX}/bin/clang" && ! -e "${SDK_PREFIX}/bin/clang++" ]]; then
