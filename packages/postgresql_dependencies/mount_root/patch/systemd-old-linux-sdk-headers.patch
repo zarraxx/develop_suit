@@ -22,7 +22,7 @@ diff --git a/src/include/override/sys/stat.h b/src/include/override/sys/stat.h
 index 75833d0e03..8f0805f7da 100644
 --- a/src/include/override/sys/stat.h
 +++ b/src/include/override/sys/stat.h
-@@ -3,6 +3,14 @@
+@@ -3,6 +3,26 @@
  
  #include_next <sys/stat.h>      /* IWYU pragma: export */
  
@@ -31,7 +31,22 @@ index 75833d0e03..8f0805f7da 100644
 +#endif
 +
 +#ifndef STATX_MNT_ID
++#ifdef __GLIBC__
++#define stx_mnt_id __statx_pad2[0]
++#endif
 +#define STATX_MNT_ID 0x00001000U
++#endif
++
++#ifndef STATX_MNT_ID_UNIQUE
++#define STATX_MNT_ID_UNIQUE 0x00004000U
++#endif
++
++#ifndef STATX_ATTR_MOUNT_ROOT
++#define STATX_ATTR_MOUNT_ROOT 0x00002000
++#endif
++
++#ifndef STATX_ATTR_WRITE_ATOMIC
++#define STATX_ATTR_WRITE_ATOMIC 0x00400000
 +#endif
 +
  /* Supported since kernel v6.6 (78252deb023cf0879256fcfbafe37022c390762b). */

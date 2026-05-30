@@ -1,0 +1,57 @@
+--- a/src/libsystemd/sd-daemon/sd-daemon.c
++++ b/src/libsystemd/sd-daemon/sd-daemon.c
+@@ -352,11 +352,7 @@
+                 .msg_iovlen = 1,
+                 .msg_name = &sockaddr,
+         };
+-        union {
+-                struct cmsghdr cmsghdr;
+-                uint8_t buf[CMSG_SPACE(sizeof(struct ucred)) +
+-                            CMSG_SPACE(sizeof(int) * n_fds)];
+-        } control;
++        uint8_t *control = NULL;
+         _cleanup_close_ int fd = -1;
+         struct cmsghdr *cmsg = NULL;
+         const char *e;
+@@ -378,6 +374,15 @@
+         if (!e)
+                 return 0;
+ 
++        if (n_fds > 0 || (pid != 0 && pid != getpid())) {
++                control = malloc(CMSG_SPACE(sizeof(struct ucred)) +
++                                 CMSG_SPACE(sizeof(int) * n_fds));
++                if (!control) {
++                        r = -ENOMEM;
++                        goto finish;
++                }
++        }
++
+         /* Must be an abstract socket, or an absolute path */
+         if ((e[0] != '@' && e[0] != '/') || e[1] == 0) {
+                 r = -EINVAL;
+@@ -401,7 +406,7 @@
+                 msghdr.msg_namelen = sizeof(struct sockaddr_un);
+ 
+         if (n_fds > 0) {
+-                msghdr.msg_control = &control;
++                msghdr.msg_control = control;
+                 msghdr.msg_controllen = CMSG_LEN(sizeof(int) * n_fds);
+ 
+                 cmsg = CMSG_FIRSTHDR(&msghdr);
+@@ -418,7 +423,7 @@
+                 try_without_ucred = true;
+                 controllen_without_ucred = msghdr.msg_controllen;
+ 
+-                msghdr.msg_control = &control;
++                msghdr.msg_control = control;
+                 msghdr.msg_controllen += CMSG_LEN(sizeof(struct ucred));
+ 
+                 if (cmsg)
+@@ -459,6 +464,7 @@
+ finish:
+         if (unset_environment)
+                 unsetenv("NOTIFY_SOCKET");
++        free(control);
+ 
+        return r;
+}

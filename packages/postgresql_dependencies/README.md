@@ -21,11 +21,14 @@ Linux 目标尽量提供完整 PostgreSQL 可选依赖：
 - libevent
 - liburing
 - Linux-PAM
+- libcap
+- libblkid/libmount
 - libsystemd
 
-`x86_64-unknown-linux-gnu` 以 CentOS 7 / glibc 2.17 为基线，`libsystemd`
-降到 CentOS 7.9 的 `systemd-libs/systemd-devel 219-78.el7_9.9` RPM SDK
-文件。其它 Linux 架构继续从 systemd 源码构建 `libsystemd` SDK。
+`x86_64-unknown-linux-gnu` 以 CentOS 7 / glibc 2.17 为基线，从源码构建
+systemd 219 的 `libsystemd` SDK。`aarch64-unknown-linux-gnu` 以 Debian 10
+基线，从源码构建 systemd 241 的 `libsystemd` SDK。其它 Linux 架构继续从
+systemd 260.1 源码构建。
 
 MinGW64 目标只构建适合 Windows GNU 环境且能以动态库形式稳定交叉构建的依赖子集：
 
@@ -454,37 +457,50 @@ Linux only. This package only needs `libsystemd` and headers for PostgreSQL
 `--with-systemd`; it must not install system services, init files, or host
 integration assets.
 
-#### x86_64 Linux: CentOS 7.9 RPM SDK
+#### x86_64 Linux: CentOS 7 systemd 219
 
-`x86_64-unknown-linux-gnu` is the CentOS 7 compatibility target. It extracts
-SDK files from CentOS 7.9 update RPMs instead of building modern systemd from
-source:
+`x86_64-unknown-linux-gnu` is the CentOS 7 compatibility target. It builds the
+upstream systemd 219 release tarball with the autotools build system:
 
 ```text
-https://vault.centos.org/7.9.2009/updates/x86_64/Packages/systemd-libs-219-78.el7_9.9.x86_64.rpm
-https://vault.centos.org/7.9.2009/updates/x86_64/Packages/systemd-devel-219-78.el7_9.9.x86_64.rpm
+https://www.freedesktop.org/software/systemd/systemd-219.tar.xz
 ```
 
-Installed files:
+Build/install:
 
-```text
-include/systemd/*
-lib/libsystemd.so
-lib/libsystemd.so.0
-lib/libsystemd.so.0.6.0
-lib/pkgconfig/libsystemd.pc
+```sh
+<source>/configure \
+  --build=<build-triple> \
+  --host=<target-triple> \
+  --prefix=<prefix> \
+  --libdir=<prefix>/lib \
+  --with-rootprefix=<prefix> \
+  --with-rootlibdir=<prefix>/lib \
+  --without-python \
+  --disable-nls \
+  --disable-manpages \
+  --disable-tests \
+  --disable-dbus \
+  --disable-pam \
+  --disable-acl \
+  --disable-selinux \
+  --disable-audit \
+  --disable-polkit \
+  --disable-networkd
+
+make libsystemd.la src/libsystemd/libsystemd.pc -j <jobs>
 ```
 
-The RPM `libsystemd.pc` is not copied verbatim; the package renders a local
-template so `pkg-config` resolves `${prefix}/include` and `${prefix}/lib`
-inside the distributable prefix.
+The packaging step copies only the `libsystemd` shared library, headers, and
+pkg-config file into the distributable prefix.
 
-#### Other Linux targets: systemd 260.1
+#### aarch64 Linux: Debian 10 systemd 241
 
-Source:
+`aarch64-unknown-linux-gnu` builds the upstream systemd 241 release used as the
+Debian 10-era compatibility baseline:
 
 ```text
-https://github.com/systemd/systemd/archive/refs/tags/v260.1.tar.gz
+https://github.com/systemd/systemd/archive/refs/tags/v241.tar.gz
 ```
 
 Meson:
@@ -498,97 +514,84 @@ meson setup <build> <source> \
   -Dstatic-libsystemd=false \
   -Dtests=false \
   -Dslow-tests=false \
-  -Dfuzz-tests=false \
   -Dinstall-tests=false \
-  -Dman=disabled \
-  -Dhtml=disabled \
-  -Dtranslations=false \
-  -Dpam=disabled \
-  -Dacl=disabled \
-  -Daudit=disabled \
-  -Dblkid=disabled \
-  -Dfdisk=disabled \
-  -Dkmod=disabled \
-  -Dseccomp=disabled \
-  -Dselinux=disabled \
-  -Dapparmor=disabled \
-  -Dpolkit=disabled \
-  -Dlibcrypt=disabled \
-  -Dlibcryptsetup=disabled \
-  -Dlibcurl=disabled \
-  -Dopenssl=disabled \
-  -Dzlib=disabled \
-  -Dbzip2=disabled \
-  -Dxz=disabled \
-  -Dlz4=disabled \
-  -Dzstd=disabled \
-  -Dpcre2=disabled \
-  -Dlibarchive=disabled \
-  -Dlibmount=disabled \
-  -Dfirstboot=false \
-  -Dinitrd=false \
-  -Dutmp=false \
-  -Dhibernate=false \
-  -Dldconfig=false \
+  -Dman=false \
+  -Dhtml=false \
+  -Dpam=false \
+  -Dacl=false \
+  -Daudit=false \
+  -Dblkid=false \
+  -Dkmod=false \
+  -Dseccomp=false \
+  -Dselinux=false \
+  -Dapparmor=false \
+  -Dpolkit=false \
+  -Dlibcryptsetup=false \
+  -Dlibcurl=false \
+  -Dopenssl=false \
+  -Dzlib=false \
+  -Dbzip2=false \
+  -Dxz=false \
+  -Dlz4=false \
+  -Dpcre2=false \
   -Dresolve=false \
-  -Defi=false \
-  -Dtpm=false \
-  -Denvironment-d=false \
-  -Dbinfmt=false \
-  -Drepart=disabled \
-  -Dsysupdate=disabled \
-  -Dsysupdated=disabled \
-  -Dcoredump=false \
-  -Dpstore=false \
-  -Doomd=false \
   -Dlogind=false \
-  -Dhostnamed=false \
-  -Dlocaled=false \
-  -Dmachined=false \
-  -Dportabled=false \
-  -Dsysext=false \
-  -Dmountfsd=false \
-  -Duserdb=false \
-  -Dhomed=disabled \
-  -Dnetworkd=false \
-  -Dtimedated=false \
-  -Dtimesyncd=false \
-  -Dremote=disabled \
-  -Dcreate-log-dirs=false \
-  -Dnsresourced=false \
-  -Dnss-myhostname=false \
-  -Dnss-mymachines=disabled \
-  -Dnss-resolve=disabled \
-  -Dnss-systemd=false \
-  -Drandomseed=false \
-  -Dbacklight=false \
-  -Dvconsole=false \
-  -Dvmspawn=disabled \
-  -Dquotacheck=false \
-  -Dsysusers=false \
-  -Dtmpfiles=false \
-  -Dimportd=disabled \
-  -Dhwdb=false \
-  -Drfkill=false \
-  -Dxdg-autostart=false \
-  -Dnspawn=disabled \
-  -Dinstall-sysconfdir=false \
-  -Drpmmacrosdir=no \
-  -Dkernel-install=false \
-  -Dukify=disabled \
-  -Danalyze=false \
-  -Dmode=release
+  -Dnetworkd=false
 ```
 
-Build/install:
+#### Remaining Linux targets: systemd 260.1
+
+Source:
+
+```text
+https://github.com/systemd/systemd/archive/refs/tags/v260.1.tar.gz
+```
+
+Meson parameters follow the modern systemd option names and disable unrelated
+services, host integration assets, tests, documentation, and static
+`libsystemd`.
+
+#### systemd support libraries
+
+Older systemd releases require support libraries during configure/build, so
+Linux targets also build these dynamic libraries in this package:
+
+```text
+https://www.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.76.tar.xz
+https://www.kernel.org/pub/linux/utils/util-linux/v2.42/util-linux-2.42.tar.xz
+```
+
+libcap:
 
 ```sh
-meson compile -C <build> libsystemd.so -j <jobs>
-meson install -C <build>
+make -C libcap CC=<cc> AR=<ar> RANLIB=<ranlib> prefix=<prefix> lib=lib \
+  PTHREADS=no USE_GPERF=no SHARED=yes
+make -C libcap install-shared-cap prefix=<prefix> lib=lib \
+  PTHREADS=no USE_GPERF=no SHARED=yes
 ```
 
-Install validation must ensure only `libsystemd` runtime/development files are
-kept in the package prefix.
+util-linux libblkid/libmount:
+
+```sh
+<source>/configure \
+  --build=<build-triple> \
+  --host=<target-triple> \
+  --prefix=<prefix> \
+  --disable-all-programs \
+  --disable-libuuid \
+  --enable-libblkid \
+  --enable-libmount \
+  --disable-libsmartcols \
+  --disable-nls \
+  --without-python \
+  --without-systemd \
+  --without-udev
+make -j <jobs>
+make install
+```
+
+Install validation checks `libsystemd` plus the dynamic support libraries that
+the selected systemd version needs.
 
 ## Packaging cleanup
 

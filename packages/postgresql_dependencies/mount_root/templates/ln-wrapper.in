@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+real_ln="/bin/ln"
+[[ -x "$real_ln" ]] || real_ln="/usr/bin/ln"
+
+has_relative=0
+has_help=0
+for arg in "$@"; do
+  case "$arg" in
+    --relative)
+      has_relative=1
+      ;;
+    --help)
+      has_help=1
+      ;;
+  esac
+done
+
+if [[ "$has_relative" -eq 0 ]]; then
+  exec "$real_ln" "$@"
+fi
+
+if [[ "$has_help" -eq 1 ]]; then
+  "$real_ln" --help 2>/dev/null || true
+  echo "      --relative              create symbolic links relative to link location"
+  exit 0
+fi
+
+clean_args=()
+operands=()
+symlink=0
+stop_options=0
+skip_next=0
+
+for arg in "$@"; do
+  if [[ "$skip_next" -eq 1 ]]; then
+    clean_args+=("$arg")
+    skip_next=0
+    continue
+  fi
+
+  case "$arg" in
+    --relative)
+      continue
+      ;;
+    --)
+      clean_args+=("$arg")
+      stop_options=1
+      continue
+      ;;
+  esac
+
+  if [[ "$stop_options" -eq 0 && "$arg" == --* ]]; then
+    clean_args+=("$arg")
+    case "$arg" in
+      --symbolic)
+        symlink=1
+        ;;
+      --target-directory|--suffix|--backup)
+        skip_next=1
+        ;;
+    esac
+    continue
+  fi
+
+  if [[ "$stop_options" -eq 0 && "$arg" == -* && "$arg" != "-" ]]; then
+    clean_args+=("$arg")
+    [[ "$arg" == *s* ]] && symlink=1
+    case "$arg" in
+      -t|-S|-b)
+        skip_next=1
+        ;;
+    esac
+    continue
+  fi
+
+  clean_args+=("$arg")
+  operands+=("$arg")
+done
+
+if [[ "$symlink" -eq 1 && "${#operands[@]}" -eq 2 ]]; then
+  target="${operands[0]}"
+  link_name="${operands[1]}"
+  link_dir="$(dirname "$link_name")"
+  relative_target="$(python3 - "$target" "$link_dir" <<'PY'
+import os
+import sys
+
+target, link_dir = sys.argv[1], sys.argv[2]
+if not os.path.isabs(target):
+    print(target)
+else:
+    print(os.path.relpath(target, os.path.abspath(link_dir)))
+PY
+)"
+
+  for idx in "${!clean_args[@]}"; do
+    if [[ "${clean_args[$idx]}" == "$target" ]]; then
+      clean_args[$idx]="$relative_target"
+      break
+    fi
+  done
+fi
+
+exec "$real_ln" "${clean_args[@]}"

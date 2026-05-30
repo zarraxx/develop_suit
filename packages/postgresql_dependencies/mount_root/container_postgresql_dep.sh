@@ -113,11 +113,6 @@ write_meson_cross_file() {
     "MESON_CPU=${MESON_CPU}"
 }
 
-write_centos7_libsystemd_pc() {
-  render_template "${TEMPLATE_DIR}/libsystemd-centos7.pc.in" "${SDK_PREFIX}/lib/pkgconfig/libsystemd.pc" \
-    "SYSTEMD_PC_VERSION=219"
-}
-
 prepare_linux_compat_headers() {
   [[ "$TARGET_KIND" == "linux" ]] || return 0
 
@@ -225,6 +220,13 @@ write_printf_wrapper() {
   local wrapper_path="${BUILD_TOOLS}/printf"
 
   render_template "${TEMPLATE_DIR}/printf-wrapper.in" "$wrapper_path"
+  chmod +x "$wrapper_path"
+}
+
+write_ln_wrapper() {
+  local wrapper_path="${BUILD_TOOLS}/ln"
+
+  render_template "${TEMPLATE_DIR}/ln-wrapper.in" "$wrapper_path"
   chmod +x "$wrapper_path"
 }
 
@@ -658,131 +660,344 @@ build_linux_pam() {
   keep_linux_pam_sdk
 }
 
+build_libcap() {
+  [[ "$TARGET_KIND" == "linux" ]] || return 0
+
+  log "Building dependency: libcap"
+  make -C "${DEP_SOURCE_DIR}/libcap/libcap" \
+    -j "$JOBS" \
+    CC="$CC" \
+    AR="$AR" \
+    RANLIB="$RANLIB" \
+    OBJCOPY="$OBJCOPY" \
+    BUILD_CC="$BUILD_CC" \
+    BUILD_LD="$BUILD_CC" \
+    prefix="$SDK_PREFIX" \
+    lib=lib \
+    PTHREADS=no \
+    USE_GPERF=no \
+    SHARED=yes
+  make -C "${DEP_SOURCE_DIR}/libcap/libcap" \
+    install-shared-cap \
+    CC="$CC" \
+    AR="$AR" \
+    RANLIB="$RANLIB" \
+    OBJCOPY="$OBJCOPY" \
+    BUILD_CC="$BUILD_CC" \
+    BUILD_LD="$BUILD_CC" \
+    prefix="$SDK_PREFIX" \
+    lib=lib \
+    PTHREADS=no \
+    USE_GPERF=no \
+    SHARED=yes
+}
+
+build_util_linux_libmount() {
+  [[ "$TARGET_KIND" == "linux" ]] || return 0
+
+  configure_make_install util-linux-libmount "${DEP_SOURCE_DIR}/util-linux" \
+    --disable-all-programs \
+    --disable-libuuid \
+    --enable-libblkid \
+    --enable-libmount \
+    --disable-libsmartcols \
+    --disable-nls \
+    --without-python \
+    --without-systemd \
+    --without-udev \
+    --without-selinux \
+    --without-audit \
+    --without-ncurses \
+    --without-ncursesw \
+    --without-readline \
+    --without-tinfo
+}
+
 build_libsystemd() {
   [[ "$TARGET_KIND" == "linux" ]] || return 0
 
-  if [[ "$TARGET_TRIPLE" == "x86_64-unknown-linux-gnu" && "$SYSTEMD_X86_64_PROVIDER" == "centos7-rpm" ]]; then
-    install_centos7_libsystemd_sdk
-    return 0
+  if [[ "$SYSTEMD_BUILD_SYSTEM" == "autotools" ]]; then
+    build_libsystemd_autotools
+  else
+    build_libsystemd_meson
+  fi
+}
+
+build_libsystemd_meson() {
+  local systemd_args=()
+
+  if [[ "$SYSTEMD_VERSION" == "241" ]]; then
+    systemd_args=(
+      --auto-features=disabled
+      -Dstatic-libsystemd=false
+      -Dtests=false
+      -Dslow-tests=false
+      -Dinstall-tests=false
+      -Dman=false
+      -Dhtml=false
+      -Dpam=false
+      -Dacl=false
+      -Daudit=false
+      -Dblkid=false
+      -Dkmod=false
+      -Dseccomp=false
+      -Dselinux=false
+      -Dapparmor=false
+      -Dpolkit=false
+      -Dlibcryptsetup=false
+      -Dlibcurl=false
+      -Dopenssl=false
+      -Dzlib=false
+      -Dbzip2=false
+      -Dxz=false
+      -Dlz4=false
+      -Dpcre2=false
+      -Dfirstboot=false
+      -Dutmp=false
+      -Dhibernate=false
+      -Dldconfig=false
+      -Dresolve=false
+      -Defi=false
+      -Dtpm=false
+      -Denvironment-d=false
+      -Dbinfmt=false
+      -Dcoredump=false
+      -Dlogind=false
+      -Dhostnamed=false
+      -Dlocaled=false
+      -Dmachined=false
+      -Dportabled=false
+      -Dnetworkd=false
+      -Dtimedated=false
+      -Dtimesyncd=false
+      -Dremote=false
+      -Dnss-myhostname=false
+      -Dnss-mymachines=false
+      -Dnss-resolve=false
+      -Dnss-systemd=false
+      -Drandomseed=false
+      -Dbacklight=false
+      -Dvconsole=false
+      -Dquotacheck=false
+      -Dsysusers=false
+      -Dtmpfiles=false
+      -Dimportd=false
+      -Dhwdb=false
+      -Drfkill=false
+      -Drpmmacrosdir=no
+      -Drootlibdir=lib
+    )
+  else
+    systemd_args=(
+      --auto-features=disabled
+      -Dvcs-tag=false
+      -Dstatic-libsystemd=false
+      -Dtests=false
+      -Dslow-tests=false
+      -Dfuzz-tests=false
+      -Dinstall-tests=false
+      -Dman=disabled
+      -Dhtml=disabled
+      -Dtranslations=false
+      -Dpam=disabled
+      -Dacl=disabled
+      -Daudit=disabled
+      -Dblkid=disabled
+      -Dfdisk=disabled
+      -Dkmod=disabled
+      -Dseccomp=disabled
+      -Dselinux=disabled
+      -Dapparmor=disabled
+      -Dpolkit=disabled
+      -Dlibcrypt=disabled
+      -Dlibcryptsetup=disabled
+      -Dlibcryptsetup-plugins=disabled
+      -Dlibcurl=disabled
+      -Dopenssl=disabled
+      -Dzlib=disabled
+      -Dbzip2=disabled
+      -Dxz=disabled
+      -Dlz4=disabled
+      -Dzstd=disabled
+      -Dpcre2=disabled
+      -Dlibarchive=disabled
+      -Dlibmount=disabled
+      -Dfirstboot=false
+      -Dinitrd=false
+      -Dutmp=false
+      -Dhibernate=false
+      -Dldconfig=false
+      -Dresolve=false
+      -Defi=false
+      -Dtpm=false
+      -Denvironment-d=false
+      -Dbinfmt=false
+      -Drepart=disabled
+      -Dsysupdate=disabled
+      -Dsysupdated=disabled
+      -Dcoredump=false
+      -Dpstore=false
+      -Doomd=false
+      -Dlogind=false
+      -Dhostnamed=false
+      -Dlocaled=false
+      -Dmachined=false
+      -Dportabled=false
+      -Dsysext=false
+      -Dmountfsd=false
+      -Duserdb=false
+      -Dhomed=disabled
+      -Dnetworkd=false
+      -Dtimedated=false
+      -Dtimesyncd=false
+      -Dremote=disabled
+      -Dcreate-log-dirs=false
+      -Dnsresourced=false
+      -Dnss-myhostname=false
+      -Dnss-mymachines=disabled
+      -Dnss-resolve=disabled
+      -Dnss-systemd=false
+      -Drandomseed=false
+      -Dbacklight=false
+      -Dvconsole=false
+      -Dvmspawn=disabled
+      -Dquotacheck=false
+      -Dsysusers=false
+      -Dtmpfiles=false
+      -Dimportd=disabled
+      -Dhwdb=false
+      -Drfkill=false
+      -Dstoragetm=false
+      -Dxdg-autostart=false
+      -Dnspawn=disabled
+      -Dinstall-sysconfdir=false
+      -Drpmmacrosdir=no
+      -Dkernel-install=false
+      -Dukify=disabled
+      -Danalyze=false
+      -Dmode=release
+    )
   fi
 
-  meson_install systemd "${DEP_SOURCE_DIR}/systemd" \
-    --auto-features=disabled \
-    -Dvcs-tag=false \
-    -Dstatic-libsystemd=false \
-    -Dtests=false \
-    -Dslow-tests=false \
-    -Dfuzz-tests=false \
-    -Dinstall-tests=false \
-    -Dman=disabled \
-    -Dhtml=disabled \
-    -Dtranslations=false \
-    -Dpam=disabled \
-    -Dacl=disabled \
-    -Daudit=disabled \
-    -Dblkid=disabled \
-    -Dfdisk=disabled \
-    -Dkmod=disabled \
-    -Dseccomp=disabled \
-    -Dselinux=disabled \
-    -Dapparmor=disabled \
-    -Dpolkit=disabled \
-    -Dlibcrypt=disabled \
-    -Dlibcryptsetup=disabled \
-    -Dlibcryptsetup-plugins=disabled \
-    -Dlibcurl=disabled \
-    -Dopenssl=disabled \
-    -Dzlib=disabled \
-    -Dbzip2=disabled \
-    -Dxz=disabled \
-    -Dlz4=disabled \
-    -Dzstd=disabled \
-    -Dpcre2=disabled \
-    -Dlibarchive=disabled \
-    -Dlibmount=disabled \
-    -Dfirstboot=false \
-    -Dinitrd=false \
-    -Dutmp=false \
-    -Dhibernate=false \
-    -Dldconfig=false \
-    -Dresolve=false \
-    -Defi=false \
-    -Dtpm=false \
-    -Denvironment-d=false \
-    -Dbinfmt=false \
-    -Drepart=disabled \
-    -Dsysupdate=disabled \
-    -Dsysupdated=disabled \
-    -Dcoredump=false \
-    -Dpstore=false \
-    -Doomd=false \
-    -Dlogind=false \
-    -Dhostnamed=false \
-    -Dlocaled=false \
-    -Dmachined=false \
-    -Dportabled=false \
-    -Dsysext=false \
-    -Dmountfsd=false \
-    -Duserdb=false \
-    -Dhomed=disabled \
-    -Dnetworkd=false \
-    -Dtimedated=false \
-    -Dtimesyncd=false \
-    -Dremote=disabled \
-    -Dcreate-log-dirs=false \
-    -Dnsresourced=false \
-    -Dnss-myhostname=false \
-    -Dnss-mymachines=disabled \
-    -Dnss-resolve=disabled \
-    -Dnss-systemd=false \
-    -Drandomseed=false \
-    -Dbacklight=false \
-    -Dvconsole=false \
-    -Dvmspawn=disabled \
-    -Dquotacheck=false \
-    -Dsysusers=false \
-    -Dstoragetm=false \
-    -Dtmpfiles=false \
-    -Dimportd=disabled \
-    -Dhwdb=false \
-    -Drfkill=false \
-    -Dxdg-autostart=false \
-    -Dnspawn=disabled \
-    -Dinstall-sysconfdir=false \
-    -Drpmmacrosdir=no \
-    -Dkernel-install=false \
-    -Dukify=disabled \
-    -Danalyze=false \
-    -Dmode=release
+  meson_install systemd "${DEP_SOURCE_DIR}/systemd" "${systemd_args[@]}"
 
   keep_libsystemd_sdk
 }
 
-install_rpm_payload() {
-  local rpm_name="$1"
-  local dest_dir="$2"
+build_libsystemd_autotools() {
+  local package_build_dir="${DEP_BUILD_DIR}/systemd"
 
-  mkdir -p "$dest_dir"
+  rm -rf "$package_build_dir"
+  mkdir -p "$package_build_dir"
+
+  log "Configuring dependency: systemd ${SYSTEMD_VERSION}"
   (
-    cd "$dest_dir"
-    rpm2cpio "${CACHE_DIR}/${rpm_name}" | cpio -idm --quiet
+    cd "$package_build_dir"
+    env \
+      CC="$CC" \
+      LD="$LD" \
+      AR="$AR" \
+      RANLIB="$RANLIB" \
+      STRIP="$STRIP" \
+      PKG_CONFIG="${PKG_CONFIG:-pkg-config}" \
+      PKG_CONFIG_PATH="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig" \
+      PKG_CONFIG_LIBDIR="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig" \
+      PKG_CONFIG_SYSROOT_DIR= \
+      CPPFLAGS="${COMMON_CPPFLAGS}" \
+      CFLAGS="${COMMON_CFLAGS}" \
+      LDFLAGS="${COMMON_LDFLAGS}" \
+      ac_cv_func_malloc_0_nonnull=yes \
+      ac_cv_func_realloc_0_nonnull=yes \
+      "${DEP_SOURCE_DIR}/systemd/configure" \
+        --build="$CONFIGURE_BUILD_TRIPLE" \
+        --host="$CONFIGURE_HOST_TRIPLE" \
+        --prefix="$SDK_PREFIX" \
+        --libdir="$SDK_PREFIX/lib" \
+        --with-rootprefix="$SDK_PREFIX" \
+        --with-rootlibdir="$SDK_PREFIX/lib" \
+        --with-sysvinit-path= \
+        --with-sysvrcnd-path= \
+        --without-python \
+        --disable-python-devel \
+        --disable-nls \
+        --disable-gtk-doc \
+        --disable-manpages \
+        --disable-tests \
+        --disable-dbus \
+        --disable-utmp \
+        --disable-kmod \
+        --disable-xkbcommon \
+        --disable-blkid \
+        --disable-seccomp \
+        --disable-ima \
+        --disable-chkconfig \
+        --disable-selinux \
+        --disable-apparmor \
+        --disable-xz \
+        --disable-zlib \
+        --disable-bzip2 \
+        --disable-lz4 \
+        --disable-pam \
+        --disable-acl \
+        --disable-smack \
+        --disable-gcrypt \
+        --disable-audit \
+        --disable-elfutils \
+        --disable-libcryptsetup \
+        --disable-qrencode \
+        --disable-microhttpd \
+        --disable-gnutls \
+        --disable-libcurl \
+        --disable-libidn \
+        --disable-libiptc \
+        --disable-binfmt \
+        --disable-vconsole \
+        --disable-bootchart \
+        --disable-quotacheck \
+        --disable-tmpfiles \
+        --disable-sysusers \
+        --disable-firstboot \
+        --disable-randomseed \
+        --disable-backlight \
+        --disable-rfkill \
+        --disable-logind \
+        --disable-machined \
+        --disable-importd \
+        --disable-hostnamed \
+        --disable-timedated \
+        --disable-timesyncd \
+        --disable-localed \
+        --disable-coredump \
+        --disable-polkit \
+        --disable-resolved \
+        --disable-networkd \
+        --disable-efi \
+        --disable-terminal \
+        --disable-myhostname \
+        --disable-gudev \
+        --disable-hibernate \
+        --disable-ldconfig
+
+    log "Building dependency: systemd ${SYSTEMD_VERSION}"
+    if [[ "$SYSTEMD_VERSION" == "219" ]]; then
+      make -j "$JOBS" \
+        src/shared/errno-from-name.h \
+        src/shared/errno-to-name.h \
+        src/shared/af-from-name.h \
+        src/shared/af-to-name.h \
+        src/shared/arphrd-from-name.h \
+        src/shared/arphrd-to-name.h \
+        src/shared/cap-from-name.h \
+        src/shared/cap-to-name.h \
+        src/libsystemd/libsystemd.sym
+    fi
+    make -j "$JOBS" libsystemd.la src/libsystemd/libsystemd.pc
   )
-}
-
-install_centos7_libsystemd_sdk() {
-  local rpm_root="${DEP_BUILD_DIR}/systemd-centos7-rpm"
-  local rpm_libdir="${rpm_root}/usr/lib64"
-
-  rm -rf "$rpm_root"
-  install_rpm_payload "$SYSTEMD_CENTOS7_LIBS_RPM_NAME" "$rpm_root"
-  install_rpm_payload "$SYSTEMD_CENTOS7_DEVEL_RPM_NAME" "$rpm_root"
 
   mkdir -p "${SDK_PREFIX}/include" "${SDK_PREFIX}/lib/pkgconfig"
-  cp -a "${rpm_root}/usr/include/systemd" "${SDK_PREFIX}/include/"
-  cp -a "${rpm_libdir}/libsystemd.so" "${SDK_PREFIX}/lib/"
-  cp -a "${rpm_libdir}/libsystemd.so.0" "${SDK_PREFIX}/lib/"
-  cp -a "${rpm_libdir}/libsystemd.so.0.6.0" "${SDK_PREFIX}/lib/"
-  write_centos7_libsystemd_pc
+  cp -a "${package_build_dir}/.libs/libsystemd.so"* "${SDK_PREFIX}/lib/"
+  cp -a "${DEP_SOURCE_DIR}/systemd/src/systemd" "${SDK_PREFIX}/include/"
+  cp -a "${package_build_dir}/src/libsystemd/libsystemd.pc" "${SDK_PREFIX}/lib/pkgconfig/"
 
   keep_libsystemd_sdk
 }
@@ -856,12 +1071,9 @@ download_linux_sources() {
   download_archive "$LIBXCRYPT_ARCHIVE_URL" "$LIBXCRYPT_ARCHIVE_NAME"
   download_archive "$LIBURING_ARCHIVE_URL" "$LIBURING_ARCHIVE_NAME"
   download_archive "$LINUX_PAM_ARCHIVE_URL" "$LINUX_PAM_ARCHIVE_NAME"
-  if [[ "$TARGET_TRIPLE" == "x86_64-unknown-linux-gnu" && "$SYSTEMD_X86_64_PROVIDER" == "centos7-rpm" ]]; then
-    download_archive "$SYSTEMD_CENTOS7_LIBS_RPM_URL" "$SYSTEMD_CENTOS7_LIBS_RPM_NAME"
-    download_archive "$SYSTEMD_CENTOS7_DEVEL_RPM_URL" "$SYSTEMD_CENTOS7_DEVEL_RPM_NAME"
-  else
-    download_archive "$SYSTEMD_ARCHIVE_URL" "$SYSTEMD_ARCHIVE_NAME"
-  fi
+  download_archive "$LIBCAP_ARCHIVE_URL" "$LIBCAP_ARCHIVE_NAME"
+  download_archive "$UTIL_LINUX_ARCHIVE_URL" "$UTIL_LINUX_ARCHIVE_NAME"
+  download_archive "$SYSTEMD_ARCHIVE_URL" "$SYSTEMD_ARCHIVE_NAME"
   download_archive "$GPERF_ARCHIVE_URL" "$GPERF_ARCHIVE_NAME"
   download_archive "$JINJA2_ARCHIVE_URL" "$JINJA2_ARCHIVE_NAME"
   download_archive "$MARKUPSAFE_ARCHIVE_URL" "$MARKUPSAFE_ARCHIVE_NAME"
@@ -888,9 +1100,19 @@ extract_linux_sources() {
   extract_archive_source "${DEP_SOURCE_DIR}/libxcrypt" "$LIBXCRYPT_ARCHIVE_NAME" "configure"
   extract_archive_source "${DEP_SOURCE_DIR}/liburing" "$LIBURING_ARCHIVE_NAME" "configure"
   extract_archive_source "${DEP_SOURCE_DIR}/linux-pam" "$LINUX_PAM_ARCHIVE_NAME" "meson.build"
-  if [[ "$TARGET_TRIPLE" != "x86_64-unknown-linux-gnu" || "$SYSTEMD_X86_64_PROVIDER" != "centos7-rpm" ]]; then
+  extract_archive_source "${DEP_SOURCE_DIR}/libcap" "$LIBCAP_ARCHIVE_NAME" "libcap/Makefile"
+  extract_archive_source "${DEP_SOURCE_DIR}/util-linux" "$UTIL_LINUX_ARCHIVE_NAME" "configure"
+  if [[ "$SYSTEMD_BUILD_SYSTEM" == "autotools" ]]; then
+    extract_archive_source "${DEP_SOURCE_DIR}/systemd" "$SYSTEMD_ARCHIVE_NAME" "configure"
+    if [[ "$SYSTEMD_VERSION" == "219" ]]; then
+      apply_source_patch_once "${DEP_SOURCE_DIR}/systemd" "${PATCH_DIR}/systemd-219-clang-cmsg-space.patch"
+      apply_source_patch_once "${DEP_SOURCE_DIR}/systemd" "${PATCH_DIR}/systemd-219-gperf-size-t.patch"
+    fi
+  else
     extract_archive_source "${DEP_SOURCE_DIR}/systemd" "$SYSTEMD_ARCHIVE_NAME" "meson.build"
-    apply_source_patch_once "${DEP_SOURCE_DIR}/systemd" "${PATCH_DIR}/systemd-old-linux-sdk-headers.patch"
+    if [[ "$SYSTEMD_VERSION" != "241" ]]; then
+      apply_source_patch_once "${DEP_SOURCE_DIR}/systemd" "${PATCH_DIR}/systemd-old-linux-sdk-headers.patch"
+    fi
   fi
   extract_archive_source "${DEP_SOURCE_DIR}/gperf" "$GPERF_ARCHIVE_NAME" "configure"
   extract_archive_source "${DEP_SOURCE_DIR}/jinja2" "$JINJA2_ARCHIVE_NAME" "src/jinja2/__init__.py"
@@ -907,6 +1129,8 @@ build_linux_dependencies() {
   build_cyrus_sasl
   build_openldap
   build_linux_pam
+  build_libcap
+  build_util_linux_libmount
   build_native_gperf
   build_python_jinja2
   build_libsystemd
@@ -956,6 +1180,9 @@ validate_dynamic_libraries() {
     require_path "${SDK_PREFIX}/lib/libevent.so"
     require_path "${SDK_PREFIX}/lib/liburing.so"
     require_path "${SDK_PREFIX}/lib/libpam.so"
+    require_path "${SDK_PREFIX}/lib/libcap.so"
+    require_path "${SDK_PREFIX}/lib/libblkid.so"
+    require_path "${SDK_PREFIX}/lib/libmount.so"
     require_path "${SDK_PREFIX}/lib/libsystemd.so"
   fi
 }
@@ -979,9 +1206,25 @@ LIBXCRYPT_VERSION="${LIBXCRYPT_VERSION:-4.5.2}"
 LIBEVENT_VERSION="${LIBEVENT_VERSION:-2.1.12-stable}"
 LIBURING_VERSION="${LIBURING_VERSION:-2.14}"
 LINUX_PAM_VERSION="${LINUX_PAM_VERSION:-1.7.2}"
-SYSTEMD_VERSION="${SYSTEMD_VERSION:-260.1}"
-SYSTEMD_X86_64_PROVIDER="${SYSTEMD_X86_64_PROVIDER:-centos7-rpm}"
-SYSTEMD_CENTOS7_VERSION="${SYSTEMD_CENTOS7_VERSION:-219-78.el7_9.9}"
+LIBCAP_VERSION="${LIBCAP_VERSION:-2.76}"
+UTIL_LINUX_VERSION="${UTIL_LINUX_VERSION:-2.42}"
+case "${TARGET_TRIPLE:-}" in
+  x86_64-unknown-linux-gnu)
+    SYSTEMD_VERSION="${SYSTEMD_VERSION:-219}"
+    SYSTEMD_BUILD_SYSTEM="${SYSTEMD_BUILD_SYSTEM:-autotools}"
+    SYSTEMD_PACKAGE_VERSION="${SYSTEMD_PACKAGE_VERSION:-CentOS 7 systemd 219}"
+    ;;
+  aarch64-unknown-linux-gnu)
+    SYSTEMD_VERSION="${SYSTEMD_VERSION:-241}"
+    SYSTEMD_BUILD_SYSTEM="${SYSTEMD_BUILD_SYSTEM:-meson}"
+    SYSTEMD_PACKAGE_VERSION="${SYSTEMD_PACKAGE_VERSION:-Debian 10 systemd 241}"
+    ;;
+  *)
+    SYSTEMD_VERSION="${SYSTEMD_VERSION:-260.1}"
+    SYSTEMD_BUILD_SYSTEM="${SYSTEMD_BUILD_SYSTEM:-meson}"
+    SYSTEMD_PACKAGE_VERSION="${SYSTEMD_PACKAGE_VERSION:-systemd ${SYSTEMD_VERSION}}"
+    ;;
+esac
 GPERF_VERSION="${GPERF_VERSION:-3.3}"
 JINJA2_VERSION="${JINJA2_VERSION:-3.1.6}"
 MARKUPSAFE_VERSION="${MARKUPSAFE_VERSION:-3.0.3}"
@@ -995,9 +1238,13 @@ LIBXCRYPT_ARCHIVE_NAME="libxcrypt-${LIBXCRYPT_VERSION}.tar.xz"
 LIBEVENT_ARCHIVE_NAME="libevent-${LIBEVENT_VERSION}.tar.gz"
 LIBURING_ARCHIVE_NAME="liburing-${LIBURING_VERSION}.tar.gz"
 LINUX_PAM_ARCHIVE_NAME="Linux-PAM-${LINUX_PAM_VERSION}.tar.xz"
-SYSTEMD_ARCHIVE_NAME="systemd-${SYSTEMD_VERSION}.tar.gz"
-SYSTEMD_CENTOS7_LIBS_RPM_NAME="systemd-libs-${SYSTEMD_CENTOS7_VERSION}.x86_64.rpm"
-SYSTEMD_CENTOS7_DEVEL_RPM_NAME="systemd-devel-${SYSTEMD_CENTOS7_VERSION}.x86_64.rpm"
+LIBCAP_ARCHIVE_NAME="libcap-${LIBCAP_VERSION}.tar.xz"
+UTIL_LINUX_ARCHIVE_NAME="util-linux-${UTIL_LINUX_VERSION}.tar.xz"
+if [[ "$SYSTEMD_BUILD_SYSTEM" == "autotools" ]]; then
+  SYSTEMD_ARCHIVE_NAME="systemd-${SYSTEMD_VERSION}.tar.xz"
+else
+  SYSTEMD_ARCHIVE_NAME="systemd-${SYSTEMD_VERSION}.tar.gz"
+fi
 GPERF_ARCHIVE_NAME="gperf-${GPERF_VERSION}.tar.gz"
 JINJA2_ARCHIVE_NAME="jinja2-${JINJA2_VERSION}.tar.gz"
 MARKUPSAFE_ARCHIVE_NAME="markupsafe-${MARKUPSAFE_VERSION}.tar.gz"
@@ -1011,16 +1258,16 @@ LIBXCRYPT_ARCHIVE_URL="${LIBXCRYPT_ARCHIVE_URL:-https://github.com/besser82/libx
 LIBEVENT_ARCHIVE_URL="${LIBEVENT_ARCHIVE_URL:-https://github.com/libevent/libevent/releases/download/release-${LIBEVENT_VERSION}/${LIBEVENT_ARCHIVE_NAME}}"
 LIBURING_ARCHIVE_URL="${LIBURING_ARCHIVE_URL:-https://github.com/axboe/liburing/archive/refs/tags/${LIBURING_ARCHIVE_NAME}}"
 LINUX_PAM_ARCHIVE_URL="${LINUX_PAM_ARCHIVE_URL:-https://github.com/linux-pam/linux-pam/releases/download/v${LINUX_PAM_VERSION}/${LINUX_PAM_ARCHIVE_NAME}}"
-SYSTEMD_ARCHIVE_URL="${SYSTEMD_ARCHIVE_URL:-https://github.com/systemd/systemd/archive/refs/tags/v${SYSTEMD_VERSION}.tar.gz}"
-SYSTEMD_CENTOS7_LIBS_RPM_URL="${SYSTEMD_CENTOS7_LIBS_RPM_URL:-https://vault.centos.org/7.9.2009/updates/x86_64/Packages/${SYSTEMD_CENTOS7_LIBS_RPM_NAME}}"
-SYSTEMD_CENTOS7_DEVEL_RPM_URL="${SYSTEMD_CENTOS7_DEVEL_RPM_URL:-https://vault.centos.org/7.9.2009/updates/x86_64/Packages/${SYSTEMD_CENTOS7_DEVEL_RPM_NAME}}"
+LIBCAP_ARCHIVE_URL="${LIBCAP_ARCHIVE_URL:-https://www.kernel.org/pub/linux/libs/security/linux-privs/libcap2/${LIBCAP_ARCHIVE_NAME}}"
+UTIL_LINUX_ARCHIVE_URL="${UTIL_LINUX_ARCHIVE_URL:-https://www.kernel.org/pub/linux/utils/util-linux/v${UTIL_LINUX_VERSION}/${UTIL_LINUX_ARCHIVE_NAME}}"
+if [[ "$SYSTEMD_BUILD_SYSTEM" == "autotools" ]]; then
+  SYSTEMD_ARCHIVE_URL="${SYSTEMD_ARCHIVE_URL:-https://www.freedesktop.org/software/systemd/${SYSTEMD_ARCHIVE_NAME}}"
+else
+  SYSTEMD_ARCHIVE_URL="${SYSTEMD_ARCHIVE_URL:-https://github.com/systemd/systemd/archive/refs/tags/v${SYSTEMD_VERSION}.tar.gz}"
+fi
 GPERF_ARCHIVE_URL="${GPERF_ARCHIVE_URL:-https://ftp.gnu.org/pub/gnu/gperf/${GPERF_ARCHIVE_NAME}}"
 JINJA2_ARCHIVE_URL="${JINJA2_ARCHIVE_URL:-https://files.pythonhosted.org/packages/source/j/jinja2/${JINJA2_ARCHIVE_NAME}}"
 MARKUPSAFE_ARCHIVE_URL="${MARKUPSAFE_ARCHIVE_URL:-https://files.pythonhosted.org/packages/source/m/markupsafe/${MARKUPSAFE_ARCHIVE_NAME}}"
-SYSTEMD_PACKAGE_VERSION="$SYSTEMD_VERSION"
-if [[ "${TARGET_TRIPLE:-}" == "x86_64-unknown-linux-gnu" && "${SYSTEMD_X86_64_PROVIDER:-centos7-rpm}" == "centos7-rpm" ]]; then
-  SYSTEMD_PACKAGE_VERSION="CentOS 7 ${SYSTEMD_CENTOS7_VERSION} libsystemd 219"
-fi
 
 [[ -n "$ARCH" ]] || die "ARCH is required"
 [[ -n "$TARGET_TRIPLE" ]] || die "TARGET_TRIPLE is required"
@@ -1034,10 +1281,6 @@ require_command cmake
 require_command ninja
 require_command patch
 require_command pkg-config
-if [[ "${TARGET_TRIPLE:-}" == "x86_64-unknown-linux-gnu" && "${SYSTEMD_X86_64_PROVIDER:-centos7-rpm}" == "centos7-rpm" ]]; then
-  require_command rpm2cpio
-  require_command cpio
-fi
 
 case "$TARGET_KIND" in
   linux)
@@ -1113,6 +1356,7 @@ PATCH_DIR="${PATCH_DIR:-/work/mount_root/patch}"
 mkdir -p "$DEP_SOURCE_DIR" "$DEP_BUILD_DIR" "$BUILD_TOOLS"
 write_realpath_wrapper
 write_printf_wrapper
+write_ln_wrapper
 prepare_linux_compat_headers
 
 if [[ ! -x "$CC" ]]; then
