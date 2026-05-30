@@ -98,12 +98,19 @@ Linux configure, following Debian-style autotools packaging:
 ./configure --build=<build> --host=<host> --prefix=<prefix> \
   --enable-shared --disable-static --disable-dependency-tracking \
   --with-openssl=<prefix> --with-zlib=<prefix> \
+  --with-ca-path=/etc/ssl/certs:/etc/pki/tls/certs \
   --disable-ldap --disable-ldaps --disable-docs --disable-manual \
   --without-brotli --without-libidn2 --without-libpsl \
   --without-libssh2 \
   --without-nghttp2 --without-nghttp3 --without-ngtcp2 \
   --without-zstd
 ```
+
+The Linux `bin/curl` executable is installed behind a launcher script. The
+launcher leaves user-provided `CURL_CA_BUNDLE`, `SSL_CERT_FILE`, and
+`SSL_CERT_DIR` alone; otherwise it probes common Debian/Ubuntu and
+Fedora/CentOS certificate bundle files and directories under `/etc/ssl` and
+`/etc/pki`.
 
 MinGW configure uses curl's CMake build, following the MSYS2 package direction:
 

@@ -233,6 +233,8 @@ copy_dependency_dlls_to_bin() {
 }
 
 build_curl() {
+  local linux_ca_path="/etc/ssl/certs:/etc/pki/tls/certs"
+
   if [[ "$TARGET_KIND" == "mingw" ]]; then
     cmake_install curl "${DEP_SOURCE_DIR}/curl" \
       "-DOPENSSL_ROOT_DIR=${SDK_PREFIX}" \
@@ -269,6 +271,7 @@ build_curl() {
       --disable-dependency-tracking \
       "--with-openssl=${SDK_PREFIX}" \
       "--with-zlib=${SDK_PREFIX}" \
+      "--with-ca-path=${linux_ca_path}" \
       --disable-ldap \
       --disable-ldaps \
       --disable-docs \
@@ -281,7 +284,22 @@ build_curl() {
       --without-nghttp3 \
       --without-ngtcp2 \
       --without-zstd
+    install_linux_curl_launcher
   fi
+}
+
+install_linux_curl_launcher() {
+  local curl_bin="${SDK_PREFIX}/bin/curl"
+  local curl_real="${SDK_PREFIX}/bin/curl.real"
+
+  [[ "$TARGET_KIND" == "linux" ]] || return 0
+  [[ -x "$curl_bin" ]] || die "missing curl executable: ${curl_bin}"
+
+  rm -f "$curl_real"
+  mv "$curl_bin" "$curl_real"
+  render_template "${TEMPLATE_DIR}/curl-launcher.in" "$curl_bin" \
+    "CURL_REAL_NAME=curl.real"
+  chmod 755 "$curl_bin" "$curl_real"
 }
 
 build_libxslt() {
@@ -421,6 +439,8 @@ validate_dynamic_libraries() {
     require_glob "${SDK_PREFIX}/lib/libicuin*.dll.a"
     require_glob "${SDK_PREFIX}/lib/libicuuc*.dll.a"
   else
+    require_path "${SDK_PREFIX}/bin/curl"
+    require_path "${SDK_PREFIX}/bin/curl.real"
     require_path "${SDK_PREFIX}/lib/libcurl.so"
     require_path "${SDK_PREFIX}/lib/libuuid.so"
     require_path "${SDK_PREFIX}/lib/libexpat.so"

@@ -1,0 +1,34 @@
+#!/bin/sh
+
+if [ -z "${CURL_CA_BUNDLE+x}" ] && [ -z "${SSL_CERT_FILE+x}" ]; then
+  for ca_file in \
+      /etc/ssl/certs/ca-certificates.crt \
+      /etc/pki/tls/certs/ca-bundle.crt \
+      /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+      /etc/ssl/cert.pem; do
+    if [ -r "$ca_file" ]; then
+      export CURL_CA_BUNDLE="$ca_file"
+      break
+    fi
+  done
+fi
+
+if [ -z "${SSL_CERT_DIR+x}" ]; then
+  ca_dirs=
+  for ca_dir in \
+      /etc/ssl/certs \
+      /etc/pki/tls/certs; do
+    if [ -d "$ca_dir" ]; then
+      if [ -n "$ca_dirs" ]; then
+        ca_dirs="${ca_dirs}:$ca_dir"
+      else
+        ca_dirs="$ca_dir"
+      fi
+    fi
+  done
+  if [ -n "$ca_dirs" ]; then
+    export SSL_CERT_DIR="$ca_dirs"
+  fi
+fi
+
+exec "$(dirname "$0")/@CURL_REAL_NAME@" "$@"
