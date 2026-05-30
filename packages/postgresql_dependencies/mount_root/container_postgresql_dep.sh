@@ -1117,7 +1117,9 @@ extract_linux_sources() {
     fi
   else
     extract_archive_source "${DEP_SOURCE_DIR}/systemd" "$SYSTEMD_ARCHIVE_NAME" "meson.build"
-    if [[ "$SYSTEMD_VERSION" != "241" ]]; then
+    if [[ "$SYSTEMD_VERSION" == "241" ]]; then
+      apply_source_patch_once "${DEP_SOURCE_DIR}/systemd" "${PATCH_DIR}/systemd-241-libintl-link.patch"
+    else
       apply_source_patch_once "${DEP_SOURCE_DIR}/systemd" "${PATCH_DIR}/systemd-old-linux-sdk-headers.patch"
     fi
   fi

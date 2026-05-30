@@ -1,0 +1,32 @@
+--- a/meson.build
++++ b/meson.build
+@@ -881,6 +881,7 @@
+ libm = cc.find_library('m')
+ libdl = cc.find_library('dl')
+ libcrypt = cc.find_library('crypt')
++libintl = cc.find_library('intl', required : false)
+ 
+ libcap = dependency('libcap', required : false)
+ if not libcap.found()
+--- a/src/basic/meson.build
++++ b/src/basic/meson.build
+@@ -296,6 +296,7 @@
+                         threads,
+                         libcap,
+                         libselinux,
++                        libintl,
+                         libm],
+         c_args : ['-fvisibility=default'],
+         install : false)
+--- a/meson.build
++++ b/meson.build
+@@ -1482,7 +1482,8 @@
+         version : libsystemd_version,
+         include_directories : includes,
+         link_args : ['-shared',
+-                     '-Wl,--version-script=' + libsystemd_sym_path],
++                     '-Wl,--version-script=' + libsystemd_sym_path,
++                     '-Wl,-z,nostart-stop-gc'],
+         link_with : [libbasic,
+                      libbasic_gcrypt],
+         link_whole : [libsystemd_static,

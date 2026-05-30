@@ -6,7 +6,6 @@ strip = '@STRIP@'
 pkg-config = 'pkg-config'
 
 [properties]
-sys_root = '@SYSROOT@'
 pkg_config_libdir = '@SDK_PREFIX@/lib/pkgconfig:@SDK_PREFIX@/share/pkgconfig'
 pkg_config_path = '@SDK_PREFIX@/lib/pkgconfig:@SDK_PREFIX@/share/pkgconfig'
 needs_exe_wrapper = true
