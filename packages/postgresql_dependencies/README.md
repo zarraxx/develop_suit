@@ -27,16 +27,17 @@ Linux 目标尽量提供完整 PostgreSQL 可选依赖：
 降到 CentOS 7.9 的 `systemd-libs/systemd-devel 219-78.el7_9.9` RPM SDK
 文件。其它 Linux 架构继续从 systemd 源码构建 `libsystemd` SDK。
 
-MinGW64 目标参考 MSYS2 的取舍，只构建适合 Windows GNU 环境的依赖子集：
+MinGW64 目标只构建适合 Windows GNU 环境且能以动态库形式稳定交叉构建的依赖子集：
+
+- json-c
+- libevent
+
+以下依赖是 Linux 机制、Linux 发行版集成能力，或当前上游 autotools 路线不能在
+MinGW64 下稳定输出动态库，MinGW64 不构建：
 
 - krb5
 - cyrus-sasl
 - OpenLDAP
-- json-c
-- libevent
-
-以下依赖是 Linux 机制或 Linux 发行版集成能力，MinGW64 不构建：
-
 - keyutils
 - libxcrypt
 - liburing
@@ -158,16 +159,16 @@ MinGW64 侧参考 MSYS2 的 Windows GNU 包构建取舍，目标是支持：
   --with-libxslt \
   --with-icu \
   --with-zlib \
-  --with-zstd \
-  --with-gssapi \
-  --with-ldap
+  --with-zstd
 ```
 
-Windows GNU 侧不启用 PAM、systemd、liburing、keyutils。
+Windows GNU 侧不启用 PAM、systemd、liburing、keyutils、GSSAPI、OpenLDAP。
 
 ## 上游组件
 
 ### krb5 1.22.2
+
+Linux only.
 
 Source:
 
@@ -180,17 +181,6 @@ Linux configure:
 ```sh
 cd src
 ./configure --build=<build> --host=<host> --prefix=<prefix> \
-  --enable-shared --disable-static \
-  --without-system-verto \
-  --without-tcl
-```
-
-MinGW64 configure follows MSYS2 direction and uses the Windows GNU host while
-keeping shared libraries enabled:
-
-```sh
-cd src
-./configure --build=<build> --host=<mingw-host> --prefix=<prefix> \
   --enable-shared --disable-static \
   --without-system-verto \
   --without-tcl
@@ -227,6 +217,8 @@ shipped.
 
 ### cyrus-sasl 2.1.28
 
+Linux only.
+
 Source:
 
 ```text
@@ -249,23 +241,6 @@ Linux configure:
   --with-krb5=<prefix>
 ```
 
-MinGW64 configure follows MSYS2-style shared build and disables plugins that
-depend on unavailable Unix-only mechanisms:
-
-```sh
-./configure --build=<build> --host=<mingw-host> --prefix=<prefix> \
-  --enable-shared --disable-static \
-  --disable-sample \
-  --disable-sql \
-  --disable-otp \
-  --disable-srp \
-  --disable-srp-setpass \
-  --disable-krb4 \
-  --with-openssl=<prefix> \
-  --with-gss_impl=mit \
-  --with-krb5=<prefix>
-```
-
 Build/install:
 
 ```sh
@@ -274,6 +249,8 @@ make install
 ```
 
 ### OpenLDAP 2.6.13
+
+Linux only.
 
 Source:
 
@@ -285,19 +262,6 @@ Linux configure:
 
 ```sh
 ./configure --build=<build> --host=<host> --prefix=<prefix> \
-  --enable-shared --disable-static \
-  --disable-slapd \
-  --disable-backends \
-  --disable-overlays \
-  --with-tls=openssl \
-  --with-cyrus-sasl \
-  --with-threads
-```
-
-MinGW64 configure follows MSYS2's client-library focus:
-
-```sh
-./configure --build=<build> --host=<mingw-host> --prefix=<prefix> \
   --enable-shared --disable-static \
   --disable-slapd \
   --disable-backends \
@@ -335,7 +299,9 @@ cmake -S <source> -B <build> -G Ninja \
   -DDISABLE_WERROR=ON
 ```
 
-MinGW additionally uses `-DCMAKE_DLL_NAME_WITH_SOVERSION=ON`.
+MinGW additionally uses `-DCMAKE_DLL_NAME_WITH_SOVERSION=ON` and
+`-DDISABLE_BSYMBOLIC=ON`; a local patch prevents json-c from adding ELF-only
+`-Bsymbolic-functions` and `--version-script` linker flags for Windows targets.
 
 Build/install:
 
@@ -393,7 +359,9 @@ cmake -S <source> -B <build> -G Ninja \
   -DEVENT__DISABLE_THREAD_SUPPORT=OFF
 ```
 
-MinGW additionally uses `-DCMAKE_DLL_NAME_WITH_SOVERSION=ON`.
+MinGW additionally uses `-DCMAKE_DLL_NAME_WITH_SOVERSION=ON` and
+`-DEVENT__DISABLE_CLOCK_GETTIME=ON`; a local patch raises libevent's Windows
+API baseline to `_WIN32_WINNT=0x0600` for current MinGW headers.
 
 Build/install:
 

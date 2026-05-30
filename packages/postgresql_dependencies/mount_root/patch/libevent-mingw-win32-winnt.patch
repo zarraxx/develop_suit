@@ -1,0 +1,13 @@
+diff --git a/evutil.c b/evutil.c
+index e65f82a..c47130a 100644
+--- a/evutil.c
++++ b/evutil.c
+@@ -39,7 +39,7 @@
+ #include <process.h>
+ #undef _WIN32_WINNT
+ /* For structs needed by GetAdaptersAddresses */
+-#define _WIN32_WINNT 0x0501
++#define _WIN32_WINNT 0x0600
+ #include <iphlpapi.h>
+ #include <netioapi.h>
+ #endif

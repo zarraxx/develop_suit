@@ -4,10 +4,10 @@ Target triple: @TARGET_TRIPLE@
 Target kind: @TARGET_KIND@
 
 Included dependency sources:
-  krb5 @KRB5_VERSION@
+  krb5 @KRB5_VERSION@ (Linux only)
   keyutils @KEYUTILS_VERSION@ (Linux only)
-  cyrus-sasl @CYRUS_SASL_VERSION@
-  OpenLDAP @OPENLDAP_VERSION@
+  cyrus-sasl @CYRUS_SASL_VERSION@ (Linux only)
+  OpenLDAP @OPENLDAP_VERSION@ (Linux only)
   json-c @JSON_C_VERSION@
   libxcrypt @LIBXCRYPT_VERSION@ (Linux only)
   libevent @LIBEVENT_VERSION@

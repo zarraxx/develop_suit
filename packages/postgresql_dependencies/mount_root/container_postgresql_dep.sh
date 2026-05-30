@@ -221,6 +221,13 @@ write_realpath_wrapper() {
   chmod +x "$wrapper_path"
 }
 
+write_printf_wrapper() {
+  local wrapper_path="${BUILD_TOOLS}/printf"
+
+  render_template "${TEMPLATE_DIR}/printf-wrapper.in" "$wrapper_path"
+  chmod +x "$wrapper_path"
+}
+
 install_build_python_package() {
   local source_dir="$1"
   local package_dir="$2"
@@ -257,6 +264,11 @@ configure_make_install() {
   shift 2
 
   local package_build_dir="${DEP_BUILD_DIR}/${package_name}"
+  local extra_env=()
+  if declare -p CONFIGURE_ENV_EXTRA >/dev/null 2>&1; then
+    extra_env=("${CONFIGURE_ENV_EXTRA[@]}")
+  fi
+
   rm -rf "$package_build_dir"
   mkdir -p "$package_build_dir"
 
@@ -292,6 +304,7 @@ configure_make_install() {
       ac_cv_printf_positional="${ac_cv_printf_positional:-yes}" \
       ac_cv_search_dgettext="${ac_cv_search_dgettext:--lintl}" \
       ac_cv_gssapi_supports_spnego="${ac_cv_gssapi_supports_spnego:-yes}" \
+      "${extra_env[@]}" \
       "${source_dir}/configure" \
         --build="$CONFIGURE_BUILD_TRIPLE" \
         --host="$CONFIGURE_HOST_TRIPLE" \
@@ -340,6 +353,7 @@ meson_install() {
   shift 2
 
   local package_build_dir="${DEP_BUILD_DIR}/${package_name}"
+  local stage_dir="${package_build_dir}/stage"
   rm -rf "$package_build_dir"
 
   log "Configuring dependency: ${package_name}"
@@ -356,7 +370,8 @@ meson_install() {
 
   log "Building dependency: ${package_name}"
   meson compile -C "$package_build_dir" -j "$JOBS"
-  meson install -C "$package_build_dir"
+  DESTDIR="$stage_dir" meson install -C "$package_build_dir"
+  cp -a "${stage_dir}${SDK_PREFIX}/." "$SDK_PREFIX/"
 }
 
 remove_static_libraries() {
@@ -449,6 +464,7 @@ build_liburing() {
 }
 
 build_krb5() {
+  local CONFIGURE_ENV_EXTRA=()
   local configure_args=(
     --enable-shared
     --disable-static
@@ -459,7 +475,13 @@ build_krb5() {
   if [[ "$TARGET_KIND" == "linux" ]]; then
     configure_args+=(--without-system-verto)
   else
-    configure_args+=(--without-system-verto)
+    CONFIGURE_ENV_EXTRA+=(
+      LIBS="-lws2_32 -ldnsapi -lsecur32"
+      ac_cv_func_res_nsearch=yes
+      krb5_cv_func_res_nsearch=yes
+      krb5_cv_func_res_search=yes
+    )
+    configure_args+=(--without-system-verto "--with-netlib=-lws2_32 -ldnsapi -lsecur32")
   fi
 
   configure_make_install krb5 "${DEP_SOURCE_DIR}/krb5/src" "${configure_args[@]}"
@@ -542,11 +564,17 @@ build_openldap() {
 }
 
 build_json_c() {
+  local json_c_args=()
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    json_c_args+=(-DDISABLE_BSYMBOLIC=ON)
+  fi
+
   cmake_install json-c "${DEP_SOURCE_DIR}/json-c" \
     -DBUILD_SHARED_LIBS=ON \
     -DBUILD_STATIC_LIBS=OFF \
     -DBUILD_TESTING=OFF \
-    -DDISABLE_WERROR=ON
+    -DDISABLE_WERROR=ON \
+    "${json_c_args[@]}"
 }
 
 build_libxcrypt() {
@@ -561,6 +589,11 @@ build_libxcrypt() {
 }
 
 build_libevent() {
+  local libevent_args=()
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    libevent_args+=(-DEVENT__DISABLE_CLOCK_GETTIME=ON)
+  fi
+
   cmake_install libevent "${DEP_SOURCE_DIR}/libevent" \
     -DEVENT__LIBRARY_TYPE=SHARED \
     -DEVENT__DISABLE_SAMPLES=ON \
@@ -568,7 +601,8 @@ build_libevent() {
     -DEVENT__DISABLE_BENCHMARK=ON \
     -DEVENT__DISABLE_REGRESS=ON \
     -DEVENT__DISABLE_OPENSSL=OFF \
-    -DEVENT__DISABLE_THREAD_SUPPORT=OFF
+    -DEVENT__DISABLE_THREAD_SUPPORT=OFF \
+    "${libevent_args[@]}"
 }
 
 build_native_gperf() {
@@ -802,6 +836,97 @@ keep_libsystemd_sdk() {
     "${SDK_PREFIX}/var"
 }
 
+download_common_sources() {
+  download_archive "$JSON_C_ARCHIVE_URL" "$JSON_C_ARCHIVE_NAME"
+  download_archive "$LIBEVENT_ARCHIVE_URL" "$LIBEVENT_ARCHIVE_NAME"
+}
+
+download_linux_sources() {
+  [[ "$TARGET_KIND" == "linux" ]] || return 0
+
+  download_archive "$KRB5_ARCHIVE_URL" "$KRB5_ARCHIVE_NAME"
+  download_archive "$CYRUS_SASL_ARCHIVE_URL" "$CYRUS_SASL_ARCHIVE_NAME"
+  download_archive "$OPENLDAP_ARCHIVE_URL" "$OPENLDAP_ARCHIVE_NAME"
+  download_archive "$KEYUTILS_ARCHIVE_URL" "$KEYUTILS_ARCHIVE_NAME"
+  download_archive "$LIBXCRYPT_ARCHIVE_URL" "$LIBXCRYPT_ARCHIVE_NAME"
+  download_archive "$LIBURING_ARCHIVE_URL" "$LIBURING_ARCHIVE_NAME"
+  download_archive "$LINUX_PAM_ARCHIVE_URL" "$LINUX_PAM_ARCHIVE_NAME"
+  if [[ "$TARGET_TRIPLE" == "x86_64-unknown-linux-gnu" && "$SYSTEMD_X86_64_PROVIDER" == "centos7-rpm" ]]; then
+    download_archive "$SYSTEMD_CENTOS7_LIBS_RPM_URL" "$SYSTEMD_CENTOS7_LIBS_RPM_NAME"
+    download_archive "$SYSTEMD_CENTOS7_DEVEL_RPM_URL" "$SYSTEMD_CENTOS7_DEVEL_RPM_NAME"
+  else
+    download_archive "$SYSTEMD_ARCHIVE_URL" "$SYSTEMD_ARCHIVE_NAME"
+  fi
+  download_archive "$GPERF_ARCHIVE_URL" "$GPERF_ARCHIVE_NAME"
+  download_archive "$JINJA2_ARCHIVE_URL" "$JINJA2_ARCHIVE_NAME"
+  download_archive "$MARKUPSAFE_ARCHIVE_URL" "$MARKUPSAFE_ARCHIVE_NAME"
+}
+
+extract_common_sources() {
+  extract_archive_source "${DEP_SOURCE_DIR}/json-c" "$JSON_C_ARCHIVE_NAME" "CMakeLists.txt"
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    apply_source_patch_once "${DEP_SOURCE_DIR}/json-c" "${PATCH_DIR}/json-c-mingw-no-elf-linker-flags.patch"
+  fi
+  extract_archive_source "${DEP_SOURCE_DIR}/libevent" "$LIBEVENT_ARCHIVE_NAME" "CMakeLists.txt"
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    apply_source_patch_once "${DEP_SOURCE_DIR}/libevent" "${PATCH_DIR}/libevent-mingw-win32-winnt.patch"
+  fi
+}
+
+extract_linux_sources() {
+  [[ "$TARGET_KIND" == "linux" ]] || return 0
+
+  extract_archive_source "${DEP_SOURCE_DIR}/krb5" "$KRB5_ARCHIVE_NAME" "src/configure"
+  extract_archive_source "${DEP_SOURCE_DIR}/cyrus-sasl" "$CYRUS_SASL_ARCHIVE_NAME" "configure"
+  extract_archive_source "${DEP_SOURCE_DIR}/openldap" "$OPENLDAP_ARCHIVE_NAME" "configure"
+  extract_archive_source "${DEP_SOURCE_DIR}/keyutils" "$KEYUTILS_ARCHIVE_NAME" "Makefile"
+  extract_archive_source "${DEP_SOURCE_DIR}/libxcrypt" "$LIBXCRYPT_ARCHIVE_NAME" "configure"
+  extract_archive_source "${DEP_SOURCE_DIR}/liburing" "$LIBURING_ARCHIVE_NAME" "configure"
+  extract_archive_source "${DEP_SOURCE_DIR}/linux-pam" "$LINUX_PAM_ARCHIVE_NAME" "meson.build"
+  if [[ "$TARGET_TRIPLE" != "x86_64-unknown-linux-gnu" || "$SYSTEMD_X86_64_PROVIDER" != "centos7-rpm" ]]; then
+    extract_archive_source "${DEP_SOURCE_DIR}/systemd" "$SYSTEMD_ARCHIVE_NAME" "meson.build"
+    apply_source_patch_once "${DEP_SOURCE_DIR}/systemd" "${PATCH_DIR}/systemd-old-linux-sdk-headers.patch"
+  fi
+  extract_archive_source "${DEP_SOURCE_DIR}/gperf" "$GPERF_ARCHIVE_NAME" "configure"
+  extract_archive_source "${DEP_SOURCE_DIR}/jinja2" "$JINJA2_ARCHIVE_NAME" "src/jinja2/__init__.py"
+  extract_archive_source "${DEP_SOURCE_DIR}/markupsafe" "$MARKUPSAFE_ARCHIVE_NAME" "src/markupsafe/__init__.py"
+}
+
+build_linux_dependencies() {
+  build_keyutils
+  build_json_c
+  build_libevent
+  build_libxcrypt
+  build_liburing
+  build_krb5
+  build_cyrus_sasl
+  build_openldap
+  build_linux_pam
+  build_native_gperf
+  build_python_jinja2
+  build_libsystemd
+}
+
+build_mingw_dependencies() {
+  build_json_c
+  build_libevent
+}
+
+build_target_dependencies() {
+  case "$TARGET_KIND" in
+    linux)
+      build_linux_dependencies
+      ;;
+    mingw)
+      log "Using MinGW PostgreSQL dependency subset"
+      build_mingw_dependencies
+      ;;
+    *)
+      die "unsupported TARGET_KIND: ${TARGET_KIND}"
+      ;;
+  esac
+}
+
 require_path() {
   local path="$1"
   [[ -e "$path" ]] || die "missing required dependency artifact: $path"
@@ -814,9 +939,6 @@ require_glob() {
 
 validate_dynamic_libraries() {
   if [[ "$TARGET_KIND" == "mingw" ]]; then
-    require_glob "${SDK_PREFIX}/bin/libkrb5*.dll"
-    require_glob "${SDK_PREFIX}/bin/libsasl*.dll"
-    require_glob "${SDK_PREFIX}/bin/libldap*.dll"
     require_glob "${SDK_PREFIX}/bin/libjson-c*.dll"
     require_glob "${SDK_PREFIX}/bin/libevent*.dll"
   else
@@ -985,6 +1107,7 @@ PATCH_DIR="${PATCH_DIR:-/work/mount_root/patch}"
 
 mkdir -p "$DEP_SOURCE_DIR" "$DEP_BUILD_DIR" "$BUILD_TOOLS"
 write_realpath_wrapper
+write_printf_wrapper
 prepare_linux_compat_headers
 
 if [[ ! -x "$CC" ]]; then
@@ -1022,60 +1145,13 @@ write_toolchain_file
 write_meson_cross_file
 rewrite_dependency_prefixes
 
-download_archive "$KRB5_ARCHIVE_URL" "$KRB5_ARCHIVE_NAME"
-download_archive "$CYRUS_SASL_ARCHIVE_URL" "$CYRUS_SASL_ARCHIVE_NAME"
-download_archive "$OPENLDAP_ARCHIVE_URL" "$OPENLDAP_ARCHIVE_NAME"
-download_archive "$JSON_C_ARCHIVE_URL" "$JSON_C_ARCHIVE_NAME"
-download_archive "$LIBEVENT_ARCHIVE_URL" "$LIBEVENT_ARCHIVE_NAME"
-if [[ "$TARGET_KIND" == "linux" ]]; then
-  download_archive "$KEYUTILS_ARCHIVE_URL" "$KEYUTILS_ARCHIVE_NAME"
-  download_archive "$LIBXCRYPT_ARCHIVE_URL" "$LIBXCRYPT_ARCHIVE_NAME"
-  download_archive "$LIBURING_ARCHIVE_URL" "$LIBURING_ARCHIVE_NAME"
-  download_archive "$LINUX_PAM_ARCHIVE_URL" "$LINUX_PAM_ARCHIVE_NAME"
-  if [[ "$TARGET_TRIPLE" == "x86_64-unknown-linux-gnu" && "$SYSTEMD_X86_64_PROVIDER" == "centos7-rpm" ]]; then
-    download_archive "$SYSTEMD_CENTOS7_LIBS_RPM_URL" "$SYSTEMD_CENTOS7_LIBS_RPM_NAME"
-    download_archive "$SYSTEMD_CENTOS7_DEVEL_RPM_URL" "$SYSTEMD_CENTOS7_DEVEL_RPM_NAME"
-  else
-    download_archive "$SYSTEMD_ARCHIVE_URL" "$SYSTEMD_ARCHIVE_NAME"
-  fi
-  download_archive "$GPERF_ARCHIVE_URL" "$GPERF_ARCHIVE_NAME"
-  download_archive "$JINJA2_ARCHIVE_URL" "$JINJA2_ARCHIVE_NAME"
-  download_archive "$MARKUPSAFE_ARCHIVE_URL" "$MARKUPSAFE_ARCHIVE_NAME"
-fi
-
-extract_archive_source "${DEP_SOURCE_DIR}/krb5" "$KRB5_ARCHIVE_NAME" "src/configure"
-extract_archive_source "${DEP_SOURCE_DIR}/cyrus-sasl" "$CYRUS_SASL_ARCHIVE_NAME" "configure"
-extract_archive_source "${DEP_SOURCE_DIR}/openldap" "$OPENLDAP_ARCHIVE_NAME" "configure"
-extract_archive_source "${DEP_SOURCE_DIR}/json-c" "$JSON_C_ARCHIVE_NAME" "CMakeLists.txt"
-extract_archive_source "${DEP_SOURCE_DIR}/libevent" "$LIBEVENT_ARCHIVE_NAME" "CMakeLists.txt"
-if [[ "$TARGET_KIND" == "linux" ]]; then
-  extract_archive_source "${DEP_SOURCE_DIR}/keyutils" "$KEYUTILS_ARCHIVE_NAME" "Makefile"
-  extract_archive_source "${DEP_SOURCE_DIR}/libxcrypt" "$LIBXCRYPT_ARCHIVE_NAME" "configure"
-  extract_archive_source "${DEP_SOURCE_DIR}/liburing" "$LIBURING_ARCHIVE_NAME" "configure"
-  extract_archive_source "${DEP_SOURCE_DIR}/linux-pam" "$LINUX_PAM_ARCHIVE_NAME" "meson.build"
-  if [[ "$TARGET_TRIPLE" != "x86_64-unknown-linux-gnu" || "$SYSTEMD_X86_64_PROVIDER" != "centos7-rpm" ]]; then
-    extract_archive_source "${DEP_SOURCE_DIR}/systemd" "$SYSTEMD_ARCHIVE_NAME" "meson.build"
-    apply_source_patch_once "${DEP_SOURCE_DIR}/systemd" "${PATCH_DIR}/systemd-old-linux-sdk-headers.patch"
-  fi
-  extract_archive_source "${DEP_SOURCE_DIR}/gperf" "$GPERF_ARCHIVE_NAME" "configure"
-  extract_archive_source "${DEP_SOURCE_DIR}/jinja2" "$JINJA2_ARCHIVE_NAME" "src/jinja2/__init__.py"
-  extract_archive_source "${DEP_SOURCE_DIR}/markupsafe" "$MARKUPSAFE_ARCHIVE_NAME" "src/markupsafe/__init__.py"
-fi
+download_common_sources
+download_linux_sources
+extract_common_sources
+extract_linux_sources
 
 log "Installing PostgreSQL dependencies into ${SDK_PREFIX}"
-
-build_keyutils
-build_json_c
-build_libevent
-build_libxcrypt
-build_liburing
-build_krb5
-build_cyrus_sasl
-build_openldap
-build_linux_pam
-build_native_gperf
-build_python_jinja2
-build_libsystemd
+build_target_dependencies
 
 rewrite_dependency_prefixes
 copy_dependency_dlls_to_bin
