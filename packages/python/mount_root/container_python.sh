@@ -40,6 +40,10 @@ python_archive_name() {
   printf '%s\n' "$PYTHON_ARCHIVE_NAME"
 }
 
+swig_archive_url() {
+  printf '%s\n' "${SWIG_ARCHIVE_URL:-https://prdownloads.sourceforge.net/swig/${SWIG_ARCHIVE_NAME}}"
+}
+
 extract_archive_source() {
   local source_dir="$1"
   local archive_path="$2"
@@ -139,6 +143,50 @@ copy_mingw_dependency_dlls_to_bin() {
     || die "missing MinGW runtime DLLs in ${SDK_PREFIX}/bin"
 }
 
+fix_python_script_shebangs() {
+  local bin_dir="${SDK_PREFIX}/bin"
+  local python_launcher="python3"
+  local script=""
+  local script_name=""
+  local first_line=""
+  local script_mode=""
+  local temp_file=""
+
+  [[ -d "$bin_dir" ]] || return 0
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    python_launcher="python3.exe"
+  fi
+
+  log "Rewriting Python script shebangs in ${bin_dir}"
+  while IFS= read -r -d '' script; do
+    IFS= read -r first_line <"$script" || continue
+    case "$first_line" in
+      '#!'*python*)
+        ;;
+      *)
+        continue
+        ;;
+    esac
+
+    script_name="$(basename "$script")"
+    script_mode="$(stat -c '%a' "$script")"
+    temp_file="${script}.tmp"
+    log "Rewriting Python script launcher: ${script_name}"
+
+    cat >"$temp_file" <<EOF
+#!/bin/sh
+'''exec' "\$(dirname "\$0")/${python_launcher}" "\$0" "\$@"
+'''
+EOF
+    tail -n +2 "$script" >>"$temp_file"
+    chmod "$script_mode" "$temp_file"
+    mv "$temp_file" "$script"
+  done < <(
+    find "$bin_dir" -maxdepth 1 -type f -print0
+  )
+}
+
 apply_mingw_patches() {
   [[ "$TARGET_KIND" == "mingw" ]] || return 0
 
@@ -211,7 +259,7 @@ build_target_python() {
     --with-build-python="${HOST_BUILD_DIR}/python"
     --with-openssl="$SDK_PREFIX"
     --with-system-expat
-    --with-ensurepip=no
+    --with-ensurepip=install
   )
   if [[ "$TARGET_KIND" == "mingw" ]]; then
     libuuid_cflags=
@@ -284,6 +332,91 @@ build_target_python() {
   )
 }
 
+build_swig() {
+  local swig_archive="${CACHE_DIR}/${SWIG_ARCHIVE_NAME}"
+  local swig_source_dir="${SOURCE_ROOT}/swig"
+  local swig_build_dir="${BUILD_DIR}/build-swig"
+  local swig_binary="${SDK_PREFIX}/bin/swig"
+  local swig_lib_dir="${SDK_PREFIX}/share/swig/${SWIG_VERSION}"
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    swig_binary="${SDK_PREFIX}/bin/swig.exe"
+  fi
+
+  download_archive "$(swig_archive_url)" "$SWIG_ARCHIVE_NAME"
+  extract_archive_source "$swig_source_dir" "$swig_archive" "configure"
+
+  rm -rf "$swig_build_dir"
+  mkdir -p "$swig_build_dir"
+
+  log "Configuring SWIG ${SWIG_VERSION} for ${TARGET_TRIPLE}"
+  (
+    cd "$swig_build_dir"
+    export PATH="${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
+    env \
+      CC="$CC" \
+      CXX="$CXX" \
+      AR="$AR" \
+      RANLIB="$RANLIB" \
+      STRIP="$STRIP" \
+      NM="$NM" \
+      PKG_CONFIG="${PKG_CONFIG:-pkg-config}" \
+      PKG_CONFIG_LIBDIR="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig" \
+      PKG_CONFIG_PATH= \
+      PKG_CONFIG_SYSROOT_DIR= \
+      PCRE2_CONFIG="${SDK_PREFIX}/bin/pcre2-config" \
+      CPPFLAGS="$COMMON_CPPFLAGS ${CPPFLAGS:-}" \
+      CFLAGS="$COMMON_CFLAGS ${CFLAGS:-}" \
+      CXXFLAGS="$COMMON_CXXFLAGS ${CXXFLAGS:-}" \
+      LDFLAGS="$COMMON_LDFLAGS ${LDFLAGS:-}" \
+      LIBS="$COMMON_LIBS ${LIBS:-}" \
+      "${swig_source_dir}/configure" \
+        --build="$CONFIGURE_BUILD_TRIPLE" \
+        --host="$CONFIGURE_HOST_TRIPLE" \
+        --prefix="$SDK_PREFIX" \
+        --with-swiglibdir="__develop_suit_swig_lib__" \
+        --with-pcre2-prefix="$SDK_PREFIX" \
+        --with-pcre2-exec-prefix="$SDK_PREFIX" \
+        --with-python3="${HOST_BUILD_DIR}/python" \
+        --disable-ccache \
+        --without-maximum-compile-warnings
+
+    log "Building SWIG ${SWIG_VERSION}"
+    make -j "$JOBS"
+    make install SWIG_LIB_INSTALL="$swig_lib_dir"
+  )
+
+  [[ -f "$swig_binary" ]] || die "missing SWIG executable: ${swig_binary}"
+}
+
+fix_swig_launcher() {
+  local swig_bin="${SDK_PREFIX}/bin/swig"
+  local swig_real="${SDK_PREFIX}/bin/swig.bin"
+  local swig_lib_dir="${SDK_PREFIX}/share/swig/${SWIG_VERSION}"
+
+  [[ -d "$swig_lib_dir" ]] || die "missing SWIG library directory: ${swig_lib_dir}"
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    [[ -f "${SDK_PREFIX}/bin/swig.exe" ]] || die "missing SWIG executable: ${SDK_PREFIX}/bin/swig.exe"
+    rm -rf "${SDK_PREFIX}/bin/Lib"
+    mkdir -p "${SDK_PREFIX}/bin/Lib"
+    cp -a "${swig_lib_dir}/." "${SDK_PREFIX}/bin/Lib/"
+    return 0
+  fi
+
+  [[ -f "$swig_bin" ]] || die "missing SWIG executable: ${swig_bin}"
+  rm -f "$swig_real"
+  mv "$swig_bin" "$swig_real"
+  cat >"$swig_bin" <<EOF
+#!/bin/sh
+script_dir=\$(CDPATH= cd "\$(dirname "\$0")" && pwd)
+SWIG_LIB="\${SWIG_LIB:-\${script_dir}/../share/swig/${SWIG_VERSION}}"
+export SWIG_LIB
+exec "\${script_dir}/swig.bin" "\$@"
+EOF
+  chmod 755 "$swig_bin"
+}
+
 validate_python() {
   local python_bin="${SDK_PREFIX}/bin/python3.14"
 
@@ -323,11 +456,29 @@ PY
   fi
 }
 
+validate_swig() {
+  local swig_bin="${SDK_PREFIX}/bin/swig"
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    swig_bin="${SDK_PREFIX}/bin/swig.exe"
+    [[ -f "$swig_bin" ]] || die "missing SWIG executable: ${swig_bin}"
+    return 0
+  fi
+
+  [[ -x "$swig_bin" ]] || die "missing SWIG executable: ${swig_bin}"
+
+  if [[ "$TARGET_KIND" == "linux" && "$ARCH" == "x86_64" ]]; then
+    log "Running x86_64 SWIG smoke test"
+    LD_LIBRARY_PATH="${SDK_PREFIX}/lib:${LD_LIBRARY_PATH:-}" "$swig_bin" -version
+  fi
+}
+
 ARCH="${ARCH:-}"
 TARGET_KIND="${TARGET_KIND:-linux}"
 TARGET_TRIPLE="${TARGET_TRIPLE:-}"
 LLVM_VERSION="${LLVM_VERSION:-18.1.8}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.14.5}"
+SWIG_VERSION="${SWIG_VERSION:-4.4.1}"
 JOBS="${JOBS:-4}"
 SDK_PREFIX="${SDK_PREFIX:-/opt/python-${PYTHON_VERSION}-${TARGET_TRIPLE}}"
 CACHE_DIR="${CACHE_DIR:-/work/cache}"
@@ -335,6 +486,7 @@ BUILD_DIR="${BUILD_DIR:-/work/build}"
 LLVM_ROOT="${LLVM_ROOT:-/opt/llvm-${LLVM_VERSION}}"
 PYTHON_ARCHIVE="${PYTHON_ARCHIVE:-}"
 PYTHON_ARCHIVE_NAME="Python-${PYTHON_VERSION}.tar.xz"
+SWIG_ARCHIVE_NAME="swig-${SWIG_VERSION}.tar.gz"
 
 [[ -n "$ARCH" ]] || die "ARCH is required"
 [[ -n "$TARGET_TRIPLE" ]] || die "TARGET_TRIPLE is required"
@@ -459,12 +611,16 @@ apply_mingw_patches
 log "Installing Python ${PYTHON_VERSION} into ${SDK_PREFIX}"
 build_host_python
 build_target_python
+build_swig
+fix_swig_launcher
 rewrite_dependency_prefixes
 copy_mingw_dependency_dlls_to_bin
 copy_cxx_runtime_libraries
+fix_python_script_shebangs
 remove_static_libraries
 patch_linux_elf_rpaths "$SDK_PREFIX" "$TARGET_KIND"
 validate_python
+validate_swig
 
 render_template "${TEMPLATE_DIR}/README.python.in" "${SDK_PREFIX}/README.python" \
   "TARGET_TRIPLE=${TARGET_TRIPLE}" \

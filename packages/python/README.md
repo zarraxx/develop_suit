@@ -1,13 +1,14 @@
 # python package
 
 `python` builds a distributable CPython prefix on top of
-`python_dependencies-<triple>` or `pyhton_dependencies-3-<triple>`. The final
-tarball contains both CPython and the dependency libraries needed by that
-interpreter.
+`python_dependencies-<triple>` or `python_dependencies-3-<triple>`. The final
+tarball contains CPython, SWIG, and the dependency libraries needed by those
+tools.
 
 ## Boundary
 
-This package builds CPython only. It consumes the dependency prefix produced by
+This package builds CPython and the SWIG interface generator. It consumes the
+dependency prefix produced by
 `packages/python_dependencies`; it does not rebuild zlib, OpenSSL, libffi,
 sqlite, readline, ncurses, expat, libuuid, gdbm, libxslt, or ICU.
 
@@ -22,7 +23,7 @@ Supported targets:
 ## Build
 
 ```sh
-./packages/python/build.sh --target=x86_64 --python-version=3.14.5 --clean --jobs=4
+./packages/python/build.sh --target=x86_64 --python-version=3.14.5 --swig-version=4.4.1 --clean --jobs=4
 ```
 
 Explicit dependency input:
@@ -80,18 +81,49 @@ with:
   --with-build-python=<host-build-python> \
   --with-openssl=<prefix> \
   --with-system-expat \
-  --with-ensurepip=no
+  --with-ensurepip=install
 ```
 
 Dependency discovery is routed through the copied dependency prefix using
 `CPPFLAGS`, `LDFLAGS`, `PKG_CONFIG_LIBDIR`, and explicit library variables for
 uuid, sqlite, gdbm, readline, zlib, bzip2, lzma, zstd, and ffi.
 
-After install, ordinary `.a` and `.la` files are removed, Linux ELF rpaths are
-patched to `$ORIGIN`-relative paths, and the x86_64 build runs an import smoke
-test for core extension modules.
+After install, Python script shebangs are rewritten to resolve the adjacent
+`python3` executable, ordinary `.a` and `.la` files are removed, Linux ELF
+rpaths are patched to `$ORIGIN`-relative paths, and the x86_64 build runs an
+import smoke test for core extension modules.
 
 For MinGW, the package follows the MSYS2 `cpython-mingw` direction. It uses the
 MSYS2 MinGW CPython branch, regenerates `configure` before the container build,
 uses the Windows GNU sysroot resource headers for `llvm-windres`, keeps MinGW
 `*.dll.a` import libraries, and validates the Windows executable layout.
+
+## SWIG Configure
+
+Source:
+
+```text
+https://prdownloads.sourceforge.net/swig/swig-<version>.tar.gz
+```
+
+SWIG is built after CPython using the same cross compiler and installed into the
+same prefix:
+
+```sh
+./configure --build=<build> --host=<target> --prefix=<prefix> \
+  --with-pcre2-prefix=<prefix> \
+  --with-pcre2-exec-prefix=<prefix> \
+  --with-python3=<host-build-python> \
+  --with-swiglibdir=__develop_suit_swig_lib__ \
+  --disable-ccache \
+  --without-maximum-compile-warnings
+make -j <jobs>
+make install SWIG_LIB_INSTALL=<prefix>/share/swig/<version>
+```
+
+The package uses PCRE2 from `python_dependencies`. On x86_64 Linux the final
+package runs `swig -version` as a smoke test; for cross-only targets it validates
+the installed executable layout. Linux packages install `bin/swig` as a small
+launcher that sets `SWIG_LIB` relative to its own location and then runs
+`bin/swig.bin`. MinGW packages copy the SWIG library files to `bin/Lib`, matching
+SWIG's native Windows lookup behavior.

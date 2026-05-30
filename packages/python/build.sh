@@ -24,6 +24,7 @@ Options:
   --target=<target>                  Python target, see list above
   --arch=<target>                    Alias for --target
   --python-version=<ver>             CPython version (default: 3.14.5)
+  --swig-version=<ver>               SWIG version to bundle (default: 4.4.1)
   --llvm-version=<ver>               Bootstrap LLVM toolchain version (default: 18.1.8)
   --python-deps-archive=<tar>        python_dependencies archive to use as the base prefix
   --python-deps-dir=<dir>            Already extracted python_dependencies prefix
@@ -142,6 +143,7 @@ validate_base_prefix() {
 
 TARGET=""
 PYTHON_VERSION="3.14.5"
+SWIG_VERSION="4.4.1"
 LLVM_VERSION="18.1.8"
 BUILD_IMAGE="$PACKAGES_DEFAULT_BUILD_IMAGE"
 JOBS="$PACKAGES_DEFAULT_JOBS"
@@ -173,6 +175,14 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || die "--python-version requires a value"
       PYTHON_VERSION="$1"
+      ;;
+    --swig-version=*)
+      SWIG_VERSION="${1#*=}"
+      ;;
+    --swig-version)
+      shift
+      [[ $# -gt 0 ]] || die "--swig-version requires a value"
+      SWIG_VERSION="$1"
       ;;
     --llvm-version=*)
       LLVM_VERSION="${1#*=}"
@@ -309,6 +319,7 @@ echo "-- image: ${BUILD_IMAGE}"
 echo "-- target kind: ${TARGET_KIND}"
 echo "-- target triple: ${TARGET_TRIPLE}"
 echo "-- python version: ${PYTHON_VERSION}"
+echo "-- swig version: ${SWIG_VERSION}"
 echo "-- package: ${PACKAGE_NAME}"
 echo "-- output: ${OUT_DIR}"
 if [[ -n "$PYTHON_DEPS_ARCHIVE" ]]; then
@@ -336,6 +347,7 @@ docker_args=(
   -e "TARGET_TRIPLE=${TARGET_TRIPLE}"
   -e "LLVM_VERSION=${LLVM_VERSION}"
   -e "PYTHON_VERSION=${PYTHON_VERSION}"
+  -e "SWIG_VERSION=${SWIG_VERSION}"
   -e "JOBS=${JOBS}"
   -e "SDK_PREFIX=/opt/${PACKAGE_NAME}"
 )
