@@ -22,7 +22,7 @@ diff --git a/src/include/override/sys/stat.h b/src/include/override/sys/stat.h
 index 75833d0e03..8f0805f7da 100644
 --- a/src/include/override/sys/stat.h
 +++ b/src/include/override/sys/stat.h
-@@ -3,6 +3,26 @@
+@@ -3,6 +3,29 @@
  
  #include_next <sys/stat.h>      /* IWYU pragma: export */
  
