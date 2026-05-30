@@ -2,8 +2,8 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index b8e3a8f..5d4fd8a 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -345,0 +346 @@ if (NOT ("${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC"))
-+    if (NOT WIN32)
-@@ -378,0 +380 @@ if (NOT ("${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC"))
+@@ -345,0 +346,2 @@ if (NOT ("${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC"))
++
++    if (NOT "${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
+@@ -378,0 +381 @@ if (NOT ("${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC"))
 +    endif()
- endif()

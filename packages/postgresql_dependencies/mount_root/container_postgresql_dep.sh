@@ -457,7 +457,8 @@ build_liburing() {
       --prefix="$SDK_PREFIX" \
       --libdir="${SDK_PREFIX}/lib" \
       --cc="$CC" \
-      --cxx="$CXX"
+      --cxx="$CXX" \
+      --use-libc
     make -j "$JOBS" library AR="$AR" RANLIB="$RANLIB" STRIP="$STRIP"
     make install AR="$AR" RANLIB="$RANLIB" STRIP="$STRIP"
   )
@@ -566,7 +567,11 @@ build_openldap() {
 build_json_c() {
   local json_c_args=()
   if [[ "$TARGET_KIND" == "mingw" ]]; then
-    json_c_args+=(-DDISABLE_BSYMBOLIC=ON)
+    json_c_args+=(
+      -DBSYMBOLIC_WORKS=OFF
+      -DDISABLE_BSYMBOLIC=ON
+      -DVERSION_SCRIPT_WORKS=OFF
+    )
   fi
 
   cmake_install json-c "${DEP_SOURCE_DIR}/json-c" \
