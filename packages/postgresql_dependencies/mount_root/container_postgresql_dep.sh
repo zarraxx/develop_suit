@@ -230,6 +230,13 @@ write_ln_wrapper() {
   chmod +x "$wrapper_path"
 }
 
+write_rsync_wrapper() {
+  local wrapper_path="${BUILD_TOOLS}/rsync"
+
+  render_template "${TEMPLATE_DIR}/rsync-wrapper.in" "$wrapper_path"
+  chmod +x "$wrapper_path"
+}
+
 install_build_python_package() {
   local source_dir="$1"
   local package_dir="$2"
@@ -1357,6 +1364,7 @@ mkdir -p "$DEP_SOURCE_DIR" "$DEP_BUILD_DIR" "$BUILD_TOOLS"
 write_realpath_wrapper
 write_printf_wrapper
 write_ln_wrapper
+write_rsync_wrapper
 prepare_linux_compat_headers
 
 if [[ ! -x "$CC" ]]; then

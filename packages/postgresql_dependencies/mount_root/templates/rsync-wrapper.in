@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --exclude|--include|--filter|--exclude-from|--include-from)
+      shift 2
+      ;;
+    --exclude=*|--include=*|--filter=*|--exclude-from=*|--include-from=*)
+      shift
+      ;;
+    --delete-excluded|--omit-dir-times|--delete|--relative|-*)
+      shift
+      ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ "${#args[@]}" -lt 2 ]]; then
+  exit 0
+fi
+
+source_path="${args[$((${#args[@]} - 2))]}"
+dest_path="${args[$((${#args[@]} - 1))]}"
+
+mkdir -p "$dest_path"
+if [[ -d "$source_path" ]]; then
+  cp -a "${source_path}/." "$dest_path/"
+else
+  cp -a "$source_path" "$dest_path/"
+fi
