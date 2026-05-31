@@ -1,0 +1,9 @@
+PostgreSQL package.
+
+Version: @POSTGRESQL_VERSION@
+Target triple: @TARGET_TRIPLE@
+
+Enabled optional language runtimes:
+  Perl: @ENABLE_PERL@
+  Python: @ENABLE_PYTHON@
+  Tcl: @ENABLE_TCL@
