@@ -186,7 +186,6 @@ jobs:
             fi
           fi
           command -v wine
-          command -v wine64
 
       - name: Cache source archives
         uses: actions/cache@v5
