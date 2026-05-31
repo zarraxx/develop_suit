@@ -1,0 +1,8 @@
+# Tcl package
+
+Target: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+Tcl version: @TCL_VERSION@
+
+This prefix contains Tcl installed on top of the develop_suit
+python_dependencies prefix.
