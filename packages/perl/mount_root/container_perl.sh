@@ -196,7 +196,10 @@ build_target_perl() {
   log "Configuring Perl ${PERL_VERSION} for ${TARGET_TRIPLE}"
   (
     cd "$PERL_SOURCE_DIR"
-    export PATH="${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
+    # Once the target perl binary exists, plain "perl" invocations emitted by
+    # upstream Makefile rules must resolve to this build tree instead of the
+    # host system perl.
+    export PATH="${PERL_SOURCE_DIR}:${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
     env \
       LD_LIBRARY_PATH="$build_ld_library_path" \
       PERL_TARGET_RUNNER="$PERL_TARGET_RUNNER" \
