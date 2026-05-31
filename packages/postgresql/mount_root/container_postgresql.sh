@@ -516,6 +516,45 @@ build_postgresql_meson() {
   cp -a "${stage_dir}${SDK_PREFIX}/." "$SDK_PREFIX/"
 }
 
+build_postgresql_host_zic() {
+  local host_build_dir="${BUILD_DIR}/postgresql-host-zic-build"
+  local host_zic_path="${POSTGRESQL_BUILD_DIR}/src/timezone/zic-host"
+  local host_configure_args=(
+    --without-icu
+    --without-ldap
+    --without-pam
+    --without-libxml
+    --without-libxslt
+    --without-gssapi
+    --without-zlib
+    --without-readline
+    --without-lz4
+    --without-zstd
+    --without-perl
+    --without-python
+    --without-tcl
+  )
+
+  rm -rf "$host_build_dir"
+  mkdir -p "$host_build_dir"
+
+  (
+    cd "$host_build_dir"
+    env \
+      PATH="${LLVM_ROOT}/bin:${PATH}" \
+      CC="${LLVM_ROOT}/bin/clang" \
+      CXX="${LLVM_ROOT}/bin/clang++" \
+      CPP="${LLVM_ROOT}/bin/clang -E" \
+      AR="${LLVM_ROOT}/bin/llvm-ar" \
+      RANLIB="${LLVM_ROOT}/bin/llvm-ranlib" \
+      "${POSTGRESQL_SOURCE_DIR}/configure" \
+      "${host_configure_args[@]}"
+    make -j "$JOBS" -C src/timezone zic
+  )
+
+  install -m 755 "${host_build_dir}/src/timezone/zic" "$host_zic_path"
+}
+
 build_postgresql_configure() {
   local configure_args=()
   local configure_env=()
@@ -664,6 +703,8 @@ build_postgresql_configure() {
     if [[ "$TARGET_KIND" == "mingw" ]]; then
       log "Building zic.exe for host-side timezone packaging"
       make -C src/timezone zic
+      log "Building native zic host tool for timezone packaging"
+      build_postgresql_host_zic
     fi
   )
 }

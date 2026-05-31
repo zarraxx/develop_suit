@@ -171,22 +171,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y qemu-user-static
 
-      - name: Install MinGW host-build prerequisites
-        if: ${{ matrix.build_kind == 'mingw64' }}
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y wine64 wine64-tools
-          if ! command -v wine >/dev/null 2>&1; then
-            if command -v wine64 >/dev/null 2>&1; then
-              sudo ln -sf "$(command -v wine64)" /usr/local/bin/wine
-            else
-              echo "wine launcher not found after installing wine64" >&2
-              exit 1
-            fi
-          fi
-          command -v wine
-
       - name: Cache source archives
         uses: actions/cache@v5
         with:
