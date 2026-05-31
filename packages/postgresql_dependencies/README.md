@@ -20,6 +20,7 @@ Linux 目标尽量提供完整 PostgreSQL 可选依赖：
 - libxcrypt
 - libevent
 - liburing
+- numactl/libnuma
 - Linux-PAM
 - libcap
 - libblkid/libmount
@@ -397,6 +398,32 @@ make install
 ```
 
 Static archives are removed after install.
+
+### numactl 2.0.19
+
+Linux only.
+
+Source:
+
+```text
+https://github.com/numactl/numactl/releases/download/v2.0.19/numactl-2.0.19.tar.gz
+```
+
+Configure:
+
+```sh
+./configure --build=<build> --host=<host> --prefix=<prefix> \
+  --enable-shared --disable-static
+```
+
+Build/install:
+
+```sh
+make -j <jobs>
+make install
+```
+
+Install output includes `libnuma.so` and the upstream `numactl` helper tools.
 
 ### Linux-PAM 1.7.2
 

@@ -473,6 +473,14 @@ build_liburing() {
   )
 }
 
+build_numactl() {
+  [[ "$TARGET_KIND" == "linux" ]] || return 0
+
+  configure_make_install numactl "${DEP_SOURCE_DIR}/numactl" \
+    --enable-shared \
+    --disable-static
+}
+
 build_krb5() {
   local CONFIGURE_ENV_EXTRA=()
   local configure_args=(
@@ -1077,6 +1085,7 @@ download_linux_sources() {
   download_archive "$KEYUTILS_ARCHIVE_URL" "$KEYUTILS_ARCHIVE_NAME"
   download_archive "$LIBXCRYPT_ARCHIVE_URL" "$LIBXCRYPT_ARCHIVE_NAME"
   download_archive "$LIBURING_ARCHIVE_URL" "$LIBURING_ARCHIVE_NAME"
+  download_archive "$NUMACTL_ARCHIVE_URL" "$NUMACTL_ARCHIVE_NAME"
   download_archive "$LINUX_PAM_ARCHIVE_URL" "$LINUX_PAM_ARCHIVE_NAME"
   download_archive "$LIBCAP_ARCHIVE_URL" "$LIBCAP_ARCHIVE_NAME"
   download_archive "$UTIL_LINUX_ARCHIVE_URL" "$UTIL_LINUX_ARCHIVE_NAME"
@@ -1106,6 +1115,7 @@ extract_linux_sources() {
   extract_archive_source "${DEP_SOURCE_DIR}/keyutils" "$KEYUTILS_ARCHIVE_NAME" "Makefile"
   extract_archive_source "${DEP_SOURCE_DIR}/libxcrypt" "$LIBXCRYPT_ARCHIVE_NAME" "configure"
   extract_archive_source "${DEP_SOURCE_DIR}/liburing" "$LIBURING_ARCHIVE_NAME" "configure"
+  extract_archive_source "${DEP_SOURCE_DIR}/numactl" "$NUMACTL_ARCHIVE_NAME" "configure"
   extract_archive_source "${DEP_SOURCE_DIR}/linux-pam" "$LINUX_PAM_ARCHIVE_NAME" "meson.build"
   extract_archive_source "${DEP_SOURCE_DIR}/libcap" "$LIBCAP_ARCHIVE_NAME" "libcap/Makefile"
   extract_archive_source "${DEP_SOURCE_DIR}/util-linux" "$UTIL_LINUX_ARCHIVE_NAME" "configure"
@@ -1134,6 +1144,7 @@ build_linux_dependencies() {
   build_libevent
   build_libxcrypt
   build_liburing
+  build_numactl
   build_krb5
   build_cyrus_sasl
   build_openldap
@@ -1188,6 +1199,7 @@ validate_dynamic_libraries() {
     require_path "${SDK_PREFIX}/lib/libcrypt.so"
     require_path "${SDK_PREFIX}/lib/libevent.so"
     require_path "${SDK_PREFIX}/lib/liburing.so"
+    require_path "${SDK_PREFIX}/lib/libnuma.so"
     require_path "${SDK_PREFIX}/lib/libpam.so"
     require_path "${SDK_PREFIX}/lib/libcap.so"
     require_path "${SDK_PREFIX}/lib/libblkid.so"
@@ -1214,6 +1226,7 @@ JSON_C_VERSION="${JSON_C_VERSION:-0.18-20240915}"
 LIBXCRYPT_VERSION="${LIBXCRYPT_VERSION:-4.5.2}"
 LIBEVENT_VERSION="${LIBEVENT_VERSION:-2.1.12-stable}"
 LIBURING_VERSION="${LIBURING_VERSION:-2.14}"
+NUMACTL_VERSION="${NUMACTL_VERSION:-2.0.19}"
 LINUX_PAM_VERSION="${LINUX_PAM_VERSION:-1.7.2}"
 LIBCAP_VERSION="${LIBCAP_VERSION:-2.76}"
 UTIL_LINUX_VERSION="${UTIL_LINUX_VERSION:-2.42}"
@@ -1246,6 +1259,7 @@ JSON_C_ARCHIVE_NAME="json-c-${JSON_C_VERSION}.tar.gz"
 LIBXCRYPT_ARCHIVE_NAME="libxcrypt-${LIBXCRYPT_VERSION}.tar.xz"
 LIBEVENT_ARCHIVE_NAME="libevent-${LIBEVENT_VERSION}.tar.gz"
 LIBURING_ARCHIVE_NAME="liburing-${LIBURING_VERSION}.tar.gz"
+NUMACTL_ARCHIVE_NAME="numactl-${NUMACTL_VERSION}.tar.gz"
 LINUX_PAM_ARCHIVE_NAME="Linux-PAM-${LINUX_PAM_VERSION}.tar.xz"
 LIBCAP_ARCHIVE_NAME="libcap-${LIBCAP_VERSION}.tar.xz"
 UTIL_LINUX_ARCHIVE_NAME="util-linux-${UTIL_LINUX_VERSION}.tar.xz"
@@ -1266,6 +1280,7 @@ JSON_C_ARCHIVE_URL="${JSON_C_ARCHIVE_URL:-https://github.com/json-c/json-c/archi
 LIBXCRYPT_ARCHIVE_URL="${LIBXCRYPT_ARCHIVE_URL:-https://github.com/besser82/libxcrypt/releases/download/v${LIBXCRYPT_VERSION}/${LIBXCRYPT_ARCHIVE_NAME}}"
 LIBEVENT_ARCHIVE_URL="${LIBEVENT_ARCHIVE_URL:-https://github.com/libevent/libevent/releases/download/release-${LIBEVENT_VERSION}/${LIBEVENT_ARCHIVE_NAME}}"
 LIBURING_ARCHIVE_URL="${LIBURING_ARCHIVE_URL:-https://github.com/axboe/liburing/archive/refs/tags/${LIBURING_ARCHIVE_NAME}}"
+NUMACTL_ARCHIVE_URL="${NUMACTL_ARCHIVE_URL:-https://github.com/numactl/numactl/releases/download/v${NUMACTL_VERSION}/${NUMACTL_ARCHIVE_NAME}}"
 LINUX_PAM_ARCHIVE_URL="${LINUX_PAM_ARCHIVE_URL:-https://github.com/linux-pam/linux-pam/releases/download/v${LINUX_PAM_VERSION}/${LINUX_PAM_ARCHIVE_NAME}}"
 LIBCAP_ARCHIVE_URL="${LIBCAP_ARCHIVE_URL:-https://www.kernel.org/pub/linux/libs/security/linux-privs/libcap2/${LIBCAP_ARCHIVE_NAME}}"
 UTIL_LINUX_ARCHIVE_URL="${UTIL_LINUX_ARCHIVE_URL:-https://www.kernel.org/pub/linux/utils/util-linux/v${UTIL_LINUX_VERSION}/${UTIL_LINUX_ARCHIVE_NAME}}"
@@ -1430,6 +1445,7 @@ render_template "${TEMPLATE_DIR}/README.postgresql-dependencies.in" "${SDK_PREFI
   "LIBXCRYPT_VERSION=${LIBXCRYPT_VERSION}" \
   "LIBEVENT_VERSION=${LIBEVENT_VERSION}" \
   "LIBURING_VERSION=${LIBURING_VERSION}" \
+  "NUMACTL_VERSION=${NUMACTL_VERSION}" \
   "LINUX_PAM_VERSION=${LINUX_PAM_VERSION}" \
   "SYSTEMD_VERSION=${SYSTEMD_PACKAGE_VERSION}"
 

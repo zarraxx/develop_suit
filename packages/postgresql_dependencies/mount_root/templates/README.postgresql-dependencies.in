@@ -12,5 +12,6 @@ Included dependency sources:
   libxcrypt @LIBXCRYPT_VERSION@ (Linux only)
   libevent @LIBEVENT_VERSION@
   liburing @LIBURING_VERSION@ (Linux only)
+  numactl/libnuma @NUMACTL_VERSION@ (Linux only)
   Linux-PAM @LINUX_PAM_VERSION@ (Linux only)
   systemd @SYSTEMD_VERSION@ SDK libsystemd (Linux only)
