@@ -59,19 +59,34 @@ find_host_wine_binary() {
 
 finalize_mingw_timezone_data() {
   local wine_binary=""
+  local wine_prefix="${BUILD_DIR}/host-wineprefix"
   local zic_exe="${BUILD_DIR}/postgresql-build/src/timezone/zic.exe"
   local tzdata_zi="${BUILD_DIR}/postgresql-source/src/timezone/data/tzdata.zi"
   local timezone_dir="${OUT_DIR}/share/timezone"
+  local zic_exe_win=""
+  local tzdata_zi_win=""
+  local timezone_dir_win=""
 
   wine_binary="$(find_host_wine_binary)" \
     || die "wine64/wine is required on the host to package PostgreSQL timezone data for ${TARGET_TRIPLE}"
+  require_command winepath
   [[ -f "$zic_exe" ]] || die "missing mingw zic.exe: ${zic_exe}"
   [[ -f "$tzdata_zi" ]] || die "missing PostgreSQL tzdata source: ${tzdata_zi}"
 
   echo "-- compiling PostgreSQL timezone data with host wine: ${wine_binary}"
   rm -rf "$timezone_dir"
-  mkdir -p "$timezone_dir"
-  WINEDEBUG=-all "$wine_binary" "$zic_exe" -d "$timezone_dir" "$tzdata_zi"
+  mkdir -p "$timezone_dir" "$wine_prefix"
+
+  if command -v wineboot >/dev/null 2>&1; then
+    WINEARCH=win64 WINEPREFIX="$wine_prefix" WINEDEBUG=-all wineboot -u >/dev/null 2>&1 || true
+  fi
+
+  zic_exe_win="$(WINEARCH=win64 WINEPREFIX="$wine_prefix" winepath -w "$zic_exe")"
+  tzdata_zi_win="$(WINEARCH=win64 WINEPREFIX="$wine_prefix" winepath -w "$tzdata_zi")"
+  timezone_dir_win="$(WINEARCH=win64 WINEPREFIX="$wine_prefix" winepath -w "$timezone_dir")"
+
+  WINEARCH=win64 WINEPREFIX="$wine_prefix" WINEDEBUG=-all \
+    "$wine_binary" "$zic_exe_win" -d "$timezone_dir_win" "$tzdata_zi_win"
 
   [[ -d "${timezone_dir}/Etc" ]] || [[ -f "${timezone_dir}/UTC" ]] \
     || die "timezone packaging did not produce expected files under ${timezone_dir}"
