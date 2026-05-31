@@ -64,6 +64,17 @@ EOF
   chmod +x "$wrapper_path"
 }
 
+write_target_perl_wrapper() {
+  local wrapper_path="$1"
+  local perl_bin_path="$2"
+
+  cat >"$wrapper_path" <<EOF
+#!/bin/sh
+exec ${PERL_TARGET_RUNNER} "${perl_bin_path}" "\$@"
+EOF
+  chmod +x "$wrapper_path"
+}
+
 write_cpp_wrapper() {
   local wrapper_path="$1"
   local real_cpp="${LLVM_ROOT}/bin/clang-cpp"
@@ -109,6 +120,21 @@ remove_static_libraries() {
   find "${SDK_PREFIX}/lib" -type f -name '*.a' \
     ! -name '*.dll.a' \
     -delete
+}
+
+expose_shared_libperl() {
+  local core_libperl=""
+  local top_level_libperl="${SDK_PREFIX}/lib/libperl.so"
+  local core_libperl_rel=""
+
+  core_libperl="$(
+    find "${SDK_PREFIX}/lib" -path '*/CORE/libperl.so' -type f -print -quit 2>/dev/null
+  )"
+  [[ -n "$core_libperl" ]] || return 0
+
+  mkdir -p "${SDK_PREFIX}/lib"
+  core_libperl_rel="${core_libperl#${SDK_PREFIX}/lib/}"
+  ln -sfn "$core_libperl_rel" "$top_level_libperl"
 }
 
 perl_archive_url() {
@@ -167,7 +193,9 @@ build_host_perl_tools() {
 build_target_perl() {
   local perl_target_arch="$TARGET_TRIPLE"
   local target_run_dir="${BUILD_DIR}/target-run"
+  local target_run_tools="${BUILD_DIR}/target-run-tools"
   local build_ld_library_path=""
+  local build_perl5lib=""
   local perl_libs="-lm -lpthread -ldl -lcrypt"
   local qemu_ld_prefix=""
 
@@ -178,8 +206,11 @@ build_target_perl() {
 
   rm -rf "$target_run_dir"
   mkdir -p "$target_run_dir"
+  rm -rf "$target_run_tools"
+  mkdir -p "$target_run_tools"
   if [[ -n "$PERL_TARGET_RUNNER" ]]; then
     printf '%s\n' "$PERL_TARGET_RUNNER" > "${target_run_dir}/.perl-target-runner"
+    write_target_perl_wrapper "${target_run_tools}/perl" "${PERL_SOURCE_DIR}/perl"
   fi
 
   if [[ -e "${SDK_PREFIX}/lib/libintl.so" || -e "${SDK_PREFIX}/lib/libintl.a" ]]; then
@@ -188,6 +219,10 @@ build_target_perl() {
   build_ld_library_path="${PERL_SOURCE_DIR}:${SDK_PREFIX}/lib"
   if [[ -n "${LD_LIBRARY_PATH:-}" ]]; then
     build_ld_library_path="${build_ld_library_path}:${LD_LIBRARY_PATH}"
+  fi
+  build_perl5lib="${PERL_SOURCE_DIR}/lib"
+  if [[ -n "${PERL5LIB:-}" ]]; then
+    build_perl5lib="${build_perl5lib}:${PERL5LIB}"
   fi
   if [[ "$TARGET_KIND" == "linux" && "$ARCH" != "x86_64" ]]; then
     qemu_ld_prefix="$SYSROOT"
@@ -199,9 +234,10 @@ build_target_perl() {
     # Once the target perl binary exists, plain "perl" invocations emitted by
     # upstream Makefile rules must resolve to this build tree instead of the
     # host system perl.
-    export PATH="${PERL_SOURCE_DIR}:${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
+    export PATH="${target_run_tools}:${PERL_SOURCE_DIR}:${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
     env \
       LD_LIBRARY_PATH="$build_ld_library_path" \
+      PERL5LIB="$build_perl5lib" \
       PERL_TARGET_RUNNER="$PERL_TARGET_RUNNER" \
       QEMU_LD_PREFIX="$qemu_ld_prefix" \
       ./Configure -des \
@@ -237,9 +273,15 @@ build_target_perl() {
         -Dlibs="$perl_libs"
 
     log "Building Perl ${PERL_VERSION}"
-    LD_LIBRARY_PATH="$build_ld_library_path" make -j "$JOBS"
-    LD_LIBRARY_PATH="$build_ld_library_path" make install
+    LD_LIBRARY_PATH="$build_ld_library_path" \
+    PERL5LIB="$build_perl5lib" \
+      make -j "$JOBS"
+    LD_LIBRARY_PATH="$build_ld_library_path" \
+    PERL5LIB="$build_perl5lib" \
+      make install
   )
+
+  expose_shared_libperl
 }
 
 validate_perl() {
