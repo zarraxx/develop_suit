@@ -196,8 +196,7 @@ Configure -des \
   -Dvendorprefix=<prefix> \
   -Dsiteprefix=<prefix> \
   -Dinstallusrbinperl=n \
-  -Duserelocatableinc \
-  -Uuseshrplib \
+  -Duseshrplib \
   -Dusethreads \
   -Duse64bitall \
   -Dcc=<target-cc> \
@@ -229,10 +228,9 @@ When the copied dependency prefix contains `libintl`, `-lintl` is added to
 `<prefix>/lib` so `Configure` can run target probe programs; after install the
 package rewrites ELF rpaths to `$ORIGIN`-relative paths.
 
-`-Duserelocatableinc` is used so `@INC` follows the installed `perl`
-executable after the package is copied to another directory. That option is
-not compatible with `-Duseshrplib`, so this package keeps the installed
-`CORE/libperl.a` archive for Perl embedding and removes other ordinary `.a`
-and `.la` files after installation. Linux ELF rpaths are patched to
-`$ORIGIN`-relative paths, and the x86_64 build runs a small `Config` smoke
-test.
+Linux packages enable `-Duseshrplib` so downstream consumers such as
+PostgreSQL `PL/Perl` can link against a shared `libperl`. Ordinary static
+archives and `.la` files are removed after installation, so it is acceptable
+for the final package to ship without `libperl.a`. Linux ELF rpaths are
+patched to `$ORIGIN`-relative paths, and the x86_64 build runs a small
+`Config` smoke test.

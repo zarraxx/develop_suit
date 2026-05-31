@@ -108,7 +108,6 @@ remove_static_libraries() {
   find "${SDK_PREFIX}/lib" -type f -name '*.la' -delete
   find "${SDK_PREFIX}/lib" -type f -name '*.a' \
     ! -name '*.dll.a' \
-    ! -path '*/CORE/libperl.a' \
     -delete
 }
 
@@ -168,6 +167,7 @@ build_host_perl_tools() {
 build_target_perl() {
   local perl_target_arch="$TARGET_TRIPLE"
   local target_run_dir="${BUILD_DIR}/target-run"
+  local build_ld_library_path=""
   local perl_libs="-lm -lpthread -ldl -lcrypt"
   local qemu_ld_prefix=""
 
@@ -185,6 +185,10 @@ build_target_perl() {
   if [[ -e "${SDK_PREFIX}/lib/libintl.so" || -e "${SDK_PREFIX}/lib/libintl.a" ]]; then
     perl_libs="${perl_libs} -lintl"
   fi
+  build_ld_library_path="${PERL_SOURCE_DIR}:${SDK_PREFIX}/lib"
+  if [[ -n "${LD_LIBRARY_PATH:-}" ]]; then
+    build_ld_library_path="${build_ld_library_path}:${LD_LIBRARY_PATH}"
+  fi
   if [[ "$TARGET_KIND" == "linux" && "$ARCH" != "x86_64" ]]; then
     qemu_ld_prefix="$SYSROOT"
   fi
@@ -194,6 +198,7 @@ build_target_perl() {
     cd "$PERL_SOURCE_DIR"
     export PATH="${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
     env \
+      LD_LIBRARY_PATH="$build_ld_library_path" \
       PERL_TARGET_RUNNER="$PERL_TARGET_RUNNER" \
       QEMU_LD_PREFIX="$qemu_ld_prefix" \
       ./Configure -des \
@@ -209,8 +214,7 @@ build_target_perl() {
         -Dvendorprefix="$SDK_PREFIX" \
         -Dsiteprefix="$SDK_PREFIX" \
         -Dinstallusrbinperl=n \
-        -Duserelocatableinc \
-        -Uuseshrplib \
+        -Duseshrplib \
         -Dusethreads \
         -Duse64bitall \
         -Dhostperl="$HOST_PERL_BIN" \
@@ -230,8 +234,8 @@ build_target_perl() {
         -Dlibs="$perl_libs"
 
     log "Building Perl ${PERL_VERSION}"
-    make -j "$JOBS"
-    make install
+    LD_LIBRARY_PATH="$build_ld_library_path" make -j "$JOBS"
+    LD_LIBRARY_PATH="$build_ld_library_path" make install
   )
 }
 
