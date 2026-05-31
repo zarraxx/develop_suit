@@ -1,6 +1,16 @@
 --- a/win32/GNUmakefile
 +++ b/win32/GNUmakefile
-@@ -1440,6 +1440,6 @@
+@@ -1176,7 +1176,7 @@
+ 
+ $(GLOBEXE) : perlglob.c
+ ifeq ($(CCTYPE),GCC)
+-	$(LINK32) $(EXTRACFLAGS) $(OPTIMIZE) $(BLINK_FLAGS) -mconsole -o $@ perlglob.c $(LIBFILES)
++	$(CC) $(EXTRACFLAGS) $(OPTIMIZE) $(BLINK_FLAGS) -mconsole -o $@ perlglob.c $(LIBFILES)
+ else
+ 	$(CC) $(EXTRACFLAGS) $(OPTIMIZE) $(PDBOUT) -Fe$@ perlglob.c -link $(BLINK_FLAGS) \
+ 	setargv$(o) $(LIBFILES)
+@@ -1440,7 +1440,7 @@
+ 
  perllib$(o)	: perllib.c perllibst.h .\perlhost.h .\vdir.h .\vmem.h
  ifeq ($(USE_IMP_SYS),define)
 -	$(CC) -c -I$(FULLDIR) -I. $(CFLAGS_O) $(CXX_FLAG) $(OBJOUT_FLAG)$@ $(PDBOUT) perllib.c
@@ -17,7 +27,8 @@
  	$(BLINK_FLAGS) $(LIBFILES)
  else
  	$(CC) $(CFLAGS_O) $(PDBOUT) -Fe..\generate_uudmap.exe ..\generate_uudmap.c -link $(LIBFILES) $(BLINK_FLAGS)
-@@ -1522,7 +1522,13 @@
+@@ -1521,10 +1521,16 @@
+ 
  # also known as $(HAVE_COREDIR)
  .coreheaders : $(CORE_H)
 -	$(XCOPY) *.h $(COREDIR)\\*.*
@@ -35,6 +46,8 @@
 +	$(XCOPY) ..\\*.h $(COREDIR)\$(NULL)
 +	$(XCOPY) ..\\charclass_invlists.inc $(COREDIR)\$(NULL)
  	rem. > $@
+ 
+ perlmain$(o) : runperl.c $(CONFIGPM)
 --- a/win32/perlhost.h
 +++ b/win32/perlhost.h
 @@ -2076,8 +2076,8 @@
