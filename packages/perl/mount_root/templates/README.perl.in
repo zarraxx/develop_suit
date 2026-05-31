@@ -1,0 +1,8 @@
+# Perl package
+
+Target: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+Perl version: @PERL_VERSION@
+
+This prefix contains Perl installed on top of the develop_suit
+python_dependencies prefix.

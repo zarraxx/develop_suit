@@ -1,0 +1,58 @@
+--- a/Configure
++++ b/Configure
+@@ -3155,16 +3155,55 @@
+ 	adb)
+ 	    $touch $run
+ 	    ;;
++	local)
++	    cat >$run <<EOF
++#!/bin/sh
++env=''
++case "\$1" in
++-cwd)
++  shift
++  cwd=\$1
++  shift
++  ;;
++esac
++case "\$1" in
++-env)
++  shift
++  env=\$1
++  shift
++  ;;
++esac
++case "\$cwd" in
++'') cwd=$targetdir ;;
++esac
++exe=\$1
++shift
++$to \$exe
++cd "\$cwd" || exit 1
++test -z "\$env" || eval "\$env"
++exec \${PERL_TARGET_RUNNER:-} $targetdir/\$exe "\$@"
++EOF
++	    ;;
+ 	*)  echo "Unknown targetrun '$targetrun'" >&4
+ 	    exit 1
+ 	    ;;
+ 	esac
+ 	case "$targetmkdir" in
+ 	*/Cross/mkdir)
++	    case "$targetrun" in
++	    local)
++	    cat >$targetmkdir <<EOF
++#!/bin/sh
++mkdir -p "\$@"
++EOF
++	    ;;
++	    *)
+ 	    cat >$targetmkdir <<EOF
+ #!/bin/sh
+ $targetrun -p $targetport -l $targetuser $targethost "mkdir -p \$@"
+ EOF
++	    ;;
++	    esac
+ 	    $chmod a+rx $targetmkdir
+ 	    ;;
+ 	*)  echo "Unknown targetmkdir '$targetmkdir'" >&4
