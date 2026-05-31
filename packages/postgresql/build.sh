@@ -45,16 +45,40 @@ EOF
 }
 
 find_host_wine_binary() {
+  local candidate=""
+
   if command -v wine64 >/dev/null 2>&1; then
     command -v wine64
     return 0
   fi
+  if command -v wine64-stable >/dev/null 2>&1; then
+    command -v wine64-stable
+    return 0
+  fi
+  for candidate in \
+      /usr/lib/wine/wine64 \
+      /usr/lib/x86_64-linux-gnu/wine/wine64 \
+      /usr/lib64/wine/wine64 \
+      /usr/lib/wine/wine \
+      /usr/lib/x86_64-linux-gnu/wine/wine \
+      /usr/lib64/wine/wine; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
   if command -v wine >/dev/null 2>&1; then
     command -v wine
     return 0
   fi
 
   return 1
+}
+
+wine_windows_path_from_unix() {
+  local unix_path="$1"
+
+  printf 'Z:%s\n' "${unix_path//\//\\}"
 }
 
 finalize_mingw_timezone_data() {
@@ -69,7 +93,6 @@ finalize_mingw_timezone_data() {
 
   wine_binary="$(find_host_wine_binary)" \
     || die "wine64/wine is required on the host to package PostgreSQL timezone data for ${TARGET_TRIPLE}"
-  require_command winepath
   [[ -f "$zic_exe" ]] || die "missing mingw zic.exe: ${zic_exe}"
   [[ -f "$tzdata_zi" ]] || die "missing PostgreSQL tzdata source: ${tzdata_zi}"
 
@@ -77,13 +100,9 @@ finalize_mingw_timezone_data() {
   rm -rf "$timezone_dir"
   mkdir -p "$timezone_dir" "$wine_prefix"
 
-  if command -v wineboot >/dev/null 2>&1; then
-    WINEARCH=win64 WINEPREFIX="$wine_prefix" WINEDEBUG=-all wineboot -u >/dev/null 2>&1 || true
-  fi
-
-  zic_exe_win="$(WINEARCH=win64 WINEPREFIX="$wine_prefix" winepath -w "$zic_exe")"
-  tzdata_zi_win="$(WINEARCH=win64 WINEPREFIX="$wine_prefix" winepath -w "$tzdata_zi")"
-  timezone_dir_win="$(WINEARCH=win64 WINEPREFIX="$wine_prefix" winepath -w "$timezone_dir")"
+  zic_exe_win="$(wine_windows_path_from_unix "$zic_exe")"
+  tzdata_zi_win="$(wine_windows_path_from_unix "$tzdata_zi")"
+  timezone_dir_win="$(wine_windows_path_from_unix "$timezone_dir")"
 
   WINEARCH=win64 WINEPREFIX="$wine_prefix" WINEDEBUG=-all \
     "$wine_binary" "$zic_exe_win" -d "$timezone_dir_win" "$tzdata_zi_win"
