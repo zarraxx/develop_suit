@@ -29,6 +29,8 @@ Options:
   --python-deps-dir=<dir>            Already extracted python_dependencies prefix
   --perl-archive=<tar>               Use a local Perl source archive
   --perl-target-runner=<command>     Command inside the container used to run target probes
+  --qemu-binary=<path>               Host qemu-user-static binary to mount for foreign Linux targets
+  --container-runtime=<name>         Container runtime to use (default: auto-detect podman, then docker)
   --image=<image>                    Build image for every target
                                      (default: ghcr.io/zarraxx/develop_suit:llvm-with-mingw64-18.1.8)
   --jobs=<n>                         Parallel build jobs inside container (default: 4)
@@ -122,6 +124,8 @@ PYTHON_DEPS_ARCHIVE=""
 PYTHON_DEPS_DIR=""
 PERL_ARCHIVE=""
 PERL_TARGET_RUNNER=""
+QEMU_BINARY=""
+CONTAINER_RUNTIME=""
 PULL=0
 CLEAN=0
 
@@ -173,6 +177,18 @@ while [[ $# -gt 0 ]]; do
       [[ $# -gt 0 ]] || die "--perl-target-runner requires a value"
       PERL_TARGET_RUNNER="$1"
       ;;
+    --qemu-binary=*) QEMU_BINARY="${1#*=}" ;;
+    --qemu-binary)
+      shift
+      [[ $# -gt 0 ]] || die "--qemu-binary requires a value"
+      QEMU_BINARY="$1"
+      ;;
+    --container-runtime=*) CONTAINER_RUNTIME="${1#*=}" ;;
+    --container-runtime)
+      shift
+      [[ $# -gt 0 ]] || die "--container-runtime requires a value"
+      CONTAINER_RUNTIME="$1"
+      ;;
     --image=*|--linux-image=*|--mingw-image=*) BUILD_IMAGE="${1#*=}" ;;
     --image|--linux-image|--mingw-image)
       opt="$1"
@@ -210,6 +226,10 @@ if [[ -n "$PYTHON_DEPS_ARCHIVE" && -n "$PYTHON_DEPS_DIR" ]]; then
   die "--python-deps-archive and --python-deps-dir are mutually exclusive"
 fi
 
+if [[ -n "$QEMU_BINARY" && -n "$PERL_TARGET_RUNNER" ]]; then
+  die "--qemu-binary and --perl-target-runner are mutually exclusive"
+fi
+
 if [[ -z "$PACKAGE_NAME" ]]; then
   PACKAGE_NAME="perl-${PERL_VERSION}-${PACKAGE_TRIPLE}"
 fi
@@ -224,7 +244,28 @@ if [[ -n "$PERL_ARCHIVE" ]]; then
   PERL_ARCHIVE="$(cd "$(dirname "$PERL_ARCHIVE")" && pwd)/$(basename "$PERL_ARCHIVE")"
 fi
 
-require_command docker
+QEMU_BINARY_CONTAINER_PATH=""
+if [[ -n "$QEMU_BINARY" ]]; then
+  [[ -f "$QEMU_BINARY" ]] || die "qemu binary not found: ${QEMU_BINARY}"
+  [[ -x "$QEMU_BINARY" ]] || die "qemu binary is not executable: ${QEMU_BINARY}"
+  QEMU_BINARY="$(cd "$(dirname "$QEMU_BINARY")" && pwd)/$(basename "$QEMU_BINARY")"
+fi
+
+if [[ -z "$PERL_TARGET_RUNNER" && "$TARGET_KIND" == "linux" && "$ARCH" != "x86_64" ]]; then
+  if [[ -z "$QEMU_BINARY" ]]; then
+    QEMU_BINARY="$(find_host_qemu_user_binary "$ARCH" || true)"
+  fi
+
+  if [[ -n "$QEMU_BINARY" ]]; then
+    QEMU_BINARY_CONTAINER_PATH="/work/qemu/$(basename "$QEMU_BINARY")"
+    PERL_TARGET_RUNNER="env QEMU_LD_PREFIX=/opt/sysroot/${TARGET_TRIPLE} ${QEMU_BINARY_CONTAINER_PATH} -L /opt/sysroot/${TARGET_TRIPLE}"
+  else
+    qemu_hint="$(target_qemu_user_binary_names "$ARCH" 2>/dev/null | paste -sd ' / ' - || true)"
+    die "no default qemu runner found for ${TARGET_TRIPLE}; install qemu-user so one of [${qemu_hint:-qemu-aarch64/qemu-loongarch64/qemu-riscv64}] exists, or pass --qemu-binary / --perl-target-runner"
+  fi
+fi
+
+CONTAINER_RUNTIME="$(resolve_container_runtime "$CONTAINER_RUNTIME")"
 require_command tar
 
 MOUNT_ROOT="${ROOT_DIR}/mount_root"
@@ -252,10 +293,11 @@ validate_base_prefix "$OUT_DIR"
 
 if [[ "$PULL" -eq 1 ]]; then
   echo "-- pulling build image: ${BUILD_IMAGE}"
-  docker pull --platform linux/amd64 "$BUILD_IMAGE"
+  "$CONTAINER_RUNTIME" pull --platform linux/amd64 "$BUILD_IMAGE"
 fi
 
 echo "-- Perl build"
+echo "-- container runtime: ${CONTAINER_RUNTIME}"
 echo "-- image: ${BUILD_IMAGE}"
 echo "-- target kind: ${TARGET_KIND}"
 echo "-- target triple: ${TARGET_TRIPLE}"
@@ -267,8 +309,14 @@ if [[ -n "$PYTHON_DEPS_ARCHIVE" ]]; then
 else
   echo "-- base dependency dir: ${PYTHON_DEPS_DIR}"
 fi
+if [[ -n "$QEMU_BINARY" ]]; then
+  echo "-- qemu binary: ${QEMU_BINARY}"
+fi
+if [[ -n "$PERL_TARGET_RUNNER" ]]; then
+  echo "-- perl target runner: ${PERL_TARGET_RUNNER}"
+fi
 
-docker_args=(
+container_args=(
   run --rm
   --platform linux/amd64
   -v "${SHELL_TOOLS_DIR}:/work/shell_tools:ro"
@@ -286,18 +334,23 @@ docker_args=(
   -e "JOBS=${JOBS}"
   -e "SDK_PREFIX=/opt/${PACKAGE_NAME}"
 )
+if [[ -n "$QEMU_BINARY" && -n "$QEMU_BINARY_CONTAINER_PATH" ]]; then
+  container_args+=(
+    -v "${QEMU_BINARY}:${QEMU_BINARY_CONTAINER_PATH}:ro"
+  )
+fi
 if [[ -n "$PERL_ARCHIVE" ]]; then
-  docker_args+=(
+  container_args+=(
     -v "${PERL_ARCHIVE}:/work/input/perl-${PERL_VERSION}.tar.gz:ro"
     -e "PERL_ARCHIVE=/work/input/perl-${PERL_VERSION}.tar.gz"
   )
 fi
-docker_args+=(
+container_args+=(
   "$BUILD_IMAGE"
   /bin/bash /work/mount_root/container_perl.sh
 )
 
-docker "${docker_args[@]}"
+"$CONTAINER_RUNTIME" "${container_args[@]}"
 
 make_host_writable "$PACKAGE_ROOT"
 

@@ -1,6 +1,6 @@
 --- a/Configure
 +++ b/Configure
-@@ -3155,16 +3155,55 @@
+@@ -3155,16 +3155,65 @@
  	adb)
  	    $touch $run
  	    ;;
@@ -25,12 +25,22 @@
 +case "\$cwd" in
 +'') cwd=$targetdir ;;
 +esac
++targetrunfile=$targetdir/.perl-target-runner
++runner=''
++test -r "\$targetrunfile" && runner=\`cat "\$targetrunfile"\`
 +exe=\$1
 +shift
 +$to \$exe
 +cd "\$cwd" || exit 1
 +test -z "\$env" || eval "\$env"
++case "\$runner" in
++'')
 +exec \${PERL_TARGET_RUNNER:-} $targetdir/\$exe "\$@"
++  ;;
++*)
++eval "exec \$runner $targetdir/\$exe \"\$@\""
++  ;;
++esac
 +EOF
 +	    ;;
  	*)  echo "Unknown targetrun '$targetrun'" >&4

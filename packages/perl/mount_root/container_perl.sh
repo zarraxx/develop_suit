@@ -130,10 +130,46 @@ apply_perl_patches() {
   )
 }
 
+build_host_perl_tools() {
+  HOST_PERL_BIN="${HOST_PERL_BIN:-${HOST_BUILD_DIR}/miniperl}"
+  HOST_GENERATE_BIN="${HOST_GENERATE_BIN:-${HOST_BUILD_DIR}/generate_uudmap}"
+
+  if [[ -x "$HOST_PERL_BIN" && -x "$HOST_GENERATE_BIN" ]]; then
+    log "Reusing host Perl build tools from ${HOST_BUILD_DIR}"
+    return 0
+  fi
+
+  log "Building native host Perl tools"
+  extract_archive_source "$PERL_HOST_SOURCE_DIR" "$PERL_ARCHIVE" "Configure"
+  rm -rf "$HOST_BUILD_DIR"
+  mkdir -p "$HOST_BUILD_DIR"
+
+  (
+    cd "$HOST_BUILD_DIR"
+    export PATH="${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
+    env \
+      CC="$BUILD_CC" \
+      CPP="${BUILD_CC} -E" \
+      LD="$BUILD_CC" \
+      AR="${LLVM_ROOT}/bin/llvm-ar" \
+      RANLIB="${LLVM_ROOT}/bin/llvm-ranlib" \
+      NM="${LLVM_ROOT}/bin/llvm-nm" \
+      "${PERL_HOST_SOURCE_DIR}/Configure" -des \
+        -Dusedevel \
+        -Dmksymlinks \
+        -Dprefix="${HOST_BUILD_DIR}/prefix"
+    make -j "$JOBS" miniperl generate_uudmap
+  )
+
+  [[ -x "$HOST_PERL_BIN" ]] || die "missing host miniperl: ${HOST_PERL_BIN}"
+  [[ -x "$HOST_GENERATE_BIN" ]] || die "missing host generate_uudmap: ${HOST_GENERATE_BIN}"
+}
+
 build_target_perl() {
   local perl_target_arch="$TARGET_TRIPLE"
   local target_run_dir="${BUILD_DIR}/target-run"
   local perl_libs="-lm -lpthread -ldl -lcrypt"
+  local qemu_ld_prefix=""
 
   [[ "$TARGET_KIND" == "linux" ]] || die "MinGW Perl is not wired yet; use Linux targets for packages/perl"
   if [[ "$ARCH" != "x86_64" && -z "$PERL_TARGET_RUNNER" ]]; then
@@ -142,9 +178,15 @@ build_target_perl() {
 
   rm -rf "$target_run_dir"
   mkdir -p "$target_run_dir"
+  if [[ -n "$PERL_TARGET_RUNNER" ]]; then
+    printf '%s\n' "$PERL_TARGET_RUNNER" > "${target_run_dir}/.perl-target-runner"
+  fi
 
   if [[ -e "${SDK_PREFIX}/lib/libintl.so" || -e "${SDK_PREFIX}/lib/libintl.a" ]]; then
     perl_libs="${perl_libs} -lintl"
+  fi
+  if [[ "$TARGET_KIND" == "linux" && "$ARCH" != "x86_64" ]]; then
+    qemu_ld_prefix="$SYSROOT"
   fi
 
   log "Configuring Perl ${PERL_VERSION} for ${TARGET_TRIPLE}"
@@ -153,6 +195,7 @@ build_target_perl() {
     export PATH="${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
     env \
       PERL_TARGET_RUNNER="$PERL_TARGET_RUNNER" \
+      QEMU_LD_PREFIX="$qemu_ld_prefix" \
       ./Configure -des \
         -Dusecrosscompile \
         -Dtargethost=localhost \
@@ -170,6 +213,8 @@ build_target_perl() {
         -Uuseshrplib \
         -Dusethreads \
         -Duse64bitall \
+        -Dhostperl="$HOST_PERL_BIN" \
+        -Dhostgenerate="$HOST_GENERATE_BIN" \
         -Dcc="$CC" \
         -Dar="$AR" \
         -Dranlib="$RANLIB" \
@@ -253,7 +298,9 @@ NM="${NM:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-nm}"
 
 SOURCE_ROOT="${BUILD_DIR}/src"
 PERL_SOURCE_DIR="${SOURCE_ROOT}/perl"
+PERL_HOST_SOURCE_DIR="${SOURCE_ROOT}/perl-host"
 BUILD_TOOLS="${BUILD_DIR}/tools"
+HOST_BUILD_DIR="${BUILD_DIR}/host-tools"
 TEMPLATE_DIR="${TEMPLATE_DIR:-/work/mount_root/templates}"
 
 mkdir -p "$SOURCE_ROOT" "$BUILD_TOOLS"
@@ -295,6 +342,7 @@ if [[ -z "$PERL_ARCHIVE" ]]; then
 fi
 
 extract_archive_source "$PERL_SOURCE_DIR" "$PERL_ARCHIVE" "Configure"
+build_host_perl_tools
 apply_perl_patches
 
 log "Installing Perl ${PERL_VERSION} into ${SDK_PREFIX}"

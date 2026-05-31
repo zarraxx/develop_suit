@@ -1,0 +1,41 @@
+--- a/win32/GNUmakefile
++++ b/win32/GNUmakefile
+@@ -1440,6 +1440,6 @@
+ perllib$(o)	: perllib.c perllibst.h .\perlhost.h .\vdir.h .\vmem.h
+ ifeq ($(USE_IMP_SYS),define)
+-	$(CC) -c -I$(FULLDIR) -I. $(CFLAGS_O) $(CXX_FLAG) $(OBJOUT_FLAG)$@ $(PDBOUT) perllib.c
++	$(CC) -c -I$(FULLDIR) -I. $(subst -std=c99,,$(CFLAGS_O)) $(CXX_FLAG) $(OBJOUT_FLAG)$@ $(PDBOUT) perllib.c
+ else
+ 	$(CC) -c -I$(FULLDIR) -I. $(CFLAGS_O) $(OBJOUT_FLAG)$@ $(PDBOUT) perllib.c
+ endif
+@@ -1522,7 +1522,13 @@
+ # also known as $(HAVE_COREDIR)
+ .coreheaders : $(CORE_H)
+-	$(XCOPY) *.h $(COREDIR)\\*.*
+-	$(RCOPY) include $(COREDIR)\\*.*
+-	$(XCOPY) ..\\*.h $(COREDIR)\\*.*
+-	$(XCOPY) ..\\charclass_invlists.inc $(COREDIR)\\*.*
++	if not exist "$(COREDIR)" mkdir "$(COREDIR)"
++	if not exist "$(COREDIR)\arpa" mkdir "$(COREDIR)\arpa"
++	if not exist "$(COREDIR)\sys" mkdir "$(COREDIR)\sys"
++	$(XCOPY) *.h $(COREDIR)\$(NULL)
++	$(RCOPY) include $(COREDIR)\include\$(NULL)
++	$(XCOPY) include\\*.h $(COREDIR)\$(NULL)
++	$(XCOPY) include\\arpa\\*.h $(COREDIR)\arpa\$(NULL)
++	$(XCOPY) include\\sys\\*.h $(COREDIR)\sys\$(NULL)
++	$(XCOPY) ..\\*.h $(COREDIR)\$(NULL)
++	$(XCOPY) ..\\charclass_invlists.inc $(COREDIR)\$(NULL)
+ 	rem. > $@
+--- a/win32/perlhost.h
++++ b/win32/perlhost.h
+@@ -2076,8 +2076,8 @@
+ const struct IPerlProc perlProc =
+ {
+     PerlProcAbort,
+     PerlProcCrypt,
+-    PerlProcExit,
+-    PerlProc_Exit,
++    (LPProcExit)PerlProcExit,
++    (LPProc_Exit)PerlProc_Exit,
+     PerlProcExecl,
+     PerlProcExecv,

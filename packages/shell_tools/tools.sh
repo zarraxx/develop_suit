@@ -132,6 +132,63 @@ make_host_writable() {
   fi
 }
 
+target_qemu_user_binary_names() {
+  local arch="${1:-${ARCH:-}}"
+
+  case "$arch" in
+    aarch64)
+      printf '%s\n' "qemu-aarch64-static" "qemu-aarch64"
+      ;;
+    riscv64)
+      printf '%s\n' "qemu-riscv64-static" "qemu-riscv64"
+      ;;
+    loongarch64)
+      printf '%s\n' "qemu-loongarch64-static" "qemu-loongarch64"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+find_host_qemu_user_binary() {
+  local arch="${1:-${ARCH:-}}"
+  local qemu_name=""
+  local qemu_path=""
+
+  while IFS= read -r qemu_name; do
+    qemu_path="$(command -v "$qemu_name" 2>/dev/null || true)"
+    if [[ -n "$qemu_path" ]]; then
+      printf '%s\n' "$qemu_path"
+      return 0
+    fi
+  done < <(target_qemu_user_binary_names "$arch")
+
+  return 1
+}
+
+resolve_container_runtime() {
+  local requested_runtime="${1:-}"
+
+  if [[ -n "$requested_runtime" ]]; then
+    require_command "$requested_runtime"
+    printf '%s\n' "$requested_runtime"
+    return 0
+  fi
+
+  if command -v podman >/dev/null 2>&1; then
+    printf '%s\n' "podman"
+    return 0
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    printf '%s\n' "docker"
+    return 0
+  fi
+
+  die "no supported container runtime found; install podman or docker"
+}
+
 resolve_target() {
   local input="$1"
   local description="${2:-target}"

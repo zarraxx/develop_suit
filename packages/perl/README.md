@@ -18,46 +18,77 @@ Supported package targets:
 - `x86_64-w64-windows-gnu`
 
 Linux targets use Perl's upstream Unix `Configure` cross-compilation path.
-Non-x86_64 Linux targets need a target runner command passed with
-`--perl-target-runner` because Perl's `Configure` runs target probe programs.
+`aarch64` and `loongarch64` Linux targets use a mounted `qemu-user-static`
+runner by default because Perl's `Configure` runs target probe programs.
+`riscv64` can use the same path when `qemu-riscv64-static` is installed, or a
+custom runner can still be passed explicitly with `--perl-target-runner`.
 
 The MinGW target is part of the package boundary, but it should use a separate
-Windows VM build path. Perl's upstream MinGW build is centered on
+host-side build path. Perl's upstream MinGW build is centered on
 `win32/GNUmakefile`; it assumes Windows command syntax, Windows paths, and
 running generated Windows executables during the build. It is therefore treated
-as a Windows native-style build using the staged clang/mingw64 SDK and the
-matching `python_dependencies` prefix, not as the Linux-container Unix
-`Configure` cross path.
+as a Windows native-style build using the staged clang/mingw64 SDK, the
+matching `pyhton_dependencies-3` prefix, and `wine` on the Linux host, not as
+the Linux-container Unix `Configure` cross path.
 
 ## Build strategy
 
-Linux packages are built on GitHub Linux VMs with qemu installed for foreign
-Linux targets. The VM runs the normal package container and passes a qemu-user
-runner into Perl `Configure`:
+Linux packages are built on GitHub Linux VMs with `qemu-user-static` installed
+for foreign Linux targets. `build.sh` auto-detects the matching host qemu
+binary, preferring `qemu-<arch>-static` but also accepting `qemu-<arch>` from
+packages such as Ubuntu's `qemu-user`, mounts it into the package container,
+and wires Perl `Configure` to run target probe executables through qemu.
+Locally, the package prefers `podman` as the container runtime and falls back
+to `docker` only when `podman` is unavailable:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y qemu-user
+sudo apt-get install -y qemu-user-static
 
 ./packages/perl/build.sh \
   --target=loongarch64 \
-  --perl-target-runner="qemu-loongarch64 -L /opt/sysroot/loongarch64-unknown-linux-gnu" \
   --python-deps-archive=packages/python_dependencies/build/dist/python_dependencies-loongarch64-unknown-linux-gnu.tar.xz
 ```
 
 The same pattern applies to `aarch64` and `riscv64` with the corresponding
 qemu binary and sysroot path.
 
-MinGW64 packages are built on a GitHub Windows VM. The workflow should first
-install or unpack:
+If qemu is not installed in a standard host path, pass it explicitly:
 
-- clang/LLVM `18.1.8`
-- the staged `x86_64-w64-windows-gnu` mingw64 toolchain/sysroot
-- `python_dependencies-x86_64-w64-windows-gnu.tar.xz`
+```sh
+./packages/perl/build.sh \
+  --target=aarch64 \
+  --container-runtime=podman \
+  --qemu-binary=/usr/local/bin/qemu-aarch64-static
+```
 
-Then it should invoke Perl's `win32/GNUmakefile` as a Windows native-style
-MinGW build, using the staged clang/mingw64 tools and installing into the
-package prefix that will be archived as:
+`--perl-target-runner` is still available for custom setups, but it becomes the
+manual override instead of the normal path.
+
+MinGW64 packages should not use the Linux package container path. Instead, the
+host should download the staged Windows GNU SDK pieces, unpack them locally,
+and run Perl's `win32/GNUmakefile` under `wine` so build-time helpers such as
+`miniperl.exe` behave like a Windows native environment.
+
+Required downloads:
+
+- Windows clang SDK asset
+  [clang-18.1.8-x86_64-w64-windows-gnu.tar.xz](https://github.com/zarraxx/develop_suit/releases/download/clang-18.1.8/clang-18.1.8-x86_64-w64-windows-gnu.tar.xz)
+  which already includes the matching MinGW sysroot
+- dependency prefix asset from
+  [pyhton_dependencies-3](https://github.com/zarraxx/develop_suit/releases/tag/pyhton_dependencies-3)
+  such as `pyhton_dependencies-3-x86_64-w64-windows-gnu.tar.xz`
+
+Host prerequisites:
+
+- `wine` or `wine64`
+- `curl`
+- `tar`
+- `xz`
+
+After unpacking those archives, invoke Perl's `win32/GNUmakefile` as a Windows
+native-style MinGW build, using the staged clang/mingw64 tools and installing
+into the package prefix that will be archived as:
 
 ```text
 perl-<version>-x86_64-w64-windows-gnu.tar.xz
@@ -65,26 +96,52 @@ perl-<version>-x86_64-w64-windows-gnu.tar.xz
 
 ## Build
 
+Linux:
+
 ```sh
 ./packages/perl/build.sh --target=x86_64 --perl-version=5.42.2 --clean --jobs=4
 ```
 
-Explicit dependency input:
+For non-x86_64 Linux targets, install `qemu-user` or `qemu-user-static` on the
+host and the runner will be mounted automatically:
 
 ```sh
-./packages/perl/build.sh \
-  --target=x86_64 \
-  --perl-version=5.42.2 \
-  --python-deps-archive=packages/python_dependencies/build/dist/python_dependencies-x86_64-unknown-linux-gnu.tar.xz
-```
+sudo apt-get install -y qemu-user-static
 
-For non-x86_64 Linux targets, provide a runner available inside the container:
-
-```sh
 ./packages/perl/build.sh \
   --target=aarch64 \
-  --perl-target-runner="qemu-aarch64 -L /opt/sysroot/aarch64-unknown-linux-gnu"
+  --container-runtime=podman
 ```
+
+MinGW64 host-side preparation:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y wine64
+
+mkdir -p "$HOME/opt"
+
+curl -L \
+  -o "$HOME/Downloads/clang-18.1.8-x86_64-w64-windows-gnu.tar.xz" \
+  https://github.com/zarraxx/develop_suit/releases/download/clang-18.1.8/clang-18.1.8-x86_64-w64-windows-gnu.tar.xz
+
+# Download this release asset from its tag page:
+#   pyhton_dependencies-3-x86_64-w64-windows-gnu.tar.xz
+```
+
+Suggested local layout before running the MinGW build:
+
+```text
+$HOME/opt/clang-18.1.8-x86_64-w64-windows-gnu
+$HOME/opt/pyhton_dependencies-3-x86_64-w64-windows-gnu
+```
+
+The MinGW flow should export
+`PATH="$HOME/opt/clang-18.1.8-x86_64-w64-windows-gnu/bin:$PATH"`, use the
+Windows clang SDK's `x86_64-w64-windows-gnu-clang-gcc.exe` toolchain under
+`wine`, and run the generated `miniperl.exe` during the `win32/GNUmakefile`
+build. This path is intentionally host-side and does not use the package
+container.
 
 ## Output
 
@@ -118,7 +175,10 @@ with `patch -p1`. The patch adds a `targetrun=local` mode so x86_64 Linux can
 still use Perl's cross-compilation mode without depending on an SSH server.
 The build also creates short compiler wrappers such as
 `x86_64-unknown-linux-gnu-gcc` inside the container build-tools directory so
-Perl's `Configure` can derive a stable `targetarch`.
+Perl's `Configure` can derive a stable `targetarch`. For foreign Linux targets,
+`build.sh` mounts `qemu-<arch>-static` into the container and sets
+`PERL_TARGET_RUNNER` to `env QEMU_LD_PREFIX=/opt/sysroot/<triple> <qemu> -L
+/opt/sysroot/<triple>`.
 
 Linux:
 
@@ -149,6 +209,20 @@ Configure -des \
 make -j <jobs>
 make install
 ```
+
+MinGW64 host-side:
+
+```sh
+make -f win32/GNUmakefile
+make -f win32/GNUmakefile install
+```
+
+The MinGW build should be driven from the Linux host with `wine` standing in
+for the Windows runtime whenever `miniperl.exe`, `perl.exe`, or other generated
+Windows executables must run during the `GNUmakefile` build and install steps.
+After install, the package should also copy the Windows clang runtime DLLs that
+`perl.exe` and `perl542.dll` depend on, such as `libc++.dll` and
+`libunwind.dll`, into `<prefix>/bin`.
 
 When the copied dependency prefix contains `libintl`, `-lintl` is added to
 `-Dlibs`. Linux builds also add a temporary absolute rpath for
