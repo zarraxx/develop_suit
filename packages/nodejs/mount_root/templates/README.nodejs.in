@@ -1,0 +1,23 @@
+Node.js @NODEJS_VERSION@ for @TARGET_TRIPLE@
+
+This prefix was built by develop_suit packages/nodejs.
+
+The package uses the Node.js source tree's bundled runtime components by
+default, including V8, OpenSSL, libuv, zlib, nghttp2, nghttp3, ngtcp2, brotli,
+cares, simdjson, simdutf, sqlite, uvwasi, and npm/corepack content shipped by
+the selected upstream release.
+
+For non-x86_64 Linux targets, bundled OpenSSL is configured with
+--openssl-no-asm to avoid selecting host x86_64 assembly during Node's
+cross-compilation configure step.
+
+Linux packages also carry the target LLVM C++ runtime libraries and
+libatomic.so.1 under lib/. ELF RUNPATH entries are patched to resolve those
+libraries relative to the installed prefix.
+
+For loongarch64, the build injects a small generated compatibility header
+through the target and host compiler wrappers. It provides _GNU_SOURCE,
+HWCAP_LOONGARCH_LSX=16, HWCAP_LOONGARCH_LASX=32, MFD_CLOEXEC=1, and a
+memfd_create fallback through syscall(SYS_memfd_create) so bundled V8,
+simdjson, and simdutf can build against older Linux headers that do not expose
+those declarations and UAPI definitions by default.

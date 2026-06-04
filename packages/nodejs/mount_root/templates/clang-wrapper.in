@@ -1,0 +1,30 @@
+#!/bin/sh
+skip_extra_flags=0
+compile_only=0
+previous_arg=
+for arg in "$@"; do
+  case "$arg" in
+    --version|-dumpversion|-dumpfullversion|-print-*|-v|-E)
+      exec "@REAL_COMPILER@" --target="@TARGET_TRIPLE@" --sysroot="@SYSROOT@" "$@"
+      ;;
+    -c|-S)
+      compile_only=1
+      ;;
+    *.s|*.S|*.asm)
+      skip_extra_flags=1
+      ;;
+  esac
+  case "$previous_arg:$arg" in
+    -x:assembler|-x:assembler-with-cpp)
+      skip_extra_flags=1
+      ;;
+  esac
+  previous_arg="$arg"
+done
+if [ "$skip_extra_flags" = 1 ]; then
+  exec "@REAL_COMPILER@" --target="@TARGET_TRIPLE@" --sysroot="@SYSROOT@" "$@"
+fi
+if [ "$compile_only" = 1 ]; then
+  exec "@REAL_COMPILER@" --target="@TARGET_TRIPLE@" --sysroot="@SYSROOT@" @EXTRA_FLAGS@ "$@"
+fi
+exec "@REAL_COMPILER@" --target="@TARGET_TRIPLE@" --sysroot="@SYSROOT@" @EXTRA_FLAGS@ @EXTRA_LINK_FLAGS@ "$@"
