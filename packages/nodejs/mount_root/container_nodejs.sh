@@ -42,6 +42,30 @@ extract_archive_source() {
   [[ -e "${source_dir}/${marker_path}" ]] || die "invalid source tree: ${source_dir}"
 }
 
+apply_source_patch_once() {
+  local source_dir="$1"
+  local patch_path="$2"
+  local marker_path=""
+
+  [[ -d "$source_dir" ]] || die "source directory not found: ${source_dir}"
+  [[ -f "$patch_path" ]] || die "patch not found: ${patch_path}"
+
+  marker_path="${source_dir}/.develop-suit-$(basename "$patch_path").applied"
+  if [[ ! -f "$marker_path" ]]; then
+    (
+      cd "$source_dir"
+      patch -p1 -i "$patch_path"
+    )
+    touch "$marker_path"
+  fi
+}
+
+apply_nodejs_patches() {
+  if [[ "$ARCH" == "riscv64" ]]; then
+    apply_source_patch_once "$NODEJS_SOURCE_DIR" "${PATCH_DIR}/nodejs-libuv-riscv64-clang-fence.patch"
+  fi
+}
+
 nodejs_archive_url() {
   printf '%s\n' "${NODEJS_ARCHIVE_URL:-https://nodejs.org/dist/v${NODEJS_VERSION}/${NODEJS_ARCHIVE_NAME}}"
 }
@@ -153,6 +177,10 @@ write_linux_compat_headers() {
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
+
+#ifdef MAP_TYPE
+#undef MAP_TYPE
+#endif
 
 #ifndef MFD_CLOEXEC
 #define MFD_CLOEXEC 1
@@ -495,6 +523,7 @@ COMMON_CFLAGS="${COMMON_CFLAGS:-}"
 COMMON_CXXFLAGS="${COMMON_CXXFLAGS:-}"
 COMMON_LDFLAGS="${COMMON_LDFLAGS:-}"
 TARGET_COMPILER_EXTRA_FLAGS=""
+HOST_COMPILER_EXTRA_FLAGS=""
 TARGET_LINKER_EXTRA_FLAGS=""
 HOST_LINKER_EXTRA_FLAGS=""
 LINUX_COMPAT_INCLUDE_DIR="${BUILD_TOOLS}/compat-include"
@@ -512,8 +541,8 @@ COMMON_LDFLAGS="${COMMON_LDFLAGS} -Wl,--as-needed -Wl,-rpath-link,${SYSROOT}/usr
 
 write_clang_wrapper "${BUILD_TOOLS}/${TARGET_TRIPLE}-cc" "$TARGET_CC_REAL" "$TARGET_COMPILER_EXTRA_FLAGS" "$TARGET_LINKER_EXTRA_FLAGS"
 write_clang_wrapper "${BUILD_TOOLS}/${TARGET_TRIPLE}-cxx" "$TARGET_CXX_REAL" "$TARGET_COMPILER_EXTRA_FLAGS" "$TARGET_LINKER_EXTRA_FLAGS"
-write_passthrough_compiler_wrapper "${BUILD_TOOLS}/host-cc" "$BUILD_CC_REAL" "$TARGET_COMPILER_EXTRA_FLAGS" "$HOST_LINKER_EXTRA_FLAGS"
-write_passthrough_compiler_wrapper "${BUILD_TOOLS}/host-cxx" "$BUILD_CXX_REAL" "$TARGET_COMPILER_EXTRA_FLAGS" "$HOST_LINKER_EXTRA_FLAGS"
+write_passthrough_compiler_wrapper "${BUILD_TOOLS}/host-cc" "$BUILD_CC_REAL" "$HOST_COMPILER_EXTRA_FLAGS" "$HOST_LINKER_EXTRA_FLAGS"
+write_passthrough_compiler_wrapper "${BUILD_TOOLS}/host-cxx" "$BUILD_CXX_REAL" "$HOST_COMPILER_EXTRA_FLAGS" "$HOST_LINKER_EXTRA_FLAGS"
 CC="${BUILD_TOOLS}/${TARGET_TRIPLE}-cc"
 CXX="${BUILD_TOOLS}/${TARGET_TRIPLE}-cxx"
 BUILD_CC="${BUILD_TOOLS}/host-cc"
@@ -526,6 +555,8 @@ fi
 
 extract_archive_source "$NODEJS_SOURCE_DIR" "$NODEJS_ARCHIVE" "tools/gyp/pylib/gyp/common.py"
 [[ -x "${NODEJS_SOURCE_DIR}/configure" ]] || die "invalid Node.js source tree: missing configure"
+PATCH_DIR="${PATCH_DIR:-/work/mount_root/patch}"
+apply_nodejs_patches
 
 log "Installing Node.js ${NODEJS_VERSION} into ${SDK_PREFIX}"
 build_nodejs "$(nodejs_dest_cpu)"

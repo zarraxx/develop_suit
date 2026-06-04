@@ -36,9 +36,9 @@ All targets are treated as cross-compilation targets, including x86_64 Linux.
 
 No `python_dependencies` or other package dependency prefix is copied into the
 output. Node's own bundled libraries are used instead of shared package
-dependencies. Linux outputs include the target LLVM C++ runtime libraries and
-`libatomic.so.1` in `lib/`, with ELF RUNPATH entries patched to load those
-libraries relative to the package prefix.
+dependencies. Linux outputs include the target LLVM C++ runtime libraries and,
+when required by those runtimes, `libatomic.so.1` in `lib/`, with ELF RUNPATH
+entries patched to load those libraries relative to the package prefix.
 
 ## Build
 
@@ -121,6 +121,11 @@ matches Linux UAPI values and keeps Node's bundled simdjson/simdutf sources
 building with older sysroot headers that do not define the newer LoongArch
 capability macros.
 
+For riscv64, the container applies
+`patch/nodejs-libuv-riscv64-clang-fence.patch` with `patch -p1`. The patch
+replaces libuv's raw RISC-V `.insn` FENCE encoding with the equivalent
+`fence rw, rw` mnemonic accepted by the clang integrated assembler.
+
 The target compiler wrapper invokes clang with:
 
 ```sh
@@ -141,7 +146,7 @@ make install
 
 After install, the script removes ordinary `.a` and `.la` files from the
 package prefix, copies the target LLVM C++ runtime libraries and
-`libatomic.so.1` into `lib/`, patches Linux ELF rpaths with
+`libatomic.so.1` when required into `lib/`, patches Linux ELF rpaths with
 `patch_linux_elf_rpaths`, renders `README.nodejs`, and runs an x86_64 smoke
 test:
 
