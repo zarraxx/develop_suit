@@ -332,13 +332,30 @@ copy_linux_runtime_libraries() {
     /lib
     /lib64
   )
-  libatomic_dir="$(
-    find "${search_roots[@]}" \
-      \( -type f -o -type l \) -name 'libatomic.so.1' \
-      -printf '%h\n' 2>/dev/null | head -n 1
-  )"
+  libatomic_dir="$(find_first_library_dir "libatomic.so.1" "${search_roots[@]}")"
   [[ -n "$libatomic_dir" ]] || die "missing target libatomic.so.1 for ${TARGET_TRIPLE}"
+  log "Copying libatomic from ${libatomic_dir}"
   cp -a "${libatomic_dir}"/libatomic.so* "${SDK_PREFIX}/lib/"
+}
+
+find_first_library_dir() {
+  local library_name="$1"
+  local root=""
+  local library_path=""
+  shift
+
+  for root in "$@"; do
+    [[ -d "$root" ]] || continue
+    library_path="$(
+      find "$root" \( -type f -o -type l \) -name "$library_name" -print -quit 2>/dev/null || true
+    )"
+    if [[ -n "$library_path" ]]; then
+      dirname "$library_path"
+      return 0
+    fi
+  done
+
+  return 0
 }
 
 linux_package_needs_library() {
