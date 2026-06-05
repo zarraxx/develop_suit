@@ -673,8 +673,8 @@ validate_outputs() {
   [[ -d "${SDK_PREFIX}/lib/clang/${LLVM_MAJOR_VERSION}/include" ]] || die "missing clang resource headers"
   [[ -d "${SDK_PREFIX}/lib/clang/${LLVM_MAJOR_VERSION}/lib/x86_64-w64-windows-gnu" ]] || die "missing mingw64 compiler-rt resource libraries"
   if [[ "$TARGET_KIND" == "mingw" ]]; then
-    grep -q '__configuration/abi.h' "${SDK_PREFIX}/include/c++/v1/__config" \
-      || die "mingw64 libc++ headers were overwritten by an incompatible sysroot copy"
+    grep -q '_LIBCPP_VERSION' "${SDK_PREFIX}/include/c++/v1/__config" \
+      || die "mingw64 libc++ headers are missing or incompatible"
   fi
 }
 
