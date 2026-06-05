@@ -60,9 +60,22 @@ apply_source_patch_once() {
   fi
 }
 
+verify_source_contains() {
+  local source_dir="$1"
+  local relative_path="$2"
+  local expected_text="$3"
+
+  [[ -f "${source_dir}/${relative_path}" ]] || die "patched source file not found: ${source_dir}/${relative_path}"
+  grep -Fq "$expected_text" "${source_dir}/${relative_path}" \
+    || die "patched source verification failed: ${relative_path} does not contain '${expected_text}'"
+}
+
 apply_nodejs_patches() {
   if [[ "$ARCH" == "riscv64" ]]; then
-    apply_source_patch_once "$NODEJS_SOURCE_DIR" "${PATCH_DIR}/nodejs-libuv-riscv64-clang-fence.patch"
+    if ! grep -Fq 'fence rw, rw' "${NODEJS_SOURCE_DIR}/deps/uv/src/unix/async.c"; then
+      apply_source_patch_once "$NODEJS_SOURCE_DIR" "${PATCH_DIR}/nodejs-libuv-riscv64-clang-fence.patch"
+    fi
+    verify_source_contains "$NODEJS_SOURCE_DIR" "deps/uv/src/unix/async.c" 'fence rw, rw'
   fi
 }
 
@@ -530,12 +543,14 @@ LINUX_COMPAT_INCLUDE_DIR="${BUILD_TOOLS}/compat-include"
 write_linux_compat_headers "$LINUX_COMPAT_INCLUDE_DIR"
 LINUX_COMPAT_HEADER="${LINUX_COMPAT_INCLUDE_DIR}/nodejs-linux-compat.h"
 TARGET_COMPILER_EXTRA_FLAGS="-I${LINUX_COMPAT_INCLUDE_DIR} -include ${LINUX_COMPAT_HEADER}"
+HOST_COMPILER_EXTRA_FLAGS="-I${LINUX_COMPAT_INCLUDE_DIR} -include ${LINUX_COMPAT_HEADER}"
 TARGET_LINKER_EXTRA_FLAGS="-Wl,--as-needed -Wl,-rpath,\\\$ORIGIN/../lib"
 HOST_LINKER_EXTRA_FLAGS="-Wl,--as-needed"
 if [[ "$ARCH" == "loongarch64" ]]; then
   LOONGARCH64_COMPAT_HEADER="${BUILD_TOOLS}/nodejs-loongarch64-compat.h"
   write_loongarch64_compat_header "$LOONGARCH64_COMPAT_HEADER"
   TARGET_COMPILER_EXTRA_FLAGS="${TARGET_COMPILER_EXTRA_FLAGS} -include ${LOONGARCH64_COMPAT_HEADER}"
+  HOST_COMPILER_EXTRA_FLAGS="${HOST_COMPILER_EXTRA_FLAGS} -include ${LOONGARCH64_COMPAT_HEADER}"
 fi
 COMMON_LDFLAGS="${COMMON_LDFLAGS} -Wl,--as-needed -Wl,-rpath-link,${SYSROOT}/usr/lib -Wl,-rpath-link,${SYSROOT}/usr/lib64 -Wl,-rpath-link,${SYSROOT}/lib -Wl,-rpath-link,${SYSROOT}/lib64"
 

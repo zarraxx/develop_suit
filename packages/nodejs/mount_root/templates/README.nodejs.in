@@ -15,9 +15,10 @@ Linux packages also carry the target LLVM C++ runtime libraries and
 libatomic.so.1 under lib/. ELF RUNPATH entries are patched to resolve those
 libraries relative to the installed prefix.
 
-For loongarch64, the build injects a small generated compatibility header
-through the target and host compiler wrappers. It provides _GNU_SOURCE,
-HWCAP_LOONGARCH_LSX=16, HWCAP_LOONGARCH_LASX=32, MFD_CLOEXEC=1, and a
-memfd_create fallback through syscall(SYS_memfd_create) so bundled V8,
-simdjson, and simdutf can build against older Linux headers that do not expose
-those declarations and UAPI definitions by default.
+Linux builds inject a small generated compatibility header through the target
+and host compiler wrappers. It provides _GNU_SOURCE, MFD_CLOEXEC=1,
+MFD_ALLOW_SEALING=2, memfd_create, and getrandom fallbacks through syscalls so
+bundled V8 and libuv can build against older Linux headers that do not expose
+those declarations by default. For loongarch64, an extra generated header also
+provides HWCAP_LOONGARCH_LSX=16 and HWCAP_LOONGARCH_LASX=32 for bundled
+simdjson and simdutf.

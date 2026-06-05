@@ -115,11 +115,12 @@ python=python3 \
   [--openssl-no-asm for non-x86_64 targets]
 ```
 
-For `loongarch64`, the build adds `HWCAP_LOONGARCH_LSX=16` and
-`HWCAP_LOONGARCH_LASX=32` through the target and host compiler wrappers. This
-matches Linux UAPI values and keeps Node's bundled simdjson/simdutf sources
-building with older sysroot headers that do not define the newer LoongArch
-capability macros.
+Linux builds inject a generated compatibility header through both target and
+host compiler wrappers. It provides `_GNU_SOURCE`, `MFD_CLOEXEC`,
+`MFD_ALLOW_SEALING`, `memfd_create`, `getrandom`, and related syscall fallbacks
+for older Linux headers. For `loongarch64`, an additional generated header adds
+`HWCAP_LOONGARCH_LSX=16` and `HWCAP_LOONGARCH_LASX=32` so bundled
+simdjson/simdutf sources can build against older UAPI headers.
 
 For riscv64, the container applies
 `patch/nodejs-libuv-riscv64-clang-fence.patch` with `patch -p1`. The patch
@@ -129,7 +130,7 @@ replaces libuv's raw RISC-V `.insn` FENCE encoding with the equivalent
 The target compiler wrapper invokes clang with:
 
 ```sh
-clang --target=<target-triple> --sysroot=/opt/sysroot/<target-triple> [loongarch64 HWCAP compatibility defines]
+clang --target=<target-triple> --sysroot=/opt/sysroot/<target-triple> [Linux compatibility headers]
 ```
 
 ### Build
