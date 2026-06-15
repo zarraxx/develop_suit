@@ -1,0 +1,21 @@
+Boost package prefix.
+
+Target triple: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+Boost version: @BOOST_VERSION@
+
+This prefix contains Boost headers and shared Boost libraries built by
+develop_suit packages/boost.
+
+Installed compiled Boost libraries:
+  boost_atomic
+  boost_chrono
+  boost_date_time
+  boost_filesystem
+  boost_serialization
+  boost_system
+  boost_thread
+
+Linux packages also include the LLVM C++ runtime libraries used by the shared
+Boost libraries. Ordinary static archives are intentionally removed after
+install; MinGW import libraries ending in .dll.a are preserved.

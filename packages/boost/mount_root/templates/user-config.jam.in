@@ -1,0 +1,6 @@
+using gcc : develop_suit : @CXX@ :
+  <archiver>@AR@
+  <ranlib>@RANLIB@
+  <compileflags>"@COMMON_CPPFLAGS@ @COMMON_CXXFLAGS@"
+  <linkflags>"@COMMON_LDFLAGS@"
+  ;
