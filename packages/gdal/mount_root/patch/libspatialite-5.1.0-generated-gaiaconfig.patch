@@ -1,0 +1,63 @@
+--- a/src/headers/spatialite/gaiaconfig.h
++++ b/src/headers/spatialite/gaiaconfig.h
+@@ -2,31 +2,31 @@
+ /* ./src/headers/spatialite/gaiaconfig.h.in - manually maintained */
+ 
+ /* Should be defined in order to enable GCP support. */
+-#define ENABLE_GCP 1
++/* #undef ENABLE_GCP */
+ 
+ /* Should be defined in order to enable GeoPackage support. */
+ #define ENABLE_GEOPACKAGE 1
+ 
+ /* Should be defined in order to enable LIBXML2 support. */
+-#define ENABLE_LIBXML2 1
++/* #undef ENABLE_LIBXML2 */
+ 
+ /* Should be defined in order to enable MiniZIP support. */
+-#define ENABLE_MINIZIP 1
++/* #undef ENABLE_MINIZIP */
+ 
+ /* Should be defined in order to enable RTTOPO support. */
+-#define ENABLE_RTTOPO 1
++/* #undef ENABLE_RTTOPO */
+ 
+ /* Should be defined in order to enable GEOS_370 support. */
+ #define GEOS_370 1
+ 
+ /* Should be defined in order to enable GEOS_3100 support. */
+-/* #undef GEOS_3100 */
++#define GEOS_3100 1
+ 
+ /* Should be defined in order to enable GEOS_3110 support. */
+-/* #undef GEOS_3110 */
++#define GEOS_3110 1
+ 
+ /* Should be defined in order to enable GEOS_ADVANCED support. */
+-#define GEOS_ADVANCED 1
++/* #undef GEOS_ADVANCED */
+ 
+ /* Should be defined in order to fully disable GEOS non-thread-safe API. */
+ /* #undef GEOS_ONLY_REENTRANT */
+@@ -38,7 +38,7 @@
+ /* #undef OMIT_EPSG */
+ 
+ /* Should be defined in order to disable FREEXL support. */
+-/* #undef OMIT_FREEXL */
++#define OMIT_FREEXL 1
+ 
+ /* Should be defined in order to disable GEOCALLBACKS support. */
+ /* #undef OMIT_GEOCALLBACKS */
+@@ -56,10 +56,10 @@
+ /* #undef OMIT_MATHSQL */
+ 
+ /* Should be defined in order to disable PROJ.4 support. */
+-/* #undef OMIT_PROJ */
++#define OMIT_PROJ 1
+ 
+ /* Should be defined in order to enable PROJ.6 support. */
+-#define PROJ_NEW 1
++/* #undef PROJ_NEW */
+ 
+ /* Should contain a text-string describing the intended target CPU */
+ #define SPATIALITE_TARGET_CPU "x86_64-redhat-linux"

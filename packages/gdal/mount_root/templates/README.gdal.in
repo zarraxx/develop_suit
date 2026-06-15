@@ -1,0 +1,17 @@
+GDAL package for @TARGET_TRIPLE@
+
+Target kind: @TARGET_KIND@
+
+Components:
+- GEOS @GEOS_VERSION@
+- libyaml @LIBYAML_VERSION@
+- PROJ @PROJ_VERSION@
+- libgeotiff @LIBGEOTIFF_VERSION@
+- minizip from zlib 1.3.2
+- FreeXL @FREEXL_VERSION@
+- libspatialite @LIBSPATIALITE_VERSION@
+- GDAL @GDAL_VERSION@
+
+This prefix is layered on top of postgresql_dependencies and image for the same
+target. PostgreSQL/libpq support is intentionally not enabled in this package;
+PostGIS combines this SDK with the PostgreSQL package separately.

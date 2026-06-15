@@ -237,6 +237,13 @@ write_rsync_wrapper() {
   chmod +x "$wrapper_path"
 }
 
+write_ldconfig_wrapper() {
+  local wrapper_path="${BUILD_TOOLS}/ldconfig"
+
+  render_template "${TEMPLATE_DIR}/ldconfig-wrapper.in" "$wrapper_path"
+  chmod +x "$wrapper_path"
+}
+
 install_build_python_package() {
   local source_dir="$1"
   local package_dir="$2"
@@ -1382,6 +1389,7 @@ write_realpath_wrapper
 write_printf_wrapper
 write_ln_wrapper
 write_rsync_wrapper
+write_ldconfig_wrapper
 prepare_linux_compat_headers
 
 if [[ ! -x "$CC" ]]; then

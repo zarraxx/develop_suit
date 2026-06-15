@@ -1,0 +1,23 @@
+diff --git a/port/cpl_vsil_unix_stdio_64.cpp b/port/cpl_vsil_unix_stdio_64.cpp
+index 0387eea..83d6d11 100644
+--- a/port/cpl_vsil_unix_stdio_64.cpp
++++ b/port/cpl_vsil_unix_stdio_64.cpp
+@@ -1015,7 +1015,7 @@ VSIVirtualHandleUniquePtr
+ VSIUnixStdioFilesystemHandler::CreateOnlyVisibleAtCloseTime(
+     const char *pszFilename, bool bEmulationAllowed, CSLConstList papszOptions)
+ {
+-#ifdef __linux
++#if defined(__linux) && defined(O_TMPFILE)
+     static bool bIsLinkatSupported = []()
+     {
+         // Check that /proc is accessible, since we will need it to run linkat()
+@@ -1049,6 +1049,9 @@ VSIUnixStdioFilesystemHandler::CreateOnlyVisibleAtCloseTime(
+     poHandle->m_osFilename = pszFilename;
+     poHandle->m_bUnlinkedFile = true;
+     return VSIVirtualHandleUniquePtr(poHandle.release());
++#elif defined(__linux)
++    return VSIFilesystemHandler::CreateOnlyVisibleAtCloseTime(
++        pszFilename, bEmulationAllowed, papszOptions);
+ #else
+     if (!bEmulationAllowed)
+         return nullptr;

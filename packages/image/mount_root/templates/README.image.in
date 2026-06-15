@@ -1,0 +1,12 @@
+image package for @TARGET_TRIPLE@
+
+Target kind: @TARGET_KIND@
+
+Components:
+- libjpeg-turbo @LIBJPEG_TURBO_VERSION@
+- libpng @LIBPNG_VERSION@
+- libtiff @LIBTIFF_VERSION@
+
+This prefix is layered on top of postgresql_dependencies for the same target.
+It intentionally does not contain GDAL, GEOS, PROJ, SpatiaLite, PostgreSQL,
+libpq, or pg_config.

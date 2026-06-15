@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec "@REAL_WINDRES@" \
+  --target="@WINDRES_TARGET@" \
+  --include-dir="@MINGW_INCLUDE_DIR@" \
+  "$@"

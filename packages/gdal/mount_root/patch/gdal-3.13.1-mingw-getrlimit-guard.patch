@@ -1,0 +1,22 @@
+diff --git a/port/cpl_vsisimple.cpp b/port/cpl_vsisimple.cpp
+index 8e6516c0d2..e411ef5f25 100644
+--- a/port/cpl_vsisimple.cpp
++++ b/port/cpl_vsisimple.cpp
+@@ -42,7 +42,7 @@
+ #include <ctime>
+ #include <limits>
+ #include <sys/stat.h>
+-#if HAVE_GETRLIMIT
++#if HAVE_GETRLIMIT && !defined(_WIN32)
+ #include <sys/time.h>
+ #include <sys/resource.h>
+ #endif
+@@ -1622,7 +1622,7 @@ GIntBig CPLGetUsablePhysicalRAM(void)
+     if (nRAM > INT_MAX)
+         nRAM = INT_MAX;
+ #endif
+-#if HAVE_GETRLIMIT
++#if HAVE_GETRLIMIT && !defined(_WIN32)
+     struct rlimit sLimit;
+ #if HAVE_RLIMIT_AS
+     const int res = RLIMIT_AS;

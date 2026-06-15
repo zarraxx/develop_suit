@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  --help|-h)
+    echo "ldconfig wrapper: disabled for staged cross-package prefixes"
+    exit 0
+    ;;
+  --version|-V)
+    echo "ldconfig wrapper"
+    exit 0
+    ;;
+esac
+
+exit 0
