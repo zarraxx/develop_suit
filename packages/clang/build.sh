@@ -480,6 +480,7 @@ make_host_writable "$DIST_DIR"
 
 rm -f "$ARCHIVE_PATH"
 prune_broken_symlinks "$OUT_DIR"
+normalize_package_permissions "$OUT_DIR"
 
 tar_args=(-C "$OUT_BASE" -cJf "$ARCHIVE_PATH")
 if [[ "$TARGET_KIND" == "mingw" ]]; then

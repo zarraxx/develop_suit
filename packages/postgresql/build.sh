@@ -558,6 +558,8 @@ if [[ "$TARGET_KIND" == "mingw" ]]; then
   finalize_mingw_timezone_data
 fi
 
+normalize_package_permissions "$OUT_DIR"
+
 rm -f "$ARCHIVE_PATH"
 tar -C "$OUT_BASE" -cJf "$ARCHIVE_PATH" "$PACKAGE_NAME"
 

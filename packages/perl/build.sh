@@ -353,6 +353,7 @@ container_args+=(
 "$CONTAINER_RUNTIME" "${container_args[@]}"
 
 make_host_writable "$PACKAGE_ROOT"
+normalize_package_permissions "$OUT_DIR"
 
 rm -f "$ARCHIVE_PATH"
 tar -C "$OUT_BASE" -cJf "$ARCHIVE_PATH" "$PACKAGE_NAME"

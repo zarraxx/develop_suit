@@ -132,6 +132,22 @@ make_host_writable() {
   fi
 }
 
+normalize_package_permissions() {
+  local path="$1"
+
+  [[ -d "$path" ]] || return 0
+
+  find "$path" -type d -exec chmod 755 {} + 2>/dev/null || true
+  find "$path" -type f -perm /111 -exec chmod 755 {} + 2>/dev/null || true
+  find "$path" -type f ! -perm /111 -exec chmod 644 {} + 2>/dev/null || true
+
+  if command -v podman >/dev/null 2>&1; then
+    podman unshare find "$path" -type d -exec chmod 755 {} + 2>/dev/null || true
+    podman unshare find "$path" -type f -perm /111 -exec chmod 755 {} + 2>/dev/null || true
+    podman unshare find "$path" -type f ! -perm /111 -exec chmod 644 {} + 2>/dev/null || true
+  fi
+}
+
 target_qemu_user_binary_names() {
   local arch="${1:-${ARCH:-}}"
 

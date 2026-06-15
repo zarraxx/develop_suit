@@ -344,6 +344,7 @@ docker run --rm \
   /bin/bash "/work/mount_root/${CONTAINER_SCRIPT}"
 
 make_host_writable "$PACKAGE_ROOT"
+normalize_package_permissions "$OUT_DIR"
 
 rm -f "$ARCHIVE_PATH"
 tar -C "$OUT_BASE" -cJf "$ARCHIVE_PATH" "$PACKAGE_NAME"

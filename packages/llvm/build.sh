@@ -349,6 +349,7 @@ docker run --rm \
   /bin/bash /work/mount_root/container_llvm_sdk.sh
 
 make_host_writable "$SDK_ROOT"
+normalize_package_permissions "$OUT_DIR"
 
 rm -f "$ARCHIVE_PATH"
 tar -C "$OUT_BASE" -cJf "$ARCHIVE_PATH" "$PACKAGE_NAME"

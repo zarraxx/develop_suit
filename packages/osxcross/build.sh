@@ -527,6 +527,8 @@ docker run --rm \
 
 make_host_writable "$BUILD_DIR"
 install_sdk_package_tools "$OUT_DIR"
+normalize_package_permissions "$OUT_DIR"
+
 rm -f "$ARCHIVE_PATH"
 tar -C "$OUT_BASE" -cJf "$ARCHIVE_PATH" "$PACKAGE_NAME"
 
