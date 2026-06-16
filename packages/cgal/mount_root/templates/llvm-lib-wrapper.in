@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+out=""
+args=()
+
+for arg in "$@"; do
+  case "$arg" in
+    -OUT:*|/OUT:*)
+      out="${arg#*:}"
+      ;;
+    -out:*|/out:*)
+      out="${arg#*:}"
+      ;;
+    -nologo|/nologo)
+      ;;
+    *)
+      args+=("$arg")
+      ;;
+  esac
+done
+
+if [[ -z "$out" ]]; then
+  echo "llvm-lib-wrapper: missing -OUT:<archive>" >&2
+  exit 2
+fi
+
+rm -f "$out"
+"@LLVM_AR@" cq "$out" "${args[@]}"
+"@LLVM_RANLIB@" "$out"

@@ -148,6 +148,31 @@ normalize_package_permissions() {
   fi
 }
 
+write_noop_ldconfig_wrapper() {
+  local tools_dir="$1"
+  local wrapper_path="${tools_dir}/ldconfig"
+
+  mkdir -p "$tools_dir"
+  cat >"$wrapper_path" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  --help|-h)
+    echo "ldconfig wrapper: disabled for staged cross-package prefixes"
+    exit 0
+    ;;
+  --version|-V)
+    echo "ldconfig wrapper"
+    exit 0
+    ;;
+esac
+
+exit 0
+EOF
+  chmod +x "$wrapper_path"
+}
+
 target_qemu_user_binary_names() {
   local arch="${1:-${ARCH:-}}"
 

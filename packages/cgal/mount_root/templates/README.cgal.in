@@ -1,0 +1,13 @@
+CGAL/SFCGAL dependency prefix.
+
+Target triple: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+Boost version: @BOOST_VERSION@
+GMP version: @GMP_VERSION@
+MPFR version: @MPFR_VERSION@
+CGAL version: @CGAL_VERSION@
+SFCGAL version: @SFCGAL_VERSION@
+
+This prefix is layered on top of the same-target Boost package and adds the
+geometry dependencies used by PostGIS SFCGAL support. It intentionally does not
+contain PostgreSQL, libpq, GDAL, GEOS, or PROJ.

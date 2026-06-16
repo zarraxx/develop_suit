@@ -603,6 +603,7 @@ PATCH_DIR="${PATCH_DIR:-/work/mount_root/patch}"
 TOOLCHAIN_FILE="${BUILD_TOOLS}/cmake-toolchain.cmake"
 
 mkdir -p "$DEP_SOURCE_DIR" "$DEP_BUILD_DIR" "$BUILD_TOOLS" "${SDK_PREFIX}/lib"
+write_noop_ldconfig_wrapper "$BUILD_TOOLS"
 
 if [[ ! -x "$CC" ]]; then
   write_clang_wrapper "${BUILD_TOOLS}/${TARGET_TRIPLE}-clang" "${LLVM_ROOT}/bin/clang"
