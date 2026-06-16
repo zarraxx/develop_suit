@@ -1,0 +1,190 @@
+name: package_groonga
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  GROONGA_PACKAGE_VERSION: ${{ inputs.groonga_version || '16.0.5' }}
+  XXHASH_PACKAGE_VERSION: ${{ inputs.xxhash_version || '0.8.3' }}
+  MSGPACKC_PACKAGE_VERSION: ${{ inputs.msgpackc_version || '6.1.0' }}
+  LLVM_PACKAGE_VERSION: ${{ inputs.llvm_version || '18.1.8' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      groonga_version:
+        description: "Groonga version to build and publish; release tag is groonga-<version>"
+        required: false
+        type: string
+        default: "16.0.5"
+      xxhash_version:
+        description: "xxHash version to build"
+        required: false
+        type: string
+        default: "0.8.3"
+      msgpackc_version:
+        description: "msgpack-c version to build"
+        required: false
+        type: string
+        default: "6.1.0"
+      llvm_version:
+        description: "Bootstrap LLVM toolchain version"
+        required: false
+        type: string
+        default: "18.1.8"
+      publish_release:
+        description: "Create or update a GitHub Release after building"
+        required: true
+        type: boolean
+        default: true
+      release_name:
+        description: "Release title, defaults to groonga-<version>"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark the GitHub Release as prerelease"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-meta:
+    name: resolve-meta
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_GROONGA_VERSION: ${{ inputs.groonga_version }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+        run: |
+          set -euo pipefail
+
+          groonga_version="${INPUT_GROONGA_VERSION:-16.0.5}"
+          release_tag="groonga-${groonga_version}"
+
+          release_name="${INPUT_RELEASE_NAME}"
+          if [[ -z "${release_name}" ]]; then
+            release_name="${release_tag}"
+          fi
+
+          {
+            echo "release_tag=${release_tag}"
+            echo "release_name=${release_name}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build-groonga:
+    name: groonga-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    needs: resolve-meta
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64
+            triple: x86_64-unknown-linux-gnu
+          - target: aarch64
+            triple: aarch64-unknown-linux-gnu
+          - target: riscv64
+            triple: riscv64-unknown-linux-gnu
+          - target: loongarch64
+            triple: loongarch64-unknown-linux-gnu
+          - target: mingw64
+            triple: x86_64-w64-windows-gnu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-package-groonga-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-package-groonga-cache-
+            ${{ runner.os }}-package-postgresql-dependencies-cache-
+            ${{ runner.os }}-package-python-dependencies-cache-
+            ${{ runner.os }}-package-llvm-dependencies-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
+            ${{ runner.os }}-stage-mingw64-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+            ${{ runner.os }}-stage-python-cache-
+
+      - name: Build Groonga package
+        run: |
+          set -euo pipefail
+
+          package_name="groonga-${{ env.GROONGA_PACKAGE_VERSION }}-${{ matrix.triple }}"
+
+          bash ./packages/groonga/build.sh \
+            --target="${{ matrix.target }}" \
+            --xxhash-version="${{ env.XXHASH_PACKAGE_VERSION }}" \
+            --msgpackc-version="${{ env.MSGPACKC_PACKAGE_VERSION }}" \
+            --groonga-version="${{ env.GROONGA_PACKAGE_VERSION }}" \
+            --llvm-version="${{ env.LLVM_PACKAGE_VERSION }}" \
+            --package-name="${package_name}" \
+            --clean \
+            --pull \
+            --jobs=4
+
+      - name: Upload Groonga artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: groonga-${{ matrix.target }}
+          path: |
+            packages/groonga/build/dist/groonga-${{ env.GROONGA_PACKAGE_VERSION }}-${{ matrix.triple }}.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-meta
+      - build-groonga
+    if: ${{ inputs.publish_release }}
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: groonga-*
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve-meta.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.resolve-meta.outputs.release_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            prerelease_flag=(--prerelease)
+          fi
+
+          if gh release view "${RELEASE_TAG}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}" \
+              --notes "Groonga ${{ env.GROONGA_PACKAGE_VERSION }} packages."
+          fi
+
+          gh release upload "${RELEASE_TAG}" --repo "${GH_REPO}" artifacts/*.tar.xz --clobber

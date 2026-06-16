@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec "@REAL_WINDRES@" --target="@WINDRES_TARGET@" @RC_FLAGS@ "$@"

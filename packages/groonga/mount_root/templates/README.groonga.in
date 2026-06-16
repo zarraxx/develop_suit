@@ -1,0 +1,13 @@
+# Groonga package
+
+Target: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+
+Components:
+
+- xxHash @XXHASH_VERSION@
+- msgpack-c @MSGPACKC_VERSION@
+- Groonga @GROONGA_VERSION@
+
+This prefix is intended to be consumed by PGroonga builds. It provides
+Groonga headers, libraries, pkg-config metadata, and CMake package metadata.
