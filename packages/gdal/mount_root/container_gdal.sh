@@ -22,6 +22,27 @@ download_archive() {
   fi
 }
 
+download_archive_any() {
+  local archive_name="$1"
+  shift
+
+  local url=""
+
+  mkdir -p "$CACHE_DIR"
+  if [[ ! -s "${CACHE_DIR}/${archive_name}" ]]; then
+    rm -f "${CACHE_DIR:?}/${archive_name}" "${CACHE_DIR}/${archive_name}.tmp"
+    for url in "$@"; do
+      log "Downloading ${archive_name} from ${url}"
+      if curl -L --fail --retry 3 -o "${CACHE_DIR}/${archive_name}.tmp" "$url"; then
+        mv "${CACHE_DIR}/${archive_name}.tmp" "${CACHE_DIR}/${archive_name}"
+        return 0
+      fi
+      rm -f "${CACHE_DIR}/${archive_name}.tmp"
+    done
+    die "failed to download ${archive_name}"
+  fi
+}
+
 extract_archive_source() {
   local source_dir="$1"
   local archive_name="$2"
@@ -647,7 +668,10 @@ download_archive "https://download.osgeo.org/geos/${GEOS_ARCHIVE}" "$GEOS_ARCHIV
 download_archive "https://pyyaml.org/download/libyaml/${LIBYAML_ARCHIVE}" "$LIBYAML_ARCHIVE"
 download_archive "https://github.com/OSGeo/PROJ/releases/download/${PROJ_VERSION}/${PROJ_ARCHIVE}" "$PROJ_ARCHIVE"
 download_archive "https://github.com/OSGeo/libgeotiff/releases/download/${LIBGEOTIFF_VERSION}/${LIBGEOTIFF_ARCHIVE}" "$LIBGEOTIFF_ARCHIVE"
-download_archive "https://zlib.net/${ZLIB_ARCHIVE}" "$ZLIB_ARCHIVE"
+download_archive_any "$ZLIB_ARCHIVE" \
+  "https://zlib.net/${ZLIB_ARCHIVE}" \
+  "https://zlib.net/fossils/${ZLIB_ARCHIVE}" \
+  "https://github.com/madler/zlib/releases/download/v1.3.2/${ZLIB_ARCHIVE}"
 download_archive "https://www.gaia-gis.it/gaia-sins/${FREEXL_ARCHIVE}" "$FREEXL_ARCHIVE"
 download_archive "https://www.gaia-gis.it/gaia-sins/libspatialite-sources/${LIBSPATIALITE_ARCHIVE}" "$LIBSPATIALITE_ARCHIVE"
 download_archive "https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/${GDAL_ARCHIVE}" "$GDAL_ARCHIVE"
