@@ -156,7 +156,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-package-cgal-cache-
             ${{ runner.os }}-package-boost-cache-
-            ${{ runner.os }}-package-python-cache-
             ${{ runner.os }}-package-python-dependencies-cache-
             ${{ runner.os }}-package-llvm-dependencies-cache-
             ${{ runner.os }}-package-llvmsdk-cache-
