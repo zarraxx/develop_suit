@@ -172,9 +172,6 @@ jobs:
             ${{ runner.os }}-package-python-dependencies-cache-
             ${{ runner.os }}-package-llvm-dependencies-cache-
             ${{ runner.os }}-package-llvmsdk-cache-
-            ${{ runner.os }}-stage-mingw64-cache-
-            ${{ runner.os }}-stage-llvm-cache-
-            ${{ runner.os }}-stage-python-cache-
 
       - name: Download GDAL package archive
         env:
