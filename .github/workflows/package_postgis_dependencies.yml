@@ -1,0 +1,318 @@
+name: package_postgis_dependencies
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  GDAL_PACKAGE_VERSION: ${{ inputs.gdal_version || '3.13.1' }}
+  CGAL_PACKAGE_VERSION: ${{ inputs.cgal_version || '5.6.3' }}
+  SFCGAL_PACKAGE_VERSION: ${{ inputs.sfcgal_version || '1.5.2' }}
+  QHULL_PACKAGE_VERSION: ${{ inputs.qhull_version || '2020.2' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      gdal_version:
+        description: "GDAL package version used as the base prefix"
+        required: false
+        type: string
+        default: "3.13.1"
+      cgal_version:
+        description: "CGAL package version used as the overlay prefix"
+        required: false
+        type: string
+        default: "5.6.3"
+      sfcgal_version:
+        description: "SFCGAL package version in the CGAL/SFCGAL archive name"
+        required: false
+        type: string
+        default: "1.5.2"
+      qhull_version:
+        description: "Qhull version label to build"
+        required: false
+        type: string
+        default: "2020.2"
+      publish_release:
+        description: "Create or update a GitHub Release after building"
+        required: true
+        type: boolean
+        default: true
+      release_name:
+        description: "Release title, defaults to release_tag"
+        required: false
+        type: string
+      gdal_release_tag:
+        description: "Release tag that contains gdal-<version>-<triple>.tar.xz; defaults to gdal-<gdal_version>"
+        required: false
+        type: string
+      gdal_asset_prefix:
+        description: "Asset prefix for GDAL archives; defaults to gdal-<gdal_version>"
+        required: false
+        type: string
+      cgal_release_tag:
+        description: "Release tag that contains cgal-<cgal_version>-sfcgal-<sfcgal_version>-<triple>.tar.xz"
+        required: false
+        type: string
+      cgal_asset_prefix:
+        description: "Asset prefix for CGAL/SFCGAL archives; defaults to cgal-<cgal_version>-sfcgal-<sfcgal_version>"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark the GitHub Release as prerelease"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-meta:
+    name: resolve-meta
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      gdal_release_tag: ${{ steps.meta.outputs.gdal_release_tag }}
+      gdal_asset_prefix: ${{ steps.meta.outputs.gdal_asset_prefix }}
+      cgal_release_tag: ${{ steps.meta.outputs.cgal_release_tag }}
+      cgal_asset_prefix: ${{ steps.meta.outputs.cgal_asset_prefix }}
+
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_GDAL_VERSION: ${{ inputs.gdal_version }}
+          INPUT_CGAL_VERSION: ${{ inputs.cgal_version }}
+          INPUT_SFCGAL_VERSION: ${{ inputs.sfcgal_version }}
+          INPUT_QHULL_VERSION: ${{ inputs.qhull_version }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+          INPUT_GDAL_RELEASE_TAG: ${{ inputs.gdal_release_tag }}
+          INPUT_GDAL_ASSET_PREFIX: ${{ inputs.gdal_asset_prefix }}
+          INPUT_CGAL_RELEASE_TAG: ${{ inputs.cgal_release_tag }}
+          INPUT_CGAL_ASSET_PREFIX: ${{ inputs.cgal_asset_prefix }}
+        run: |
+          set -euo pipefail
+
+          gdal_version="${INPUT_GDAL_VERSION:-3.13.1}"
+          cgal_version="${INPUT_CGAL_VERSION:-5.6.3}"
+          sfcgal_version="${INPUT_SFCGAL_VERSION:-1.5.2}"
+          qhull_version="${INPUT_QHULL_VERSION:-2020.2}"
+          cgal_stem="cgal-${cgal_version}-sfcgal-${sfcgal_version}"
+          release_tag="postgis_dependencies-gdal-${gdal_version}-cgal-${cgal_version}-qhull-${qhull_version}"
+
+          release_name="${INPUT_RELEASE_NAME}"
+          if [[ -z "${release_name}" ]]; then
+            release_name="${release_tag}"
+          fi
+
+          gdal_release_tag="${INPUT_GDAL_RELEASE_TAG}"
+          if [[ -z "${gdal_release_tag}" ]]; then
+            gdal_release_tag="gdal-${gdal_version}"
+          fi
+
+          gdal_asset_prefix="${INPUT_GDAL_ASSET_PREFIX}"
+          if [[ -z "${gdal_asset_prefix}" ]]; then
+            gdal_asset_prefix="gdal-${gdal_version}"
+          fi
+
+          cgal_release_tag="${INPUT_CGAL_RELEASE_TAG}"
+          if [[ -z "${cgal_release_tag}" ]]; then
+            cgal_release_tag="${cgal_stem}"
+          fi
+
+          cgal_asset_prefix="${INPUT_CGAL_ASSET_PREFIX}"
+          if [[ -z "${cgal_asset_prefix}" ]]; then
+            cgal_asset_prefix="${cgal_stem}"
+          fi
+
+          {
+            echo "release_tag=${release_tag}"
+            echo "release_name=${release_name}"
+            echo "gdal_release_tag=${gdal_release_tag}"
+            echo "gdal_asset_prefix=${gdal_asset_prefix}"
+            echo "cgal_release_tag=${cgal_release_tag}"
+            echo "cgal_asset_prefix=${cgal_asset_prefix}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build-postgis-dependencies:
+    name: postgis-dependencies-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    needs: resolve-meta
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64
+            triple: x86_64-unknown-linux-gnu
+          - target: aarch64
+            triple: aarch64-unknown-linux-gnu
+          - target: riscv64
+            triple: riscv64-unknown-linux-gnu
+          - target: loongarch64
+            triple: loongarch64-unknown-linux-gnu
+          - target: mingw64
+            triple: x86_64-w64-windows-gnu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-package-postgis-dependencies-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-package-postgis-dependencies-cache-
+            ${{ runner.os }}-package-gdal-cache-
+            ${{ runner.os }}-package-cgal-cache-
+            ${{ runner.os }}-package-image-cache-
+            ${{ runner.os }}-package-postgresql-dependencies-cache-
+            ${{ runner.os }}-package-boost-cache-
+            ${{ runner.os }}-package-python-dependencies-cache-
+            ${{ runner.os }}-package-llvm-dependencies-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
+            ${{ runner.os }}-stage-mingw64-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+            ${{ runner.os }}-stage-python-cache-
+
+      - name: Download GDAL package archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          DEPENDENCY_RELEASE_TAG: ${{ needs.resolve-meta.outputs.gdal_release_tag }}
+          DEPENDENCY_ASSET_PREFIX: ${{ needs.resolve-meta.outputs.gdal_asset_prefix }}
+          DEPENDENCY_TRIPLE: ${{ matrix.triple }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p packages/postgis_dependencies/build/inputs
+          dependency_asset="${DEPENDENCY_ASSET_PREFIX}-${DEPENDENCY_TRIPLE}.tar.xz"
+
+          for attempt in $(seq 1 72); do
+            if gh release download "${DEPENDENCY_RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --pattern "${dependency_asset}" \
+              --dir packages/postgis_dependencies/build/inputs; then
+              exit 0
+            fi
+
+            echo "dependency asset not ready yet: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset} (attempt ${attempt}/72)"
+            sleep 300
+          done
+
+          echo "timed out waiting for dependency asset: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset}" >&2
+          exit 1
+
+      - name: Download CGAL/SFCGAL package archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          DEPENDENCY_RELEASE_TAG: ${{ needs.resolve-meta.outputs.cgal_release_tag }}
+          DEPENDENCY_ASSET_PREFIX: ${{ needs.resolve-meta.outputs.cgal_asset_prefix }}
+          DEPENDENCY_TRIPLE: ${{ matrix.triple }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p packages/postgis_dependencies/build/inputs
+          dependency_asset="${DEPENDENCY_ASSET_PREFIX}-${DEPENDENCY_TRIPLE}.tar.xz"
+
+          for attempt in $(seq 1 72); do
+            if gh release download "${DEPENDENCY_RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --pattern "${dependency_asset}" \
+              --dir packages/postgis_dependencies/build/inputs; then
+              exit 0
+            fi
+
+            echo "dependency asset not ready yet: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset} (attempt ${attempt}/72)"
+            sleep 300
+          done
+
+          echo "timed out waiting for dependency asset: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset}" >&2
+          exit 1
+
+      - name: Build PostGIS dependency package
+        run: |
+          set -euo pipefail
+
+          package_name="postgis_dependencies-${{ matrix.triple }}"
+          gdal_archive="packages/postgis_dependencies/build/inputs/${{ needs.resolve-meta.outputs.gdal_asset_prefix }}-${{ matrix.triple }}.tar.xz"
+          cgal_archive="packages/postgis_dependencies/build/inputs/${{ needs.resolve-meta.outputs.cgal_asset_prefix }}-${{ matrix.triple }}.tar.xz"
+
+          [[ -f "${gdal_archive}" ]] || {
+            echo "missing downloaded GDAL archive: ${gdal_archive}" >&2
+            exit 1
+          }
+          [[ -f "${cgal_archive}" ]] || {
+            echo "missing downloaded CGAL/SFCGAL archive: ${cgal_archive}" >&2
+            exit 1
+          }
+
+          bash ./packages/postgis_dependencies/build.sh \
+            --target="${{ matrix.target }}" \
+            --gdal-version="${{ env.GDAL_PACKAGE_VERSION }}" \
+            --cgal-version="${{ env.CGAL_PACKAGE_VERSION }}" \
+            --sfcgal-version="${{ env.SFCGAL_PACKAGE_VERSION }}" \
+            --qhull-version="${{ env.QHULL_PACKAGE_VERSION }}" \
+            --gdal-archive="${gdal_archive}" \
+            --cgal-archive="${cgal_archive}" \
+            --package-name="${package_name}" \
+            --clean \
+            --pull \
+            --jobs=4
+
+      - name: Upload PostGIS dependency artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: postgis-dependencies-${{ matrix.target }}
+          path: |
+            packages/postgis_dependencies/build/dist/postgis_dependencies-${{ matrix.triple }}.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-meta
+      - build-postgis-dependencies
+    if: ${{ inputs.publish_release }}
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: postgis-dependencies-*
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve-meta.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.resolve-meta.outputs.release_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            prerelease_flag=(--prerelease)
+          fi
+
+          if gh release view "${RELEASE_TAG}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}" \
+              --notes "PostGIS dependency packages for GDAL ${{ env.GDAL_PACKAGE_VERSION }}, CGAL ${{ env.CGAL_PACKAGE_VERSION }}, Qhull ${{ env.QHULL_PACKAGE_VERSION }}."
+          fi
+
+          gh release upload "${RELEASE_TAG}" --repo "${GH_REPO}" artifacts/*.tar.xz --clobber

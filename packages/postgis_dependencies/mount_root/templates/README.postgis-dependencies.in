@@ -1,0 +1,20 @@
+PostGIS dependency prefix.
+
+Target triple: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+
+Base packages:
+- GDAL @GDAL_VERSION@
+- CGAL @CGAL_VERSION@
+- SFCGAL @SFCGAL_VERSION@
+
+Additional dependency sources:
+- libmd @LIBMD_VERSION@
+- libbsd @LIBBSD_VERSION@
+- Qhull @QHULL_VERSION@
+- protobuf @PROTOBUF_VERSION@
+- protobuf-c @PROTOBUF_C_VERSION@
+
+This prefix is intended as the reusable dependency SDK for building PostGIS.
+It intentionally does not contain PostgreSQL, libpq, pg_config, or PostGIS
+itself; those are combined in the PostGIS package step.

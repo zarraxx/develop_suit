@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec "@REAL_COMPILER@" \
+  --target="@TARGET_TRIPLE@" \
+  --sysroot="@SYSROOT@" \
+  -fuse-ld=lld \
+  "$@"
