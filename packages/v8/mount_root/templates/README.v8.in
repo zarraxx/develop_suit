@@ -1,0 +1,13 @@
+# V8 package
+
+- Target: @TARGET_TRIPLE@
+- v8-cmake/V8 version: @V8_VERSION@
+- LLVM toolchain: @LLVM_VERSION@
+- Upstream archive: https://github.com/bnoordhuis/v8-cmake/archive/refs/tags/@V8_VERSION@.tar.gz
+
+This package contains V8 public headers and the static libraries produced by
+v8-cmake. It is intended as an input for PostgreSQL PL/V8 builds.
+
+The current package is x86_64 Linux only. Other targets need a separate
+host-tool build for torque and mksnapshot before target V8 libraries can be
+cross-compiled reliably.

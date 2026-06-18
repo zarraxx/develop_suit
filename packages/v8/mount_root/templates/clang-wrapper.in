@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec "@REAL_COMPILER@" --target="@TARGET_TRIPLE@" --sysroot="@SYSROOT@" @EXTRA_FLAGS@ "$@" @EXTRA_LINK_FLAGS@

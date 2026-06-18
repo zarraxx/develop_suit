@@ -1,0 +1,9 @@
+prefix=@SDK_PREFIX@
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: v8
+Description: V8 JavaScript engine built from v8-cmake
+Version: @V8_VERSION@
+Cflags: -I${includedir}
+Libs: -L${libdir} @V8_LIBS@
