@@ -44,16 +44,23 @@ extract_archive_source() {
 
 apply_v8_patches() {
   local marker="${V8_SOURCE_DIR}/.develop-suit-v8-patches"
+  local patch_file=""
 
   if [[ ! -f "$marker" ]]; then
     log "Applying v8-cmake package patches"
-    (cd "$V8_SOURCE_DIR" && patch -p1 -i "${PATCH_DIR}/v8-cmake-loong64.patch")
-    printf '%s\n' "v8-cmake-loong64.patch" >"$marker"
+    for patch_file in \
+        v8-cmake-loong64.patch \
+        v8-mingw-export-template.patch \
+        v8-mingw-platform-guards.patch \
+        v8-mingw-disable-etw.patch; do
+      (cd "$V8_SOURCE_DIR" && patch -p1 -i "${PATCH_DIR}/${patch_file}")
+      printf '%s\n' "$patch_file" >>"$marker"
+    done
   fi
 }
 
 build_host_tools() {
-  [[ "$ARCH" == "loongarch64" ]] || return 0
+  [[ "$ARCH" == "loongarch64" || "$TARGET_KIND" == "mingw" ]] || return 0
 
   log "Building host V8 generator tools"
   cmake -S "$V8_SOURCE_DIR" -B "$V8_HOST_BUILD_DIR" -G Ninja \
@@ -88,7 +95,7 @@ write_clang_wrapper() {
 
 write_toolchain_file() {
   render_template "${TEMPLATE_DIR}/cmake-toolchain.cmake.in" "$TOOLCHAIN_FILE" \
-    "CMAKE_SYSTEM_NAME=Linux" \
+    "CMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}" \
     "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}" \
     "CC=${CC}" \
     "CXX=${CXX}" \
@@ -100,7 +107,7 @@ write_toolchain_file() {
     "STRIP=${STRIP}" \
     "SYSROOT=${SYSROOT}" \
     "SDK_PREFIX=${SDK_PREFIX}" \
-    "TARGET_ROOT=${SYSROOT}" \
+    "TARGET_ROOT=${TARGET_ROOT}" \
     "LLVM_ROOT=${LLVM_ROOT}"
 }
 
@@ -131,7 +138,13 @@ install_v8_libraries() {
 }
 
 install_v8_metadata() {
-  local libs="-Wl,--start-group -lv8_snapshot -lv8_initializers -lv8_compiler -lv8_base_without_compiler -lv8_torque_generated -lv8_inspector -lv8_libplatform -lv8_libsampler -lv8_libbase -Wl,--end-group -ldl -pthread"
+  local system_libs="-ldl -pthread"
+  local libs=""
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    system_libs="-lwinmm -ldbghelp -lws2_32"
+  fi
+  libs="-Wl,--start-group -lv8_snapshot -lv8_initializers -lv8_compiler -lv8_base_without_compiler -lv8_torque_generated -lv8_inspector -lv8_libplatform -lv8_libsampler -lv8_libbase -Wl,--end-group ${system_libs}"
 
   log "Installing V8 package metadata"
   mkdir -p "${SDK_PREFIX}/lib/pkgconfig" "${SDK_PREFIX}/lib/cmake/V8"
@@ -142,7 +155,8 @@ install_v8_metadata() {
     "V8_LIBS=${libs}"
 
   render_template "${TEMPLATE_DIR}/V8Config.cmake.in" "${SDK_PREFIX}/lib/cmake/V8/V8Config.cmake" \
-    "V8_VERSION=${V8_VERSION}"
+    "V8_VERSION=${V8_VERSION}" \
+    "V8_SYSTEM_LIBS=${system_libs// /;}"
 }
 
 validate_v8() {
@@ -164,10 +178,9 @@ CACHE_DIR="${CACHE_DIR:-/work/cache}"
 BUILD_DIR="${BUILD_DIR:-/work/build}"
 LLVM_ROOT="${LLVM_ROOT:-/opt/llvm-${LLVM_VERSION}}"
 
-[[ "$TARGET_KIND" == "linux" ]] || die "container_v8 currently supports only Linux"
-case "$ARCH" in
-  x86_64|loongarch64) ;;
-  *) die "container_v8 currently supports only x86_64 and loongarch64 Linux" ;;
+case "${TARGET_KIND}:${ARCH}" in
+  linux:x86_64|linux:loongarch64|mingw:x86_64) ;;
+  *) die "container_v8 currently supports x86_64/loongarch64 Linux and x86_64 MinGW" ;;
 esac
 [[ -n "$TARGET_TRIPLE" ]] || die "TARGET_TRIPLE is required"
 [[ -d "$LLVM_ROOT" ]] || die "missing LLVM root: ${LLVM_ROOT}"
@@ -180,7 +193,23 @@ require_command ninja
 require_command patch
 require_command pkg-config
 
-SYSROOT="${SYSROOT:-/opt/sysroot/${TARGET_TRIPLE}}"
+case "$TARGET_KIND" in
+  linux)
+    SYSROOT="${SYSROOT:-/opt/sysroot/${TARGET_TRIPLE}}"
+    TARGET_ROOT="$SYSROOT"
+    CMAKE_SYSTEM_NAME="Linux"
+    CMAKE_SYSTEM_PROCESSOR="$ARCH"
+    ;;
+  mingw)
+    TARGET_ROOT="${TARGET_ROOT:-/opt/${TARGET_TRIPLE}}"
+    SYSROOT="${SYSROOT:-${TARGET_ROOT}/sysroot}"
+    CMAKE_SYSTEM_NAME="Windows"
+    CMAKE_SYSTEM_PROCESSOR="x86_64"
+    ;;
+  *)
+    die "unsupported TARGET_KIND: ${TARGET_KIND}"
+    ;;
+esac
 [[ -d "$SYSROOT" ]] || die "missing sysroot: ${SYSROOT}"
 
 DEP_SOURCE_DIR="${BUILD_DIR}/src"
@@ -192,13 +221,17 @@ TOOLCHAIN_FILE="${BUILD_TOOLS}/cmake-toolchain.cmake"
 V8_SOURCE_DIR="${DEP_SOURCE_DIR}/v8-cmake"
 V8_BUILD_DIR="${DEP_BUILD_DIR}/v8-cmake"
 V8_HOST_BUILD_DIR="${DEP_BUILD_DIR}/v8-cmake-host"
-CMAKE_SYSTEM_PROCESSOR="$ARCH"
 
 mkdir -p "$DEP_SOURCE_DIR" "$DEP_BUILD_DIR" "$BUILD_TOOLS" "${SDK_PREFIX}/lib"
 write_noop_ldconfig_wrapper "$BUILD_TOOLS"
 
-CC="${CC:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang}"
-CXX="${CXX:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang++}"
+if [[ "$TARGET_KIND" == "mingw" ]]; then
+  CC="${CC:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang-gcc}"
+  CXX="${CXX:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang-g++}"
+else
+  CC="${CC:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang}"
+  CXX="${CXX:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang++}"
+fi
 AR="${AR:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-ar}"
 LD="${LD:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-ld}"
 RANLIB="${RANLIB:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-ranlib}"
@@ -213,9 +246,14 @@ OBJCOPY="${OBJCOPY:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-objcopy}"
 [[ -x "$NM" ]] || NM="${LLVM_ROOT}/bin/llvm-nm"
 [[ -x "$OBJCOPY" ]] || OBJCOPY="${LLVM_ROOT}/bin/llvm-objcopy"
 
-COMMON_CFLAGS="-fPIC -pthread -Wno-unused-command-line-argument"
-COMMON_CXXFLAGS="-fPIC -pthread -Wno-invalid-offsetof -Wno-deprecated-declarations -Wno-unused-command-line-argument"
-COMMON_LDFLAGS="-pthread -Wl,-rpath-link,${SYSROOT}/usr/lib -Wl,-rpath-link,${SYSROOT}/usr/lib64 -Wl,-rpath-link,${SYSROOT}/lib -Wl,-rpath-link,${SYSROOT}/lib64"
+COMMON_CFLAGS="-Wno-unused-command-line-argument"
+COMMON_CXXFLAGS="-Wno-invalid-offsetof -Wno-deprecated-declarations -Wno-unused-command-line-argument"
+COMMON_LDFLAGS=""
+if [[ "$TARGET_KIND" == "linux" ]]; then
+  COMMON_CFLAGS="-fPIC -pthread ${COMMON_CFLAGS}"
+  COMMON_CXXFLAGS="-fPIC -pthread ${COMMON_CXXFLAGS}"
+  COMMON_LDFLAGS="-pthread -Wl,-rpath-link,${SYSROOT}/usr/lib -Wl,-rpath-link,${SYSROOT}/usr/lib64 -Wl,-rpath-link,${SYSROOT}/lib -Wl,-rpath-link,${SYSROOT}/lib64"
+fi
 
 if [[ ! -x "$CC" ]]; then
   write_clang_wrapper "${BUILD_TOOLS}/${TARGET_TRIPLE}-clang" "${LLVM_ROOT}/bin/clang" "$COMMON_CFLAGS"
@@ -244,6 +282,11 @@ extract_archive_source "$V8_SOURCE_DIR" "$V8_ARCHIVE" "CMakeLists.txt"
 apply_v8_patches
 build_host_tools
 
+target_cmake_args=()
+if [[ "$TARGET_KIND" == "mingw" ]]; then
+  target_cmake_args+=("-DV8_ENABLE_SYSTEM_INSTRUMENTATION=OFF")
+fi
+
 log "Configuring v8-cmake ${V8_VERSION}"
 cmake -S "$V8_SOURCE_DIR" -B "$V8_BUILD_DIR" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
@@ -256,12 +299,13 @@ cmake -S "$V8_SOURCE_DIR" -B "$V8_BUILD_DIR" -G Ninja \
   -DCMAKE_SHARED_LINKER_FLAGS="$COMMON_LDFLAGS" \
   -DCMAKE_MODULE_LINKER_FLAGS="$COMMON_LDFLAGS" \
   -DV8_ENABLE_I18N=OFF \
+  "${target_cmake_args[@]}" \
   "-DPYTHON_EXECUTABLE=$(command -v python3)"
 
 log "Building V8 libraries and d8 smoke binary"
 cmake --build "$V8_BUILD_DIR" --target v8_snapshot --parallel "$JOBS"
 cmake --build "$V8_BUILD_DIR" --target d8 --parallel "$JOBS"
-if [[ "$ARCH" == "x86_64" ]]; then
+if [[ "$TARGET_KIND" == "linux" && "$ARCH" == "x86_64" ]]; then
   "${V8_BUILD_DIR}/d8" -e "if (6 * 7 !== 42) throw new Error('bad arithmetic')"
 else
   log "Skipping d8 smoke test for non-native target ${TARGET_TRIPLE}"

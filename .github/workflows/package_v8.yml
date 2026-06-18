@@ -69,11 +69,14 @@ jobs:
       matrix:
         target:
           - name: x86_64
-            arch: x86_64
+            target: x86_64
             triple: x86_64-unknown-linux-gnu
           - name: loongarch64
-            arch: loongarch64
+            target: loongarch64
             triple: loongarch64-unknown-linux-gnu
+          - name: mingw64
+            target: mingw64
+            triple: x86_64-w64-windows-gnu
 
     steps:
       - name: Checkout
@@ -97,7 +100,7 @@ jobs:
           package_name="v8-${{ env.V8_PACKAGE_VERSION }}-${{ matrix.target.triple }}"
 
           bash ./packages/v8/build.sh \
-            --target="${{ matrix.target.arch }}" \
+            --target="${{ matrix.target.target }}" \
             --v8-version="${{ env.V8_PACKAGE_VERSION }}" \
             --package-name="${package_name}" \
             --clean \

@@ -1,0 +1,56 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -17,8 +17,12 @@
+ endif()
+ 
+ add_definitions("-DV8_ENABLE_WEBASSEMBLY -DV8_ADVANCED_BIGINT_ALGORITHMS -DV8_ENABLE_WASM_SIMD256_REVEC")
++option(V8_ENABLE_SYSTEM_INSTRUMENTATION "Enable Windows system instrumentation" ON)
+ if(WIN32)
+-  add_definitions("-DNOMINMAX -DV8_ENABLE_SYSTEM_INSTRUMENTATION")
++  add_definitions("-DNOMINMAX")
++  if(V8_ENABLE_SYSTEM_INSTRUMENTATION)
++    add_definitions("-DV8_ENABLE_SYSTEM_INSTRUMENTATION")
++  endif()
+   # todo: for zlib, need to extract zlib when refactor
+   add_definitions("-DX86_WINDOWS")
+   add_definitions("-D_WIN32_WINNT=0x0602")
+@@ -780,7 +782,7 @@
+ add_library(v8_libplatform STATIC)
+ target_sources(v8_libplatform
+   PRIVATE
+-    $<${is-win}:v8/src/libplatform/tracing/recorder-win.cc>
++    $<$<AND:${is-win},$<BOOL:${V8_ENABLE_SYSTEM_INSTRUMENTATION}>>:v8/src/libplatform/tracing/recorder-win.cc>
+     v8/src/libplatform/default-foreground-task-runner.cc
+     v8/src/libplatform/default-job.cc
+     v8/src/libplatform/default-platform.cc
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -469,6 +469,7 @@
+ )
+ 
+ if (WIN32)
++  set(windows-version 0x0602)
+   if (CMAKE_SYSTEM_VERSION VERSION_GREATER 10) # Windows 10
+     set(windows-version 0x0A00)
+   elseif (CMAKE_SYSTEM_VERSION VERSION_GREATER 6.3) # Windows 8.1
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -299,7 +299,7 @@
+   v8/src/heap/cppgc/caged-heap.cc
+ )
+ 
+-if(WIN32)
++if(MSVC)
+   list(APPEND heap-sources
+     $<${is-arm64}:v8/src/heap/base/asm/arm64/push_registers_masm.asm>
+     $<${is-ia32}:v8/src/heap/base/asm/ia32/push_registers_masm.asm>
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -112,7 +112,6 @@
+   $<${is-ppc}:V8_TARGET_ARCH_PPC>
+   $<${is-ppc64}:V8_TARGET_ARCH_PPC64>
+   $<${is-win}:NOMINMAX>
+-  $<$<AND:${is-win},${is-x64}>:V8_OS_WIN_X64>
+   $<$<BOOL:${V8_ENABLE_CONCURRENT_MARKING}>:V8_CONCURRENT_MARKING>
+   $<${is-win}:V8_OS_WIN32>
+ )

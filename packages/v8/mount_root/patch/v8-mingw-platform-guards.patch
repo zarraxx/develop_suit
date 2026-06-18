@@ -1,0 +1,102 @@
+--- a/v8/src/base/bits.h
++++ b/v8/src/base/bits.h
+@@ -17,6 +17,14 @@
+ #include "src/base/win32-headers.h"
+ #endif
+ 
++#if defined(__MINGW32__)
++#ifdef RotateRight32
++#undef RotateRight32
++#endif
++#ifdef RotateLeft32
++#undef RotateLeft32
++#endif
++#endif
+ namespace v8 {
+ namespace base {
+ namespace bits {
+--- a/v8/src/base/platform/time.cc
++++ b/v8/src/base/platform/time.cc
+@@ -790,8 +790,9 @@
+ #elif defined(__PASE__)
+   // Thread CPU time accounting is unavailable in PASE
+   return false;
+-#elif(defined(_POSIX_THREAD_CPUTIME) && (_POSIX_THREAD_CPUTIME >= 0)) || \
+-    defined(V8_OS_DARWIN) || defined(V8_OS_ANDROID) || defined(V8_OS_SOLARIS)
++#elif ((defined(_POSIX_THREAD_CPUTIME) && (_POSIX_THREAD_CPUTIME >= 0)) || \
++       defined(V8_OS_DARWIN) || defined(V8_OS_ANDROID) || \
++       defined(V8_OS_SOLARIS)) && !defined(V8_OS_WIN)
+   return true;
+ #elif defined(V8_OS_WIN)
+   return IsSupportedWin();
+@@ -818,6 +819,7 @@
+   return ThreadTicks(GetFuchsiaThreadTicks());
+ #elif(defined(_POSIX_THREAD_CPUTIME) && (_POSIX_THREAD_CPUTIME >= 0)) || \
+   defined(V8_OS_ANDROID)
++#if !V8_OS_WIN
+   return ThreadTicks(ClockNow(CLOCK_THREAD_CPUTIME_ID));
+ #elif V8_OS_SOLARIS
+   return ThreadTicks(gethrvtime() / Time::kNanosecondsPerMicrosecond);
+@@ -826,6 +828,9 @@
+ #else
+   UNREACHABLE();
+ #endif
++#else
++  return ThreadTicks::GetForThread(::GetCurrentThread());
++#endif
+ }
+ 
+ 
+--- a/v8/src/base/platform/platform-win32.cc
++++ b/v8/src/base/platform/platform-win32.cc
+@@ -18,7 +18,11 @@
+ #include <windows.h>
+ 
+ // This has to come after windows.h.
++#if defined(__MINGW32__)
++#include <versionhelpers.h>
++#else
+ #include <VersionHelpers.h>
++#endif
+ #include <dbghelp.h>  // For SymLoadModule64 and al.
+ #include <malloc.h>   // For _msize()
+ #include <mmsystem.h>  // For timeGetTime().
+@@ -66,7 +69,7 @@
+ 
+ // Extra functions for MinGW. Most of these are the _s functions which are in
+ // the Microsoft Visual Studio C++ CRT.
+-#ifdef __MINGW32__
++#if defined(__MINGW32__) && !defined(__MINGW64_VERSION_MAJOR)
+ 
+ 
+ #ifndef __MINGW64_VERSION_MAJOR
+@@ -117,6 +120,19 @@
+ 
+ }  // namespace
+ 
++#if defined(__MINGW32__)
++bool IsWindows10OrGreater() {
++  OSVERSIONINFOEXW osvi = {};
++  osvi.dwOSVersionInfoSize = sizeof(osvi);
++  osvi.dwMajorVersion = 10;
++
++  DWORDLONG condition_mask = 0;
++  VER_SET_CONDITION(condition_mask, VER_MAJORVERSION, VER_GREATER_EQUAL);
++
++  return VerifyVersionInfoW(&osvi, VER_MAJORVERSION, condition_mask) != FALSE;
++}
++#endif
++
+ class WindowsTimezoneCache : public TimezoneCache {
+  public:
+   WindowsTimezoneCache() : initialized_(false) {}
+--- a/v8/src/profiler/heap-snapshot-generator.cc
++++ b/v8/src/profiler/heap-snapshot-generator.cc
+@@ -412,7 +412,7 @@
+   static_assert(kSystemPointerSize != 8 || sizeof(HeapGraphEdge) == 24);
+   static_assert(kSystemPointerSize != 4 || sizeof(HeapEntry) == 32);
+-#if V8_CC_MSVC
++#if V8_CC_MSVC || defined(__MINGW32__)
+   static_assert(kSystemPointerSize != 8 || sizeof(HeapEntry) == 48);
+ #else   // !V8_CC_MSVC
+   static_assert(kSystemPointerSize != 8 || sizeof(HeapEntry) == 40);
