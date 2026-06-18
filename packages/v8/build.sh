@@ -16,6 +16,7 @@ Usage:
 
 Targets:
   x86_64, x86_64-unknown-linux-gnu
+  aarch64, arm64, aarch64-unknown-linux-gnu
   riscv64, riscv64-unknown-linux-gnu
   loongarch64, loongarch64-unknown-linux-gnu
   mingw64, windows, x86_64-w64-windows-gnu
@@ -110,8 +111,8 @@ done
 [[ -n "$TARGET" ]] || die "--target is required"
 resolve_target "$TARGET" "V8 target"
 case "${TARGET_KIND}:${ARCH}" in
-  linux:x86_64|linux:riscv64|linux:loongarch64|mingw:x86_64) ;;
-  *) die "V8 package currently supports x86_64/riscv64/loongarch64 Linux and x86_64 MinGW" ;;
+  linux:x86_64|linux:aarch64|linux:riscv64|linux:loongarch64|mingw:x86_64) ;;
+  *) die "V8 package currently supports x86_64/aarch64/riscv64/loongarch64 Linux and x86_64 MinGW" ;;
 esac
 
 if [[ -z "$PACKAGE_NAME" ]]; then

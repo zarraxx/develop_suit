@@ -9,10 +9,10 @@ intended for PostgreSQL PL/V8 builds.
 This package owns the V8 JavaScript engine headers, static V8 libraries, and
 basic discovery metadata. It does not build PL/V8 or PostgreSQL.
 
-The current implementation supports Linux x86_64, Linux riscv64, Linux
-loongarch64, and x86_64 MinGW targets. For riscv64, loongarch64, and MinGW, the
-package builds native host generator tools before the target build so CMake
-custom commands can run
+The current implementation supports Linux x86_64, Linux aarch64, Linux riscv64,
+Linux loongarch64, and x86_64 MinGW targets. For aarch64, riscv64, loongarch64,
+and MinGW, the package builds native host generator tools before the target
+build so CMake custom commands can run
 `torque`, `mksnapshot`, and `bytecode_builtins_list_generator` on the build
 host.
 
@@ -27,6 +27,7 @@ host.
 ## Supported Targets
 
 - `x86_64-unknown-linux-gnu`
+- `aarch64-unknown-linux-gnu`
 - `riscv64-unknown-linux-gnu`
 - `loongarch64-unknown-linux-gnu`
 - `x86_64-w64-windows-gnu`
@@ -38,6 +39,7 @@ The package script accepts the common package knobs `--target`/`--arch`,
 
 ```bash
 ./packages/v8/build.sh --target=x86_64 --jobs=12
+./packages/v8/build.sh --target=aarch64 --jobs=12
 ./packages/v8/build.sh --target=riscv64 --jobs=12
 ./packages/v8/build.sh --target=loongarch64 --jobs=12
 ./packages/v8/build.sh --target=mingw64 --jobs=12
@@ -89,10 +91,11 @@ cmake --build <build> --target d8 --parallel <jobs>
 ```
 
 The `v8_snapshot` target runs `mksnapshot` to generate `embedded.S` and
-`snapshot.cc`. For riscv64, loongarch64, and MinGW, `mksnapshot` is built as a
-host tool and invoked from the target build through `PATH`. The `d8` target is
-run as a smoke test only for the native x86_64 Linux package; non-native and
-MinGW packages validate installed headers and metadata but skip execution.
+`snapshot.cc`. For aarch64, riscv64, loongarch64, and MinGW, `mksnapshot` is
+built as a host tool and invoked from the target build through `PATH`. The `d8`
+target is run as a smoke test only for the native x86_64 Linux package;
+non-native and MinGW packages validate installed headers and metadata but skip
+execution.
 
 ## Install And Validation Steps
 

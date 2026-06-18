@@ -49,6 +49,9 @@ apply_v8_patches() {
   local patch_files=()
 
   case "${TARGET_KIND}:${ARCH}" in
+    linux:aarch64)
+      patch_files=(v8-cmake-aarch64.patch)
+      ;;
     linux:loongarch64)
       patch_files=(v8-cmake-loong64.patch)
       ;;
@@ -84,7 +87,7 @@ apply_v8_patches() {
 }
 
 build_host_tools() {
-  [[ "$TARGET_KIND" == "mingw" || "$ARCH" == "loongarch64" || "$ARCH" == "riscv64" ]] || return 0
+  [[ "$TARGET_KIND" == "mingw" || "$ARCH" == "aarch64" || "$ARCH" == "loongarch64" || "$ARCH" == "riscv64" ]] || return 0
 
   log "Building host V8 generator tools"
   cmake -S "$V8_SOURCE_DIR" -B "$V8_HOST_BUILD_DIR" -G Ninja \
@@ -203,8 +206,8 @@ BUILD_DIR="${BUILD_DIR:-/work/build}"
 LLVM_ROOT="${LLVM_ROOT:-/opt/llvm-${LLVM_VERSION}}"
 
 case "${TARGET_KIND}:${ARCH}" in
-  linux:x86_64|linux:riscv64|linux:loongarch64|mingw:x86_64) ;;
-  *) die "container_v8 currently supports x86_64/riscv64/loongarch64 Linux and x86_64 MinGW" ;;
+  linux:x86_64|linux:aarch64|linux:riscv64|linux:loongarch64|mingw:x86_64) ;;
+  *) die "container_v8 currently supports x86_64/aarch64/riscv64/loongarch64 Linux and x86_64 MinGW" ;;
 esac
 [[ -n "$TARGET_TRIPLE" ]] || die "TARGET_TRIPLE is required"
 [[ -d "$LLVM_ROOT" ]] || die "missing LLVM root: ${LLVM_ROOT}"
