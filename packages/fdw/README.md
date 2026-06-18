@@ -15,3 +15,18 @@ https://github.com/redis/hiredis/archive/refs/tags/v1.4.0.tar.gz
 
 mongodb
 https://github.com/mongodb/mongo-c-driver/releases/download/2.3.1/mongo-c-driver-2.3.1.tar.gz
+
+
+oracle instant client
+
+windows x64
+https://download.oracle.com/otn_software/nt/instantclient/2326200/instantclient-sdk-windows.x64-23.26.2.0.0.zip
+https://download.oracle.com/otn_software/nt/instantclient/2326200/instantclient-basic-windows.x64-23.26.2.0.0.zip
+
+linux x64
+https://download.oracle.com/otn_software/linux/instantclient/2122000/instantclient-basic-linux.x64-21.22.0.0.0dbru.zip
+https://download.oracle.com/otn_software/linux/instantclient/2122000/instantclient-sdk-linux.x64-21.22.0.0.0dbru.zip
+
+linux arm64
+https://download.oracle.com/otn_software/linux/instantclient/2326200/instantclient-basic-linux.arm64-23.26.2.0.0.zip
+https://download.oracle.com/otn_software/linux/instantclient/2326200/instantclient-sdk-linux.arm64-23.26.2.0.0.zip
