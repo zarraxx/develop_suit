@@ -45,22 +45,46 @@ extract_archive_source() {
 apply_v8_patches() {
   local marker="${V8_SOURCE_DIR}/.develop-suit-v8-patches"
   local patch_file=""
+  local patch_set=""
+  local patch_files=()
+
+  case "${TARGET_KIND}:${ARCH}" in
+    linux:loongarch64)
+      patch_files=(v8-cmake-loong64.patch)
+      ;;
+    linux:riscv64)
+      patch_files=(v8-cmake-riscv64.patch)
+      ;;
+    mingw:x86_64)
+      patch_files=(
+        v8-mingw-export-template.patch
+        v8-mingw-platform-guards.patch
+        v8-mingw-disable-etw.patch
+      )
+      ;;
+  esac
+
+  printf -v patch_set '%s\n' "${patch_files[@]}"
+
+  if [[ -f "$marker" ]] && ! cmp -s "$marker" <(printf '%s' "$patch_set"); then
+    die "v8 source tree has a different patch set; rerun with --clean for ${TARGET_TRIPLE}"
+  fi
 
   if [[ ! -f "$marker" ]]; then
-    log "Applying v8-cmake package patches"
-    for patch_file in \
-        v8-cmake-loong64.patch \
-        v8-mingw-export-template.patch \
-        v8-mingw-platform-guards.patch \
-        v8-mingw-disable-etw.patch; do
+    if [[ "${#patch_files[@]}" -eq 0 ]]; then
+      log "No v8-cmake package patches needed for ${TARGET_TRIPLE}"
+    else
+      log "Applying v8-cmake package patches for ${TARGET_TRIPLE}"
+    fi
+    for patch_file in "${patch_files[@]}"; do
       (cd "$V8_SOURCE_DIR" && patch -p1 -i "${PATCH_DIR}/${patch_file}")
-      printf '%s\n' "$patch_file" >>"$marker"
     done
+    printf '%s' "$patch_set" >"$marker"
   fi
 }
 
 build_host_tools() {
-  [[ "$ARCH" == "loongarch64" || "$TARGET_KIND" == "mingw" ]] || return 0
+  [[ "$TARGET_KIND" == "mingw" || "$ARCH" == "loongarch64" || "$ARCH" == "riscv64" ]] || return 0
 
   log "Building host V8 generator tools"
   cmake -S "$V8_SOURCE_DIR" -B "$V8_HOST_BUILD_DIR" -G Ninja \
@@ -179,8 +203,8 @@ BUILD_DIR="${BUILD_DIR:-/work/build}"
 LLVM_ROOT="${LLVM_ROOT:-/opt/llvm-${LLVM_VERSION}}"
 
 case "${TARGET_KIND}:${ARCH}" in
-  linux:x86_64|linux:loongarch64|mingw:x86_64) ;;
-  *) die "container_v8 currently supports x86_64/loongarch64 Linux and x86_64 MinGW" ;;
+  linux:x86_64|linux:riscv64|linux:loongarch64|mingw:x86_64) ;;
+  *) die "container_v8 currently supports x86_64/riscv64/loongarch64 Linux and x86_64 MinGW" ;;
 esac
 [[ -n "$TARGET_TRIPLE" ]] || die "TARGET_TRIPLE is required"
 [[ -d "$LLVM_ROOT" ]] || die "missing LLVM root: ${LLVM_ROOT}"
@@ -253,6 +277,11 @@ if [[ "$TARGET_KIND" == "linux" ]]; then
   COMMON_CFLAGS="-fPIC -pthread ${COMMON_CFLAGS}"
   COMMON_CXXFLAGS="-fPIC -pthread ${COMMON_CXXFLAGS}"
   COMMON_LDFLAGS="-pthread -Wl,-rpath-link,${SYSROOT}/usr/lib -Wl,-rpath-link,${SYSROOT}/usr/lib64 -Wl,-rpath-link,${SYSROOT}/lib -Wl,-rpath-link,${SYSROOT}/lib64"
+fi
+if [[ "$TARGET_KIND" == "linux" && "$ARCH" == "riscv64" ]]; then
+  COMMON_CFLAGS="-mno-relax ${COMMON_CFLAGS}"
+  COMMON_CXXFLAGS="-mno-relax ${COMMON_CXXFLAGS}"
+  COMMON_LDFLAGS="-Wl,--no-relax ${COMMON_LDFLAGS}"
 fi
 
 if [[ ! -x "$CC" ]]; then

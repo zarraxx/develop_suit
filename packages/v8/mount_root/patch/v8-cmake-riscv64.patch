@@ -1,0 +1,84 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -71,6 +71,10 @@
+ set(is-ia32 0)
+ set(is-mips 0)
+ set(is-mips64 0)
++set(is-riscv64 0)
++if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(riscv64|riscv64gc)")
++  set(is-riscv64 1)
++endif()
+ set(is-ppc 0)
+ set(is-ppc64 0)
+ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(ppc|powerpc)")
+@@ -100,6 +104,7 @@
+   $<${is-win}:V8_TARGET_OS_WIN>
+   $<${is-x64}:V8_TARGET_ARCH_X64>
+   $<${is-arm64}:V8_TARGET_ARCH_ARM64>
++  $<${is-riscv64}:V8_TARGET_ARCH_RISCV64>
+   $<${is-ppc}:V8_TARGET_ARCH_PPC>
+   $<${is-ppc64}:V8_TARGET_ARCH_PPC64>
+   $<${is-win}:NOMINMAX>
+@@ -302,6 +307,7 @@
+     $<${is-ia32}:v8/src/heap/base/asm/ia32/push_registers_asm.cc>
+     $<${is-mips64}:v8/src/heap/base/asm/mips64/push_registers_asm.cc>
+     $<${is-mips}:v8/src/heap/base/asm/mips/push_registers_asm.cc>
++    $<${is-riscv64}:v8/src/heap/base/asm/riscv/push_registers_asm.cc>
+     $<${is-ppc}:v8/src/heap/base/asm/ppc/push_registers_asm.cc>
+     $<${is-s390}:v8/src/heap/base/asm/s390/push_registers_asm.cc>
+     $<${is-x64}:v8/src/heap/base/asm/x64/push_registers_asm.cc>
+@@ -367,6 +373,26 @@
+   $<${is-arm64}:v8/src/diagnostics/arm64/eh-frame-arm64.cc>
+   $<${is-arm64}:v8/src/execution/arm64/frame-constants-arm64.cc>
+   $<${is-arm64}:v8/src/regexp/arm64/regexp-macro-assembler-arm64.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/assembler-riscv.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/base-assembler-riscv.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/base-constants-riscv.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/base-riscv-i.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/cpu-riscv.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/extension-riscv-a.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/extension-riscv-c.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/extension-riscv-d.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/extension-riscv-f.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/extension-riscv-m.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/extension-riscv-v.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/extension-riscv-zicsr.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/extension-riscv-zifencei.cc>
++  $<${is-riscv64}:v8/src/codegen/riscv/macro-assembler-riscv.cc>
++  $<${is-riscv64}:v8/src/deoptimizer/riscv/deoptimizer-riscv.cc>
++  $<${is-riscv64}:v8/src/diagnostics/riscv/disasm-riscv.cc>
++  $<${is-riscv64}:v8/src/diagnostics/riscv/unwinder-riscv.cc>
++  $<${is-riscv64}:v8/src/execution/riscv/frame-constants-riscv.cc>
++  $<${is-riscv64}:v8/src/execution/riscv/simulator-riscv.cc>
++  $<${is-riscv64}:v8/src/regexp/riscv/regexp-macro-assembler-riscv.cc>
+   $<$<AND:${is-ppc},${is-ppc64}>:v8/src/codegen/ppc/assembler-ppc.cc>
+   $<$<AND:${is-ppc},${is-ppc64}>:v8/src/codegen/ppc/constants-ppc.cc>
+   $<$<AND:${is-ppc},${is-ppc64}>:v8/src/codegen/ppc/cpu-ppc.cc>
+@@ -504,6 +530,11 @@
+ 
+ add_library(v8_compiler STATIC)
+ target_sources(v8_compiler PRIVATE ${compiler-sources})
++target_sources(v8_compiler PRIVATE
++  $<${is-riscv64}:v8/src/compiler/backend/riscv/code-generator-riscv.cc>
++  $<${is-riscv64}:v8/src/compiler/backend/riscv/instruction-scheduler-riscv.cc>
++  $<${is-riscv64}:v8/src/compiler/backend/riscv/instruction-selector-riscv64.cc>
++)
+ target_compile_definitions(v8_compiler PRIVATE ${v8_defines} $<${is-msvc}:_HAS_EXCEPTIONS=0>)
+ target_compile_options(v8_compiler PRIVATE ${disable-exceptions})
+ if(enable-fPIC)
+@@ -539,6 +570,7 @@
+   $<${is-ia32}:v8/src/builtins/ia32/builtins-ia32.cc>
+   $<${is-mips64}:v8/src/builtins/mips64/builtins-mips64.cc>
+   $<${is-mips}:v8/src/builtins/mips/builtins-mips.cc>
++  $<${is-riscv64}:v8/src/builtins/riscv/builtins-riscv.cc>
+   $<${is-ppc}:v8/src/builtins/ppc/builtins-ppc.cc>
+   $<${is-s390}:v8/src/builtins/s390/builtins-s390.cc>
+   $<${is-x64}:v8/src/builtins/x64/builtins-x64.cc>
+@@ -632,6 +664,7 @@
+     --embedded_src ${PROJECT_BINARY_DIR}/embedded.S
+     --startup_src ${PROJECT_BINARY_DIR}/snapshot.cc
+     $<${is-arm64}:--target_arch=arm64>
++    $<${is-riscv64}:--target_arch=riscv64>
+     $<${is-x64}:--target_arch=x64>
+     $<${is-ppc}:--target_arch=ppc>
+     $<${is-ppc64}:--target_arch=ppc64>
