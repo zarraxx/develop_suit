@@ -60,10 +60,20 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
   build-v8:
-    name: v8-x86_64
+    name: v8-${{ matrix.target.name }}
     runs-on: ubuntu-24.04
     needs: resolve-meta
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: x86_64
+            arch: x86_64
+            triple: x86_64-unknown-linux-gnu
+          - name: loongarch64
+            arch: loongarch64
+            triple: loongarch64-unknown-linux-gnu
 
     steps:
       - name: Checkout
@@ -84,10 +94,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          package_name="v8-${{ env.V8_PACKAGE_VERSION }}-x86_64-unknown-linux-gnu"
+          package_name="v8-${{ env.V8_PACKAGE_VERSION }}-${{ matrix.target.triple }}"
 
           bash ./packages/v8/build.sh \
-            --target=x86_64 \
+            --target="${{ matrix.target.arch }}" \
             --v8-version="${{ env.V8_PACKAGE_VERSION }}" \
             --package-name="${package_name}" \
             --clean \
@@ -97,9 +107,9 @@ jobs:
       - name: Upload V8 artifact
         uses: actions/upload-artifact@v7
         with:
-          name: v8-x86_64
+          name: v8-${{ matrix.target.name }}
           path: |
-            packages/v8/build/dist/v8-${{ env.V8_PACKAGE_VERSION }}-x86_64-unknown-linux-gnu.tar.xz
+            packages/v8/build/dist/v8-${{ env.V8_PACKAGE_VERSION }}-${{ matrix.target.triple }}.tar.xz
           if-no-files-found: error
           retention-days: 14
 

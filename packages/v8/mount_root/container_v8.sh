@@ -42,6 +42,36 @@ extract_archive_source() {
   [[ -e "${source_dir}/${marker_path}" ]] || die "invalid source tree: ${source_dir}"
 }
 
+apply_v8_patches() {
+  local marker="${V8_SOURCE_DIR}/.develop-suit-v8-patches"
+
+  if [[ ! -f "$marker" ]]; then
+    log "Applying v8-cmake package patches"
+    (cd "$V8_SOURCE_DIR" && patch -p1 -i "${PATCH_DIR}/v8-cmake-loong64.patch")
+    printf '%s\n' "v8-cmake-loong64.patch" >"$marker"
+  fi
+}
+
+build_host_tools() {
+  [[ "$ARCH" == "loongarch64" ]] || return 0
+
+  log "Building host V8 generator tools"
+  cmake -S "$V8_SOURCE_DIR" -B "$V8_HOST_BUILD_DIR" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_C_COMPILER="${LLVM_ROOT}/bin/clang" \
+    -DCMAKE_CXX_COMPILER="${LLVM_ROOT}/bin/clang++" \
+    -DCMAKE_C_FLAGS="-pthread -Wno-unused-command-line-argument" \
+    -DCMAKE_CXX_FLAGS="-pthread -Wno-invalid-offsetof -Wno-deprecated-declarations -Wno-unused-command-line-argument" \
+    -DCMAKE_EXE_LINKER_FLAGS="-pthread" \
+    -DV8_ENABLE_I18N=OFF \
+    "-DPYTHON_EXECUTABLE=$(command -v python3)"
+
+  cmake --build "$V8_HOST_BUILD_DIR" --target bytecode_builtins_list_generator --parallel "$JOBS"
+  cmake --build "$V8_HOST_BUILD_DIR" --target torque --parallel "$JOBS"
+  cmake --build "$V8_HOST_BUILD_DIR" --target mksnapshot --parallel "$JOBS"
+}
+
 write_clang_wrapper() {
   local wrapper_path="$1"
   local real_compiler="$2"
@@ -59,7 +89,7 @@ write_clang_wrapper() {
 write_toolchain_file() {
   render_template "${TEMPLATE_DIR}/cmake-toolchain.cmake.in" "$TOOLCHAIN_FILE" \
     "CMAKE_SYSTEM_NAME=Linux" \
-    "CMAKE_SYSTEM_PROCESSOR=x86_64" \
+    "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}" \
     "CC=${CC}" \
     "CXX=${CXX}" \
     "AR=${AR}" \
@@ -134,8 +164,11 @@ CACHE_DIR="${CACHE_DIR:-/work/cache}"
 BUILD_DIR="${BUILD_DIR:-/work/build}"
 LLVM_ROOT="${LLVM_ROOT:-/opt/llvm-${LLVM_VERSION}}"
 
-[[ "$ARCH" == "x86_64" ]] || die "container_v8 currently supports only x86_64"
 [[ "$TARGET_KIND" == "linux" ]] || die "container_v8 currently supports only Linux"
+case "$ARCH" in
+  x86_64|loongarch64) ;;
+  *) die "container_v8 currently supports only x86_64 and loongarch64 Linux" ;;
+esac
 [[ -n "$TARGET_TRIPLE" ]] || die "TARGET_TRIPLE is required"
 [[ -d "$LLVM_ROOT" ]] || die "missing LLVM root: ${LLVM_ROOT}"
 [[ -d "$SDK_PREFIX" ]] || die "missing V8 package prefix: ${SDK_PREFIX}"
@@ -144,6 +177,7 @@ require_command curl
 require_command tar
 require_command cmake
 require_command ninja
+require_command patch
 require_command pkg-config
 
 SYSROOT="${SYSROOT:-/opt/sysroot/${TARGET_TRIPLE}}"
@@ -153,9 +187,12 @@ DEP_SOURCE_DIR="${BUILD_DIR}/src"
 DEP_BUILD_DIR="${BUILD_DIR}/build"
 BUILD_TOOLS="${BUILD_DIR}/tools"
 TEMPLATE_DIR="${TEMPLATE_DIR:-/work/mount_root/templates}"
+PATCH_DIR="${PATCH_DIR:-/work/mount_root/patch}"
 TOOLCHAIN_FILE="${BUILD_TOOLS}/cmake-toolchain.cmake"
 V8_SOURCE_DIR="${DEP_SOURCE_DIR}/v8-cmake"
 V8_BUILD_DIR="${DEP_BUILD_DIR}/v8-cmake"
+V8_HOST_BUILD_DIR="${DEP_BUILD_DIR}/v8-cmake-host"
+CMAKE_SYSTEM_PROCESSOR="$ARCH"
 
 mkdir -p "$DEP_SOURCE_DIR" "$DEP_BUILD_DIR" "$BUILD_TOOLS" "${SDK_PREFIX}/lib"
 write_noop_ldconfig_wrapper "$BUILD_TOOLS"
@@ -191,7 +228,7 @@ fi
 [[ -x "$CC" ]] || die "missing target C compiler: ${CC}"
 [[ -x "$CXX" ]] || die "missing target C++ compiler: ${CXX}"
 
-export PATH="${V8_BUILD_DIR}:${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
+export PATH="${V8_HOST_BUILD_DIR}:${V8_BUILD_DIR}:${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
 export PKG_CONFIG_SYSROOT_DIR=
 
 write_toolchain_file
@@ -204,6 +241,8 @@ fi
 [[ -f "$V8_ARCHIVE" ]] || die "missing v8-cmake archive: ${V8_ARCHIVE}"
 
 extract_archive_source "$V8_SOURCE_DIR" "$V8_ARCHIVE" "CMakeLists.txt"
+apply_v8_patches
+build_host_tools
 
 log "Configuring v8-cmake ${V8_VERSION}"
 cmake -S "$V8_SOURCE_DIR" -B "$V8_BUILD_DIR" -G Ninja \
@@ -222,7 +261,11 @@ cmake -S "$V8_SOURCE_DIR" -B "$V8_BUILD_DIR" -G Ninja \
 log "Building V8 libraries and d8 smoke binary"
 cmake --build "$V8_BUILD_DIR" --target v8_snapshot --parallel "$JOBS"
 cmake --build "$V8_BUILD_DIR" --target d8 --parallel "$JOBS"
-"${V8_BUILD_DIR}/d8" -e "if (6 * 7 !== 42) throw new Error('bad arithmetic')"
+if [[ "$ARCH" == "x86_64" ]]; then
+  "${V8_BUILD_DIR}/d8" -e "if (6 * 7 !== 42) throw new Error('bad arithmetic')"
+else
+  log "Skipping d8 smoke test for non-native target ${TARGET_TRIPLE}"
+fi
 
 install_v8_headers
 install_v8_libraries

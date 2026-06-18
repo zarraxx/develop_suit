@@ -16,6 +16,7 @@ Usage:
 
 Targets:
   x86_64, x86_64-unknown-linux-gnu
+  loongarch64, loongarch64-unknown-linux-gnu
 
 Options:
   --target=<target>             V8 target, see list above
@@ -106,7 +107,11 @@ done
 
 [[ -n "$TARGET" ]] || die "--target is required"
 resolve_target "$TARGET" "V8 target"
-[[ "$TARGET_KIND" == "linux" && "$ARCH" == "x86_64" ]] || die "V8 package currently supports only x86_64 Linux; cross targets need host-tool patches first"
+[[ "$TARGET_KIND" == "linux" ]] || die "V8 package currently supports only Linux targets"
+case "$ARCH" in
+  x86_64|loongarch64) ;;
+  *) die "V8 package currently supports only x86_64 and loongarch64 Linux" ;;
+esac
 
 if [[ -z "$PACKAGE_NAME" ]]; then
   PACKAGE_NAME="v8-${V8_VERSION}-${PACKAGE_TRIPLE}"

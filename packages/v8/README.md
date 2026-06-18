@@ -9,9 +9,11 @@ intended for PostgreSQL PL/V8 builds.
 This package owns the V8 JavaScript engine headers, static V8 libraries, and
 basic discovery metadata. It does not build PL/V8 or PostgreSQL.
 
-The current implementation supports only `x86_64-unknown-linux-gnu`. The
-upstream `v8-cmake` build can compile and run V8 generator tools on x86_64, but
-cross targets need additional host-tool patches for `torque` and `mksnapshot`.
+The current implementation supports Linux x86_64 and loongarch64 targets. For
+loongarch64, the package patches v8-cmake to register the loong64 source lists
+and builds native host generator tools before the target build so CMake custom
+commands can run `torque`, `mksnapshot`, and
+`bytecode_builtins_list_generator` on the build host.
 
 ## Inputs
 
@@ -24,6 +26,7 @@ cross targets need additional host-tool patches for `torque` and `mksnapshot`.
 ## Supported Targets
 
 - `x86_64-unknown-linux-gnu`
+- `loongarch64-unknown-linux-gnu`
 
 The package script accepts the common package knobs `--target`/`--arch`,
 `--clean`, and `--jobs=<n>`.
@@ -32,6 +35,7 @@ The package script accepts the common package knobs `--target`/`--arch`,
 
 ```bash
 ./packages/v8/build.sh --target=x86_64 --jobs=12
+./packages/v8/build.sh --target=loongarch64 --jobs=12
 ./packages/v8/build.sh --target=x86_64 --v8-version=11.6.189.4 --clean --jobs=12
 ```
 
@@ -69,7 +73,10 @@ cmake --build <build> --target d8 --parallel <jobs>
 ```
 
 The `v8_snapshot` target runs `mksnapshot` to generate `embedded.S` and
-`snapshot.cc`. The `d8` target is used only as a smoke test.
+`snapshot.cc`. For loongarch64, `mksnapshot` is built as a host tool and invoked
+with `--target_arch=loong64`. The `d8` target is run as a smoke test only for
+the native x86_64 package; non-native packages validate installed headers and
+metadata but skip execution.
 
 ## Install And Validation Steps
 
@@ -80,7 +87,8 @@ manually:
 - Copies v8-cmake static libraries to `lib/`.
 - Writes `lib/pkgconfig/v8.pc`.
 - Writes `lib/cmake/V8/V8Config.cmake`.
-- Runs `d8 -e "if (6 * 7 !== 42) throw new Error('bad arithmetic')"`.
+- Runs `d8 -e "if (6 * 7 !== 42) throw new Error('bad arithmetic')"` for the
+  x86_64 package.
 - Validates public headers, static libraries, pkg-config metadata, and CMake
   metadata.
 
@@ -92,7 +100,7 @@ inputs.
 ## Output Layout
 
 ```text
-v8-<version>-x86_64-unknown-linux-gnu/
+v8-<version>-<triple>/
   README.v8
   include/
   lib/
@@ -104,5 +112,5 @@ v8-<version>-x86_64-unknown-linux-gnu/
 ## Release Artifact
 
 ```text
-v8-<version>-x86_64-unknown-linux-gnu.tar.xz
+v8-<version>-<triple>.tar.xz
 ```
