@@ -27,7 +27,7 @@ Options:
   --freetds-version=<ver>         FreeTDS version (default: 1.5.16)
   --mariadb-version=<ver>         MariaDB Connector/C version (default: 3.4.9)
   --hiredis-version=<ver>         hiredis version (default: 1.4.0)
-  --mongo-c-driver-version=<ver>  MongoDB C Driver version (default: 2.3.1)
+  --mongo-c-driver-version=<ver>  MongoDB C Driver version (default: 1.30.8)
   --postgresql-deps-archive=<tar> postgresql_dependencies archive to use as base prefix
   --postgresql-deps-dir=<dir>     Already extracted postgresql_dependencies prefix
   --llvm-version=<ver>            Bootstrap LLVM toolchain version (default: 18.1.8)
@@ -122,7 +122,7 @@ UNIXODBC_VERSION="2.3.14"
 FREETDS_VERSION="1.5.16"
 MARIADB_VERSION="3.4.9"
 HIREDIS_VERSION="1.4.0"
-MONGO_C_DRIVER_VERSION="2.3.1"
+MONGO_C_DRIVER_VERSION="1.30.8"
 LLVM_VERSION="18.1.8"
 BUILD_IMAGE="$PACKAGES_DEFAULT_BUILD_IMAGE"
 JOBS="$PACKAGES_DEFAULT_JOBS"

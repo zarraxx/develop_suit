@@ -14,7 +14,7 @@ other common libraries instead of rebuilding them here.
 - FreeTDS `1.5.16`
 - MariaDB Connector/C `3.4.9`, used as the MySQL client library
 - hiredis `1.4.0`
-- mongo-c-driver `2.3.1`, including libbson
+- mongo-c-driver `1.30.8`, including libbson
 
 ## Supported Targets
 
@@ -79,7 +79,7 @@ Version knobs:
   --freetds-version=1.5.16 \
   --mariadb-version=3.4.9 \
   --hiredis-version=1.4.0 \
-  --mongo-c-driver-version=2.3.1
+  --mongo-c-driver-version=1.30.8
 ```
 
 ## Output Layout
@@ -265,7 +265,7 @@ cmake --install <build>
 Source:
 
 ```text
-https://github.com/mongodb/mongo-c-driver/releases/download/2.3.1/mongo-c-driver-2.3.1.tar.gz
+https://github.com/mongodb/mongo-c-driver/releases/download/1.30.8/mongo-c-driver-1.30.8.tar.gz
 ```
 
 CMake:
@@ -281,12 +281,18 @@ cmake -S <source> -B <build> -G Ninja \
   -DENABLE_EXAMPLES=OFF \
   -DENABLE_MAN_PAGES=OFF \
   -DENABLE_HTML_DOCS=OFF \
-  -DENABLE_SSL=OFF \
+  -DENABLE_SSL=OPENSSL \
   -DENABLE_SASL=OFF \
   -DENABLE_SNAPPY=OFF \
   -DENABLE_ZLIB=BUNDLED \
   -DENABLE_ZSTD=OFF \
   -DENABLE_CLIENT_SIDE_ENCRYPTION=OFF
+```
+
+MinGW uses the Windows TLS backend:
+
+```bash
+-DENABLE_SSL=WINDOWS
 ```
 
 Build and install:

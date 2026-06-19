@@ -320,7 +320,10 @@ build_hiredis() {
 }
 
 build_mongo_c_driver() {
+  local ssl_arg="-DENABLE_SSL=OPENSSL"
+
   if [[ "$TARGET_KIND" == "mingw" ]]; then
+    ssl_arg="-DENABLE_SSL=WINDOWS"
     apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-2.3.1-mingw-windns.patch"
     apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-2.3.1-mingw-mstcpip.patch"
     apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-2.3.1-mingw-dnsapi-lib.patch"
@@ -337,7 +340,7 @@ build_mongo_c_driver() {
     -DENABLE_EXAMPLES=OFF \
     -DENABLE_MAN_PAGES=OFF \
     -DENABLE_HTML_DOCS=OFF \
-    -DENABLE_SSL=OFF \
+    "$ssl_arg" \
     -DENABLE_SASL=OFF \
     -DENABLE_SNAPPY=OFF \
     -DENABLE_ZLIB=BUNDLED \
@@ -386,7 +389,7 @@ UNIXODBC_VERSION="${UNIXODBC_VERSION:-2.3.14}"
 FREETDS_VERSION="${FREETDS_VERSION:-1.5.16}"
 MARIADB_VERSION="${MARIADB_VERSION:-3.4.9}"
 HIREDIS_VERSION="${HIREDIS_VERSION:-1.4.0}"
-MONGO_C_DRIVER_VERSION="${MONGO_C_DRIVER_VERSION:-2.3.1}"
+MONGO_C_DRIVER_VERSION="${MONGO_C_DRIVER_VERSION:-1.30.8}"
 
 [[ -n "$ARCH" ]] || die "ARCH is required"
 [[ -n "$TARGET_TRIPLE" ]] || die "TARGET_TRIPLE is required"
