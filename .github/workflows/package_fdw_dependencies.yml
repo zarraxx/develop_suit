@@ -1,0 +1,263 @@
+name: package_fdw_dependencies
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  UNIXODBC_PACKAGE_VERSION: ${{ inputs.unixodbc_version || '2.3.14' }}
+  FREETDS_PACKAGE_VERSION: ${{ inputs.freetds_version || '1.5.16' }}
+  MARIADB_PACKAGE_VERSION: ${{ inputs.mariadb_version || '3.4.9' }}
+  HIREDIS_PACKAGE_VERSION: ${{ inputs.hiredis_version || '1.4.0' }}
+  MONGO_C_DRIVER_PACKAGE_VERSION: ${{ inputs.mongo_c_driver_version || '2.3.1' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      unixodbc_version:
+        description: "unixODBC version to build for Linux targets"
+        required: false
+        type: string
+        default: "2.3.14"
+      freetds_version:
+        description: "FreeTDS version to build"
+        required: false
+        type: string
+        default: "1.5.16"
+      mariadb_version:
+        description: "MariaDB Connector/C version to build"
+        required: false
+        type: string
+        default: "3.4.9"
+      hiredis_version:
+        description: "hiredis version to build"
+        required: false
+        type: string
+        default: "1.4.0"
+      mongo_c_driver_version:
+        description: "MongoDB C Driver version to build"
+        required: false
+        type: string
+        default: "2.3.1"
+      postgresql_dependencies_release_tag:
+        description: "Release tag that contains postgresql_dependencies archives"
+        required: false
+        type: string
+        default: "postgresql_dependencies-18"
+      postgresql_dependencies_asset_prefix:
+        description: "Asset prefix for postgresql_dependencies archives"
+        required: false
+        type: string
+        default: "postgresql_dependencies-18"
+      publish_release:
+        description: "Create or update a GitHub Release after building"
+        required: true
+        type: boolean
+        default: true
+      release_name:
+        description: "Release title, defaults to release_tag"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark the GitHub Release as prerelease"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-meta:
+    name: resolve-meta
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      postgresql_dependencies_release_tag: ${{ steps.meta.outputs.postgresql_dependencies_release_tag }}
+      postgresql_dependencies_asset_prefix: ${{ steps.meta.outputs.postgresql_dependencies_asset_prefix }}
+
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_UNIXODBC_VERSION: ${{ inputs.unixodbc_version }}
+          INPUT_FREETDS_VERSION: ${{ inputs.freetds_version }}
+          INPUT_MARIADB_VERSION: ${{ inputs.mariadb_version }}
+          INPUT_HIREDIS_VERSION: ${{ inputs.hiredis_version }}
+          INPUT_MONGO_C_DRIVER_VERSION: ${{ inputs.mongo_c_driver_version }}
+          INPUT_POSTGRESQL_DEPENDENCIES_RELEASE_TAG: ${{ inputs.postgresql_dependencies_release_tag }}
+          INPUT_POSTGRESQL_DEPENDENCIES_ASSET_PREFIX: ${{ inputs.postgresql_dependencies_asset_prefix }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+        run: |
+          set -euo pipefail
+
+          unixodbc_version="${INPUT_UNIXODBC_VERSION:-2.3.14}"
+          freetds_version="${INPUT_FREETDS_VERSION:-1.5.16}"
+          mariadb_version="${INPUT_MARIADB_VERSION:-3.4.9}"
+          hiredis_version="${INPUT_HIREDIS_VERSION:-1.4.0}"
+          mongo_c_driver_version="${INPUT_MONGO_C_DRIVER_VERSION:-2.3.1}"
+          release_tag="fdw_dependencies-unixodbc-${unixodbc_version}-freetds-${freetds_version}-mariadb-${mariadb_version}-hiredis-${hiredis_version}-mongo-c-driver-${mongo_c_driver_version}"
+
+          release_name="${INPUT_RELEASE_NAME}"
+          if [[ -z "${release_name}" ]]; then
+            release_name="${release_tag}"
+          fi
+
+          postgresql_dependencies_release_tag="${INPUT_POSTGRESQL_DEPENDENCIES_RELEASE_TAG}"
+          if [[ -z "${postgresql_dependencies_release_tag}" ]]; then
+            postgresql_dependencies_release_tag="postgresql_dependencies-18"
+          fi
+
+          postgresql_dependencies_asset_prefix="${INPUT_POSTGRESQL_DEPENDENCIES_ASSET_PREFIX}"
+          if [[ -z "${postgresql_dependencies_asset_prefix}" ]]; then
+            postgresql_dependencies_asset_prefix="postgresql_dependencies-18"
+          fi
+
+          {
+            echo "release_tag=${release_tag}"
+            echo "release_name=${release_name}"
+            echo "postgresql_dependencies_release_tag=${postgresql_dependencies_release_tag}"
+            echo "postgresql_dependencies_asset_prefix=${postgresql_dependencies_asset_prefix}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build-fdw-dependencies:
+    name: fdw-dependencies-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    needs: resolve-meta
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64
+            triple: x86_64-unknown-linux-gnu
+          - target: aarch64
+            triple: aarch64-unknown-linux-gnu
+          - target: riscv64
+            triple: riscv64-unknown-linux-gnu
+          - target: loongarch64
+            triple: loongarch64-unknown-linux-gnu
+          - target: mingw64
+            triple: x86_64-w64-windows-gnu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-package-fdw-dependencies-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-package-fdw-dependencies-cache-
+            ${{ runner.os }}-package-postgresql-dependencies-cache-
+            ${{ runner.os }}-package-python-dependencies-cache-
+            ${{ runner.os }}-package-llvm-dependencies-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
+
+      - name: Download PostgreSQL dependency archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          DEPENDENCY_RELEASE_TAG: ${{ needs.resolve-meta.outputs.postgresql_dependencies_release_tag }}
+          DEPENDENCY_ASSET_PREFIX: ${{ needs.resolve-meta.outputs.postgresql_dependencies_asset_prefix }}
+          DEPENDENCY_TRIPLE: ${{ matrix.triple }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p packages/fdw_dependencies/build/inputs
+          dependency_asset="${DEPENDENCY_ASSET_PREFIX}-${DEPENDENCY_TRIPLE}.tar.xz"
+
+          for attempt in $(seq 1 72); do
+            if gh release download "${DEPENDENCY_RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --pattern "${dependency_asset}" \
+              --dir packages/fdw_dependencies/build/inputs; then
+              exit 0
+            fi
+
+            echo "dependency asset not ready yet: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset} (attempt ${attempt}/72)"
+            sleep 300
+          done
+
+          echo "timed out waiting for dependency asset: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset}" >&2
+          exit 1
+
+      - name: Build FDW dependency package
+        run: |
+          set -euo pipefail
+
+          package_name="fdw_dependencies-${{ matrix.triple }}"
+          postgresql_dependencies_archive="packages/fdw_dependencies/build/inputs/${{ needs.resolve-meta.outputs.postgresql_dependencies_asset_prefix }}-${{ matrix.triple }}.tar.xz"
+
+          [[ -f "${postgresql_dependencies_archive}" ]] || {
+            echo "missing downloaded PostgreSQL dependency archive: ${postgresql_dependencies_archive}" >&2
+            exit 1
+          }
+
+          bash ./packages/fdw_dependencies/build.sh \
+            --target="${{ matrix.target }}" \
+            --unixodbc-version="${{ env.UNIXODBC_PACKAGE_VERSION }}" \
+            --freetds-version="${{ env.FREETDS_PACKAGE_VERSION }}" \
+            --mariadb-version="${{ env.MARIADB_PACKAGE_VERSION }}" \
+            --hiredis-version="${{ env.HIREDIS_PACKAGE_VERSION }}" \
+            --mongo-c-driver-version="${{ env.MONGO_C_DRIVER_PACKAGE_VERSION }}" \
+            --postgresql-deps-archive="${postgresql_dependencies_archive}" \
+            --package-name="${package_name}" \
+            --clean \
+            --pull \
+            --jobs=4
+
+      - name: Upload FDW dependency artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: fdw-dependencies-${{ matrix.target }}
+          path: |
+            packages/fdw_dependencies/build/dist/fdw_dependencies-${{ matrix.triple }}.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-meta
+      - build-fdw-dependencies
+    if: ${{ inputs.publish_release }}
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: fdw-dependencies-*
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve-meta.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.resolve-meta.outputs.release_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            prerelease_flag=(--prerelease)
+          fi
+
+          if gh release view "${RELEASE_TAG}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}" \
+              --notes "FDW dependency packages for unixODBC ${{ env.UNIXODBC_PACKAGE_VERSION }}, FreeTDS ${{ env.FREETDS_PACKAGE_VERSION }}, MariaDB Connector/C ${{ env.MARIADB_PACKAGE_VERSION }}, hiredis ${{ env.HIREDIS_PACKAGE_VERSION }}, and mongo-c-driver ${{ env.MONGO_C_DRIVER_PACKAGE_VERSION }}."
+          fi
+
+          gh release upload "${RELEASE_TAG}" --repo "${GH_REPO}" artifacts/*.tar.xz --clobber

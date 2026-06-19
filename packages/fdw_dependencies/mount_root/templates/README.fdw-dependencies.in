@@ -1,0 +1,22 @@
+fdw_dependencies package
+========================
+
+Target: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+
+Components
+----------
+
+- unixODBC @UNIXODBC_VERSION@ (Linux targets only)
+- FreeTDS @FREETDS_VERSION@
+- MariaDB Connector/C @MARIADB_VERSION@
+- hiredis @HIREDIS_VERSION@
+- mongo-c-driver @MONGO_C_DRIVER_VERSION@
+
+This prefix is intended as the reusable client-library dependency package for
+building PostgreSQL FDW extensions. It is overlaid on a matching
+postgresql_dependencies prefix and reuses that package's common libraries.
+
+It does not include Oracle Instant Client or IBM DB2 CLI/ODBC packages because
+those upstream archives have redistribution restrictions; use locally downloaded
+vendor archives directly when building an FDW that needs them.

@@ -1,0 +1,11 @@
+diff --git a/net.c b/net.c
+index 2287bf2..9c59a79 100644
+--- a/net.c
++++ b/net.c
+@@ -288,5 +288,5 @@ static int redisContextTimeoutMsec(redisContext *c, long *result)
+ static long redisPollMillis(void) {
+-#ifndef _MSC_VER
++#if !defined(_MSC_VER) && !defined(_WIN32)
+     struct timespec now;
+     clock_gettime(CLOCK_MONOTONIC, &now);
+     return (now.tv_sec * 1000) + now.tv_nsec / 1000000;

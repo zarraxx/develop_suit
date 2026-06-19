@@ -1,0 +1,12 @@
+diff --git a/src/libmongoc/src/mongoc/mongoc-socket.c b/src/libmongoc/src/mongoc/mongoc-socket.c
+index f216348..61e8065 100644
+--- a/src/libmongoc/src/mongoc/mongoc-socket.c
++++ b/src/libmongoc/src/mongoc/mongoc-socket.c
+@@ -25,5 +25,6 @@
+ #ifdef _WIN32
+-#include <Mstcpip.h>
++/* MinGW installs this header with a lowercase name. */
++#include <mstcpip.h>
+ #include <process.h>
+ #endif
+ #include <mlib/cmp.h>
