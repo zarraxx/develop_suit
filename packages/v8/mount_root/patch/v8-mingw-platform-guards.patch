@@ -92,7 +92,7 @@
    WindowsTimezoneCache() : initialized_(false) {}
 --- a/v8/src/profiler/heap-snapshot-generator.cc
 +++ b/v8/src/profiler/heap-snapshot-generator.cc
-@@ -412,7 +412,7 @@
+@@ -412,6 +412,6 @@
    static_assert(kSystemPointerSize != 8 || sizeof(HeapGraphEdge) == 24);
    static_assert(kSystemPointerSize != 4 || sizeof(HeapEntry) == 32);
 -#if V8_CC_MSVC
