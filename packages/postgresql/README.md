@@ -13,3 +13,6 @@ uuid 看下 linux和windows下的选项
 
 linux 构建参考
 	 ./configure  --prefix=${POSTGRESQL_PREFIX} --with-icu  --with-ldap --with-openssl  --with-libnuma --with-liburing  --with-perl --with-python --with-tcl  --with-pam --enable-thread-safety --with-libxml --with-libxslt   --with-gssapi --with-zlib --with-readline --with-lz4 --with-zstd  --with-systemd --with-uuid=e2fs 
+
+
+

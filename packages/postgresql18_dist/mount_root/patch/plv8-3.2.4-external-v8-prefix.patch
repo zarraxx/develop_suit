@@ -1,0 +1,46 @@
+diff --git a/Makefile b/Makefile
+index d306935..f7b9d6e 100644
+--- a/Makefile
++++ b/Makefile
+@@ -3,6 +3,7 @@ PLV8_VERSION = 3.2.4
+ 
+ CP := cp
+ PG_CONFIG = pg_config
++V8_PREFIX ?= deps/v8-cmake
+ PGXS := $(shell $(PG_CONFIG) --pgxs)
+ SHLIB_LINK += -std=c++17
+ PG_CPPFLAGS := -fPIC -Wall -Wno-register -xc++
+@@ -17,7 +18,7 @@ PLV8_DATA = plv8.control plv8--$(PLV8_VERSION).sql
+ ifeq ($(OS),Windows_NT)
+ 	# noop for now
+ else
+-	SHLIB_LINK += -Ldeps/v8-cmake/build
++	SHLIB_LINK += -L$(V8_PREFIX)/lib
+ 	UNAME_S := $(shell uname -s)
+ 	ifeq ($(UNAME_S),Darwin)
+ 		CCFLAGS += -stdlib=libc++
+@@ -35,12 +36,12 @@ ifeq ($(NUMPROC),0)
+ 	NUMPROC = 1
+ endif
+ 
+-SHLIB_LINK += -Ldeps/v8-cmake/build
++SHLIB_LINK += -L$(V8_PREFIX)/lib
+ 
+-all: v8 $(OBJS)
++all: $(OBJS)
+ 
+ # For some reason, this solves parallel make dependency.
+-plv8_config.h plv8.so: v8
++plv8_config.h plv8.so:
+ 
+ deps/v8-cmake/README.md:
+ 	@git submodule update --init --recursive
+@@ -54,7 +55,7 @@ v8: deps/v8-cmake/build/libv8_libbase.a
+ # enable direct jsonb conversion by default
+ CCFLAGS += -DJSONB_DIRECT_CONVERSION
+ 
+-CCFLAGS += -Ideps/v8-cmake/v8/include -std=c++17
++CCFLAGS += -I$(V8_PREFIX)/include -std=c++17
+ 
+ ifdef EXECUTION_TIMEOUT
+ 	CCFLAGS += -DEXECUTION_TIMEOUT

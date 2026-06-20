@@ -1,0 +1,25 @@
+# PostgreSQL 18 Distribution
+
+Target: @TARGET_TRIPLE@
+
+This package contains PostgreSQL @POSTGRESQL_VERSION@ plus the extension set
+installed into the same prefix.
+
+Included dependency overlays:
+
+- postgis_dependencies
+- groonga
+- fdw_dependencies
+- v8
+
+Installed extensions:
+
+@INSTALLED_EXTENSIONS@
+
+Skipped extensions:
+
+@SKIPPED_EXTENSIONS@
+
+Oracle Instant Client and IBM DB2 CLI are build-time/runtime inputs owned by
+their vendors. When oracle_fdw or db2_fdw are built, this package includes only
+the PostgreSQL extension files, not the vendor client libraries.
