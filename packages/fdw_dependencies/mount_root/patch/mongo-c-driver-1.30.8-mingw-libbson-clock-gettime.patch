@@ -1,0 +1,17 @@
+diff --git a/src/libbson/CMakeLists.txt b/src/libbson/CMakeLists.txt
+index b73af26..aa55d12 100644
+--- a/src/libbson/CMakeLists.txt
++++ b/src/libbson/CMakeLists.txt
+@@ -100,7 +100,11 @@ check_symbol_exists (strlcpy string.h BSON_HAVE_STRLCPY)
+ mongo_bool01 (BSON_HAVE_STRLCPY BSON_HAVE_STRLCPY)
+ check_include_file (stdbool.h BSON_HAVE_STDBOOL_H)
+ mongo_bool01 (BSON_HAVE_STDBOOL_H BSON_HAVE_STDBOOL_H)
+-check_symbol_exists (clock_gettime time.h BSON_HAVE_CLOCK_GETTIME)
++if (WIN32)
++   set (BSON_HAVE_CLOCK_GETTIME 0)
++else ()
++   check_symbol_exists (clock_gettime time.h BSON_HAVE_CLOCK_GETTIME)
++endif ()
+ mongo_bool01 (BSON_HAVE_CLOCK_GETTIME BSON_HAVE_CLOCK_GETTIME)
+ check_symbol_exists (strnlen string.h BSON_HAVE_STRNLEN)
+ mongo_bool01 (BSON_HAVE_STRNLEN BSON_HAVE_STRNLEN)

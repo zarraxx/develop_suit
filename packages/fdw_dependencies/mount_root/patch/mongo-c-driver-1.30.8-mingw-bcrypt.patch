@@ -1,0 +1,22 @@
+diff --git a/src/libmongoc/CMakeLists.txt b/src/libmongoc/CMakeLists.txt
+index 86df317..e9c8db4 100644
+--- a/src/libmongoc/CMakeLists.txt
++++ b/src/libmongoc/CMakeLists.txt
+@@ -209,7 +209,7 @@ set(OpenSSL/pkg_config_LIBS -lssl -lcrypto)
+ # Per-backend link libs/options:
+ set(SecureTransport/LINK_LIBRARIES "-framework CoreFoundation" "-framework Security")
+ set(SecureTransport/pkg_config_LIBS -framework Corefoundation -framework Security)
+-set(SecureChannel/LINK_LIBRARIES secur32.lib crypt32.lib Bcrypt.lib)
++set(SecureChannel/LINK_LIBRARIES secur32.lib crypt32.lib bcrypt.lib)
+ set(SecureChannel/pkg_config_LIBS ${SecureChannel/LINK_LIBRARIES})
+ set(LibreSSL/LINK_LIBRARIES LibreSSL::TLS LibreSSL::Crypto)
+ set(LibreSSL/pkg_config_LIBS -ltls -lcrypto)
+@@ -556,7 +556,7 @@ endif ()
+ if (WIN32 AND MONGOC_ENABLE_CRYPTO_CNG)
+    cmake_push_check_state()
+    list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_WIN32_WINNT=0x0601)
+-   list(APPEND CMAKE_REQUIRED_LIBRARIES Bcrypt.lib)
++   list(APPEND CMAKE_REQUIRED_LIBRARIES bcrypt.lib)
+    check_symbol_exists (BCryptDeriveKeyPBKDF2 "windows.h;bcrypt.h" HAVE_BCRYPT_PBKDF2)
+    cmake_pop_check_state()
+ endif ()

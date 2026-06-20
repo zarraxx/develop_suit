@@ -1,0 +1,13 @@
+diff --git a/src/libmongoc/src/mongoc/mongoc-socket.c b/src/libmongoc/src/mongoc/mongoc-socket.c
+index cfe23af..177e756 100644
+--- a/src/libmongoc/src/mongoc/mongoc-socket.c
++++ b/src/libmongoc/src/mongoc/mongoc-socket.c
+@@ -26,5 +26,6 @@
+ #include <mongoc/mongoc-trace-private.h>
+ #ifdef _WIN32
+-#include <Mstcpip.h>
++/* MinGW installs this header with a lowercase name. */
++#include <mstcpip.h>
+ #include <process.h>
+ #endif
+ #include <common-cmp-private.h>

@@ -324,13 +324,31 @@ build_mongo_c_driver() {
 
   if [[ "$TARGET_KIND" == "mingw" ]]; then
     ssl_arg="-DENABLE_SSL=WINDOWS"
-    apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-2.3.1-mingw-windns.patch"
-    apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-2.3.1-mingw-mstcpip.patch"
-    apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-2.3.1-mingw-dnsapi-lib.patch"
+    case "$MONGO_C_DRIVER_VERSION" in
+      1.30.8)
+        apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-1.30.8-mingw-windns.patch"
+        apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-1.30.8-mingw-mstcpip.patch"
+        apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-1.30.8-mingw-dnsapi-lib.patch"
+        apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-1.30.8-mingw-bcrypt.patch"
+        apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-1.30.8-mingw-libbson-clock-gettime.patch"
+        ;;
+      2.3.1)
+        apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-2.3.1-mingw-windns.patch"
+        apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-2.3.1-mingw-mstcpip.patch"
+        apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-2.3.1-mingw-dnsapi-lib.patch"
+        apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-2.3.1-mingw-bcrypt.patch"
+        apply_source_patch "${DEP_SOURCE_DIR}/mongo-c-driver" "${PATCH_DIR}/mongo-c-driver-2.3.1-mingw-libbson-clock-gettime.patch"
+        ;;
+      *)
+        die "unsupported mongo-c-driver MinGW patch version: ${MONGO_C_DRIVER_VERSION}"
+        ;;
+    esac
     ! grep -Rqs '#include <WinDNS.h>\|#include <Windows.h>' "${DEP_SOURCE_DIR}/mongo-c-driver/src/libmongoc/src/mongoc/mongoc-client.c" \
       || die "mongo-c-driver MinGW header patch did not take effect"
     ! grep -Rqs '#include <Mstcpip.h>' "${DEP_SOURCE_DIR}/mongo-c-driver/src/libmongoc/src/mongoc/mongoc-socket.c" \
       || die "mongo-c-driver MinGW socket header patch did not take effect"
+    ! grep -Rqs 'Bcrypt\.lib' "${DEP_SOURCE_DIR}/mongo-c-driver/src/libmongoc/CMakeLists.txt" \
+      || die "mongo-c-driver MinGW bcrypt library patch did not take effect"
   fi
 
   cmake_install mongo-c-driver "${DEP_SOURCE_DIR}/mongo-c-driver" \

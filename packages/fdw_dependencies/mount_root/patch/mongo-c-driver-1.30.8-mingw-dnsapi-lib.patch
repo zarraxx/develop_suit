@@ -1,0 +1,11 @@
+diff --git a/build/cmake/ResSearch.cmake b/build/cmake/ResSearch.cmake
+index 831eec3..ec1b180 100644
+--- a/build/cmake/ResSearch.cmake
++++ b/build/cmake/ResSearch.cmake
+@@ -11,5 +11,5 @@ set(resolve_is_libc FALSE)
+ if(WIN32)
+-    set(RESOLVE_LIB_NAME Dnsapi)
++    set(RESOLVE_LIB_NAME dnsapi)
+     set(_MONGOC_HAVE_DNSAPI 1)
+ else()
+     # Try to find the search functions for various configurations.

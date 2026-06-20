@@ -1,0 +1,16 @@
+diff --git a/src/libmongoc/src/mongoc/mongoc-client.c b/src/libmongoc/src/mongoc/mongoc-client.c
+index 5fcd630..fba7ec6 100644
+--- a/src/libmongoc/src/mongoc/mongoc-client.c
++++ b/src/libmongoc/src/mongoc/mongoc-client.c
+@@ -18,8 +18,9 @@
+ #include <mongoc/mongoc-config.h>
+ #ifdef MONGOC_HAVE_DNSAPI
+ /* for DnsQuery_UTF8 */
+-#include <Windows.h>
+-#include <WinDNS.h>
++/* MinGW installs these headers with lowercase names. */
++#include <windows.h>
++#include <windns.h>
+ #include <ws2tcpip.h>
+ #else
+ #if defined(MONGOC_HAVE_RES_NSEARCH) || defined(MONGOC_HAVE_RES_SEARCH)

@@ -6,7 +6,7 @@ env:
   FREETDS_PACKAGE_VERSION: ${{ inputs.freetds_version || '1.5.16' }}
   MARIADB_PACKAGE_VERSION: ${{ inputs.mariadb_version || '3.4.9' }}
   HIREDIS_PACKAGE_VERSION: ${{ inputs.hiredis_version || '1.4.0' }}
-  MONGO_C_DRIVER_PACKAGE_VERSION: ${{ inputs.mongo_c_driver_version || '2.3.1' }}
+  MONGO_C_DRIVER_PACKAGE_VERSION: ${{ inputs.mongo_c_driver_version || '1.30.8' }}
 
 on:
   workflow_dispatch:
@@ -35,7 +35,7 @@ on:
         description: "MongoDB C Driver version to build"
         required: false
         type: string
-        default: "2.3.1"
+        default: "1.30.8"
       postgresql_dependencies_release_tag:
         description: "Release tag that contains postgresql_dependencies archives"
         required: false
@@ -93,7 +93,7 @@ jobs:
           freetds_version="${INPUT_FREETDS_VERSION:-1.5.16}"
           mariadb_version="${INPUT_MARIADB_VERSION:-3.4.9}"
           hiredis_version="${INPUT_HIREDIS_VERSION:-1.4.0}"
-          mongo_c_driver_version="${INPUT_MONGO_C_DRIVER_VERSION:-2.3.1}"
+          mongo_c_driver_version="${INPUT_MONGO_C_DRIVER_VERSION:-1.30.8}"
           release_tag="fdw_dependencies-unixodbc-${unixodbc_version}-freetds-${freetds_version}-mariadb-${mariadb_version}-hiredis-${hiredis_version}-mongo-c-driver-${mongo_c_driver_version}"
 
           release_name="${INPUT_RELEASE_NAME}"
