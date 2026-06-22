@@ -1,0 +1,245 @@
+name: package_fontconfig
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  FONTCONFIG_VERSION: ${{ inputs.fontconfig_version || '2.16.0' }}
+  FREETYPE_VERSION: ${{ inputs.freetype_version || '2.14.2' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      fontconfig_version:
+        description: "fontconfig version to build and publish"
+        required: false
+        type: string
+        default: "2.16.0"
+      freetype_version:
+        description: "FreeType version to build"
+        required: false
+        type: string
+        default: "2.14.2"
+      publish_release:
+        description: "Create or update a GitHub Release after building"
+        required: true
+        type: boolean
+        default: true
+      release_tag:
+        description: "Release tag, defaults to fontconfig-<fontconfig_version>"
+        required: false
+        type: string
+      release_name:
+        description: "Release title, defaults to release_tag"
+        required: false
+        type: string
+      python_dependencies_release_tag:
+        description: "Release tag that contains pyhton_dependencies-3-<triple>.tar.xz"
+        required: false
+        type: string
+        default: pyhton_dependencies-3
+      python_dependencies_asset_prefix:
+        description: "Asset prefix for python dependency archives"
+        required: false
+        type: string
+        default: pyhton_dependencies-3
+      prerelease:
+        description: "Mark GitHub Releases as prerelease"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-meta:
+    name: resolve-meta
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      python_dependencies_release_tag: ${{ steps.meta.outputs.python_dependencies_release_tag }}
+      python_dependencies_asset_prefix: ${{ steps.meta.outputs.python_dependencies_asset_prefix }}
+
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_FONTCONFIG_VERSION: ${{ inputs.fontconfig_version }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+          INPUT_PYTHON_DEPENDENCIES_RELEASE_TAG: ${{ inputs.python_dependencies_release_tag }}
+          INPUT_PYTHON_DEPENDENCIES_ASSET_PREFIX: ${{ inputs.python_dependencies_asset_prefix }}
+        run: |
+          set -euo pipefail
+
+          fontconfig_version="${INPUT_FONTCONFIG_VERSION:-2.16.0}"
+
+          release_tag="${INPUT_RELEASE_TAG}"
+          if [[ -z "${release_tag}" ]]; then
+            release_tag="fontconfig-${fontconfig_version}"
+          fi
+
+          release_name="${INPUT_RELEASE_NAME}"
+          if [[ -z "${release_name}" ]]; then
+            release_name="${release_tag}"
+          fi
+
+          python_dependencies_release_tag="${INPUT_PYTHON_DEPENDENCIES_RELEASE_TAG}"
+          if [[ -z "${python_dependencies_release_tag}" ]]; then
+            python_dependencies_release_tag="pyhton_dependencies-3"
+          fi
+
+          python_dependencies_asset_prefix="${INPUT_PYTHON_DEPENDENCIES_ASSET_PREFIX}"
+          if [[ -z "${python_dependencies_asset_prefix}" ]]; then
+            python_dependencies_asset_prefix="pyhton_dependencies-3"
+          fi
+
+          {
+            echo "release_tag=${release_tag}"
+            echo "release_name=${release_name}"
+            echo "python_dependencies_release_tag=${python_dependencies_release_tag}"
+            echo "python_dependencies_asset_prefix=${python_dependencies_asset_prefix}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build-fontconfig:
+    name: fontconfig-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    needs: resolve-meta
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64
+            triple: x86_64-unknown-linux-gnu
+          - target: aarch64
+            triple: aarch64-unknown-linux-gnu
+          - target: riscv64
+            triple: riscv64-unknown-linux-gnu
+          - target: loongarch64
+            triple: loongarch64-unknown-linux-gnu
+          - target: mingw64
+            triple: x86_64-w64-windows-gnu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-package-fontconfig-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-package-fontconfig-cache-
+            ${{ runner.os }}-package-python-dependencies-cache-
+            ${{ runner.os }}-package-llvm-dependencies-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
+            ${{ runner.os }}-stage-mingw64-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+            ${{ runner.os }}-stage-python-cache-
+            ${{ runner.os }}-stage1-cache-
+
+      - name: Download Python dependency archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          DEPENDENCY_RELEASE_TAG: ${{ needs.resolve-meta.outputs.python_dependencies_release_tag }}
+          DEPENDENCY_ASSET_PREFIX: ${{ needs.resolve-meta.outputs.python_dependencies_asset_prefix }}
+          DEPENDENCY_TRIPLE: ${{ matrix.triple }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p packages/fontconfig/build/inputs
+          dependency_asset="${DEPENDENCY_ASSET_PREFIX}-${DEPENDENCY_TRIPLE}.tar.xz"
+
+          for attempt in $(seq 1 72); do
+            if gh release download "${DEPENDENCY_RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --pattern "${dependency_asset}" \
+              --dir packages/fontconfig/build/inputs; then
+              exit 0
+            fi
+
+            echo "dependency asset not ready yet: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset} (attempt ${attempt}/72)"
+            sleep 300
+          done
+
+          echo "timed out waiting for dependency asset: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset}" >&2
+          exit 1
+
+      - name: Build fontconfig package
+        run: |
+          set -euo pipefail
+
+          package_name="fontconfig-${{ env.FONTCONFIG_VERSION }}-${{ matrix.triple }}"
+          dependency_archive="packages/fontconfig/build/inputs/${{ needs.resolve-meta.outputs.python_dependencies_asset_prefix }}-${{ matrix.triple }}.tar.xz"
+          [[ -f "${dependency_archive}" ]] || {
+            echo "missing downloaded python dependency archive: ${dependency_archive}" >&2
+            exit 1
+          }
+
+          bash ./packages/fontconfig/build.sh \
+            --target="${{ matrix.target }}" \
+            --fontconfig-version="${{ env.FONTCONFIG_VERSION }}" \
+            --freetype-version="${{ env.FREETYPE_VERSION }}" \
+            --python-deps-archive="${dependency_archive}" \
+            --package-name="${package_name}" \
+            --clean \
+            --pull \
+            --jobs=4
+
+      - name: Upload fontconfig artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: fontconfig-${{ matrix.target }}
+          path: |
+            packages/fontconfig/build/dist/fontconfig-${{ env.FONTCONFIG_VERSION }}-${{ matrix.triple }}.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-meta
+      - build-fontconfig
+    if: ${{ inputs.publish_release }}
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: fontconfig-*
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve-meta.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.resolve-meta.outputs.release_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            prerelease_flag=(--prerelease)
+          fi
+
+          if gh release view "${RELEASE_TAG}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}" \
+              --notes "fontconfig ${{ env.FONTCONFIG_VERSION }} and FreeType ${{ env.FREETYPE_VERSION }} packages."
+          fi
+
+          gh release upload "${RELEASE_TAG}" --repo "${GH_REPO}" artifacts/*.tar.xz --clobber

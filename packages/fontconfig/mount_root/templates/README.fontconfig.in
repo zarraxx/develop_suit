@@ -1,0 +1,18 @@
+fontconfig dependency package
+=============================
+
+Target: @TARGET_TRIPLE@
+Target kind: @TARGET_KIND@
+
+Components:
+- expat from python_dependencies base prefix
+- FreeType @FREETYPE_VERSION@
+- fontconfig @FONTCONFIG_VERSION@
+
+Build tools:
+- GNU gperf @GPERF_VERSION@, built for the build machine only
+
+The package is intended as a small dynamic dependency prefix for OpenJDK
+builds.  It ships headers, pkg-config files, shared libraries, and fontconfig
+configuration data.  Command-line fontconfig tools are intentionally not built
+because this package is consumed as a cross-built dependency prefix.
