@@ -1,0 +1,21 @@
+OpenJDK @OPENJDK_VERSION@ for @TARGET_TRIPLE@
+
+This prefix was built by develop_suit packages/openjdk.
+
+OpenJDK target: @OPENJDK_TARGET_TRIPLE@
+Maven version: @MAVEN_VERSION@
+LLVM toolchain: @LLVM_VERSION@
+
+Layout:
+
+- jdk/: JDK image
+- maven/: Apache Maven
+- bin/java -> ../jdk/bin/java
+- bin/javac -> ../jdk/bin/javac
+- bin/mvn -> ../maven/bin/mvn
+
+x86_64 and aarch64 Linux are packaged from Azul Zulu prebuilt JDK archives.
+x86_64 MinGW/Windows is packaged from the Azul Zulu Windows x64 archive.
+riscv64 and loongarch64 Linux are intended to be built from OpenJDK source with
+a build-host Boot JDK. Source-built riscv64/loongarch64 packages are
+service-runtime images without java.desktop/AWT.
