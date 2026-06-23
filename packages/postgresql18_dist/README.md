@@ -44,14 +44,14 @@ https://github.com/pgaudit/pgaudit/archive/refs/tags/18.0.tar.gz
 pg_stat_monitor
 https://github.com/percona/pg_stat_monitor/archive/refs/tags/2.3.2.tar.gz
 
-tde
-https://github.com/percona/pg_tde/archive/refs/tags/2.2.0.tar.gz
+<!-- tde
+https://github.com/percona/pg_tde/archive/refs/tags/2.2.0.tar.gz -->
 
 set_user
 https://github.com/pgaudit/set_user/archive/refs/tags/REL4_2_0.tar.gz
 
-pg_repack
-https://github.com/reorg/pg_repack/archive/refs/tags/ver_1.5.3.tar.gz
+<!-- pg_repack
+https://github.com/reorg/pg_repack/archive/refs/tags/ver_1.5.3.tar.gz -->
 
 
 fdw
@@ -63,3 +63,8 @@ https://github.com/EnterpriseDB/mongo_fdw/archive/refs/tags/REL-5_5_3.tar.gz
 
 https://github.com/laurenz/oracle_fdw/archive/refs/tags/ORACLE_FDW_2_9_0.tar.gz
 https://github.com/pg-fdw/db2_fdw/releases/download/18.1.2/db2_fdw-18.1.2.zip
+
+
+<!-- java
+
+https://github.com/tada/pljava/archive/refs/tags/V1_6_10.tar.gz -->

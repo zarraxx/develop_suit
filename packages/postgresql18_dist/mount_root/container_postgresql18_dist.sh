@@ -9,6 +9,10 @@ log() {
   echo "==> $*" >&2
 }
 
+is_enabled() {
+  [[ "${1:-1}" == "1" || "${1:-1}" == "true" || "${1:-1}" == "yes" ]]
+}
+
 download_archive() {
   local url="$1"
   local archive_name="$2"
@@ -71,7 +75,7 @@ apply_source_patch() {
 
 extension_env() {
   env \
-    PATH="${SDK_PREFIX}/bin:${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}" \
+    PATH="${BUILD_TOOLS}:${SDK_PREFIX}/bin:${LLVM_ROOT}/bin:${PATH}" \
     LD_LIBRARY_PATH="${SDK_PREFIX}/lib:${SDK_PREFIX}/lib64:${LD_LIBRARY_PATH:-}" \
     PKG_CONFIG_PATH="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig" \
     PKG_CONFIG_LIBDIR="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig" \
@@ -142,6 +146,7 @@ meson_extension_install() {
 
   log "Configuring Meson extension: ${package_name}"
   extension_env meson setup "$build_dir" "$source_dir" \
+    --cross-file="${MESON_CROSS_FILE}" \
     --prefix="$SDK_PREFIX" \
     --libdir=lib \
     --buildtype=release \
@@ -195,6 +200,8 @@ build_postgis() {
       PERL="${BUILD_TOOLS}/perl" \
       CPPBIN="$CC -E -x c" \
       "${source_dir}/configure" \
+      --build="${BUILD_TRIPLE}" \
+      --host="$TARGET_TRIPLE" \
       --prefix="$SDK_PREFIX" \
       --with-pgconfig="$PG_CONFIG" \
       --with-geosconfig="${SDK_PREFIX}/bin/geos-config" \
@@ -241,7 +248,11 @@ build_plv8() {
   local source_dir="${EXT_SOURCE_DIR}/plv8"
 
   apply_source_patch "$source_dir" "/work/mount_root/patch/plv8-3.2.4-external-v8-prefix.patch"
-  make_pgxs_install plv8 "$source_dir" V8_PREFIX="$SDK_PREFIX"
+  make_pgxs_install plv8 "$source_dir" \
+    V8_PREFIX="$SDK_PREFIX" \
+    CC="$CXX" \
+    CXX="$CXX" \
+    CPP="$CXX -E"
 }
 
 build_pgmq() {
@@ -287,8 +298,29 @@ build_mysql_fdw() {
     ln -s "mariadb/libmariadb.so.3" "${SDK_PREFIX}/lib/libmariadb.so.3"
   fi
 
+  cat >"${BUILD_TOOLS}/mariadb_config" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "\${1:-}" in
+  --include|--cflags)
+    printf '%s\n' "-I${SDK_PREFIX}/include/mariadb -I${SDK_PREFIX}/include/mariadb/mysql"
+    ;;
+  --libs|--libs_r)
+    printf '%s\n' "-L${SDK_PREFIX}/lib -L${SDK_PREFIX}/lib/mariadb -lmysqlclient"
+    ;;
+  --version)
+    printf '%s\n' "10.8.8"
+    ;;
+  *)
+    printf '%s\n' ""
+    ;;
+esac
+EOF
+  chmod +x "${BUILD_TOOLS}/mariadb_config"
+
   make_pgxs_install mysql_fdw "${EXT_SOURCE_DIR}/mysql_fdw" \
-    MYSQL_CONFIG="${SDK_PREFIX}/bin/mariadb_config"
+    MYSQL_CONFIG="${BUILD_TOOLS}/mariadb_config"
 }
 
 build_tds_fdw() {
@@ -389,9 +421,106 @@ write_common_build_tool_wrappers() {
   done
 }
 
+write_cross_pg_config_wrapper() {
+  local wrapper_path="${BUILD_TOOLS}/pg_config"
+
+  cat >"$wrapper_path" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+prefix="${SDK_PREFIX}"
+cc="${CC}"
+cppflags="-D_GNU_SOURCE -I${SDK_PREFIX}/include"
+cflags="-I${SDK_PREFIX}/include -fPIC"
+ldflags="-L${SDK_PREFIX}/lib -Wl,-rpath,${SDK_PREFIX}/lib -Wl,-rpath-link,${SDK_PREFIX}/lib"
+
+if [[ "\$#" -eq 0 ]]; then
+  set -- --help
+fi
+
+for option in "\$@"; do
+  case "\$option" in
+    --bindir) printf '%s\n' "\${prefix}/bin" ;;
+    --docdir) printf '%s\n' "\${prefix}/share/doc" ;;
+    --htmldir) printf '%s\n' "\${prefix}/share/doc" ;;
+    --includedir) printf '%s\n' "\${prefix}/include" ;;
+    --pkgincludedir) printf '%s\n' "\${prefix}/include" ;;
+    --includedir-server) printf '%s\n' "\${prefix}/include/server" ;;
+    --libdir) printf '%s\n' "\${prefix}/lib" ;;
+    --pkglibdir) printf '%s\n' "\${prefix}/lib" ;;
+    --localedir) printf '%s\n' "\${prefix}/share/locale" ;;
+    --mandir) printf '%s\n' "\${prefix}/share/man" ;;
+    --sharedir) printf '%s\n' "\${prefix}/share" ;;
+    --sysconfdir) printf '%s\n' "\${prefix}/etc" ;;
+    --pgxs) printf '%s\n' "\${prefix}/lib/pgxs/src/makefiles/pgxs.mk" ;;
+    --cc) printf '%s\n' "\${cc}" ;;
+    --cppflags) printf '%s\n' "\${cppflags}" ;;
+    --cflags) printf '%s\n' "\${cflags}" ;;
+    --cflags_sl) printf '%s\n' "-fPIC" ;;
+    --ldflags) printf '%s\n' "\${ldflags}" ;;
+    --ldflags_ex) printf '%s\n' "\${ldflags}" ;;
+    --ldflags_sl) printf '%s\n' "\${ldflags}" ;;
+    --libs) printf '%s\n' "" ;;
+    --version) printf '%s\n' "PostgreSQL ${POSTGRESQL_VERSION}" ;;
+    --configure) printf '%s\n' "--prefix=\${prefix} --host=${TARGET_TRIPLE}" ;;
+    --help)
+      cat <<'HELP'
+Usage: pg_config [OPTION]
+Cross-build wrapper for the target PostgreSQL prefix.
+HELP
+      ;;
+    *)
+      echo "pg_config wrapper: unsupported option: \${option}" >&2
+      exit 1
+      ;;
+  esac
+done
+EOF
+  chmod +x "$wrapper_path"
+}
+
+write_meson_cross_file() {
+  local cross_file="${BUILD_TOOLS}/meson-${TARGET_TRIPLE}.ini"
+  local cpu_family="$ARCH"
+
+  case "$ARCH" in
+    x86_64) cpu_family="x86_64" ;;
+    aarch64) cpu_family="aarch64" ;;
+    riscv64) cpu_family="riscv64" ;;
+    loongarch64) cpu_family="loongarch64" ;;
+  esac
+
+  cat >"$cross_file" <<EOF
+[binaries]
+c = '${CC}'
+cpp = '${CXX}'
+ar = '${AR:-${LLVM_ROOT}/bin/llvm-ar}'
+strip = '${STRIP:-${LLVM_ROOT}/bin/llvm-strip}'
+pkg-config = 'pkg-config'
+
+[host_machine]
+system = 'linux'
+cpu_family = '${cpu_family}'
+cpu = '${ARCH}'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+
+[built-in options]
+c_args = ['-I${SDK_PREFIX}/include', '-fPIC']
+cpp_args = ['-I${SDK_PREFIX}/include', '-fPIC']
+c_link_args = ['-L${SDK_PREFIX}/lib', '-Wl,-rpath,${SDK_PREFIX}/lib', '-Wl,-rpath-link,${SDK_PREFIX}/lib']
+cpp_link_args = ['-L${SDK_PREFIX}/lib', '-Wl,-rpath,${SDK_PREFIX}/lib', '-Wl,-rpath-link,${SDK_PREFIX}/lib']
+EOF
+
+  MESON_CROSS_FILE="$cross_file"
+}
+
 ARCH="${ARCH:-}"
 TARGET_KIND="${TARGET_KIND:-linux}"
 TARGET_TRIPLE="${TARGET_TRIPLE:-}"
+BUILD_TRIPLE="${BUILD_TRIPLE:-x86_64-pc-linux-gnu}"
 JOBS="${JOBS:-4}"
 SDK_PREFIX="${SDK_PREFIX:-/opt/postgresql18_dist-${TARGET_TRIPLE}}"
 CACHE_DIR="${CACHE_DIR:-/work/cache}"
@@ -401,6 +530,13 @@ LLVM_ROOT="${LLVM_ROOT:-/opt/llvm-${LLVM_VERSION}}"
 ORACLE_SDK_ARCHIVE="${ORACLE_SDK_ARCHIVE:-}"
 ORACLE_BASIC_ARCHIVE="${ORACLE_BASIC_ARCHIVE:-}"
 DB2_CLI_DIR="${DB2_CLI_DIR:-}"
+WITH_FDW="${WITH_FDW:-1}"
+WITH_ORACLE_FDW="${WITH_ORACLE_FDW:-1}"
+WITH_DB2_FDW="${WITH_DB2_FDW:-1}"
+WITH_PLJAVA="${WITH_PLJAVA:-0}"
+WITH_PG_TDE="${WITH_PG_TDE:-1}"
+WITH_PG_REPACK="${WITH_PG_REPACK:-1}"
+WITH_PLV8="${WITH_PLV8:-1}"
 
 POSTGRESQL_VERSION="${POSTGRESQL_VERSION:-18.4}"
 PGVECTOR_VERSION="${PGVECTOR_VERSION:-0.8.3}"
@@ -428,7 +564,10 @@ ORACLE_FDW_VERSION="${ORACLE_FDW_VERSION:-2_9_0}"
 DB2_FDW_VERSION="${DB2_FDW_VERSION:-18.1.2}"
 
 [[ "$TARGET_KIND" == "linux" ]] || die "container currently supports Linux targets"
-[[ "$ARCH" == "x86_64" ]] || die "container currently supports x86_64 first"
+case "$ARCH" in
+  x86_64|aarch64|riscv64|loongarch64) ;;
+  *) die "container supports Linux package targets; got ${ARCH}" ;;
+esac
 [[ -d "$SDK_PREFIX" ]] || die "missing distribution prefix: ${SDK_PREFIX}"
 [[ -d "$LLVM_ROOT" ]] || die "missing LLVM root: ${LLVM_ROOT}"
 
@@ -442,8 +581,8 @@ require_command meson
 require_command pkg-config
 require_command patch
 
-PG_CONFIG="${SDK_PREFIX}/bin/pg_config"
-[[ -x "$PG_CONFIG" ]] || die "missing pg_config: ${PG_CONFIG}"
+TARGET_PG_CONFIG="${SDK_PREFIX}/bin/pg_config"
+[[ -x "$TARGET_PG_CONFIG" ]] || die "missing pg_config: ${TARGET_PG_CONFIG}"
 
 SYSROOT="${SYSROOT:-/opt/sysroot/${TARGET_TRIPLE}}"
 [[ -d "$SYSROOT" ]] || die "missing sysroot: ${SYSROOT}"
@@ -455,14 +594,17 @@ mkdir -p "$BUILD_TOOLS" "$EXT_SOURCE_DIR" "$EXT_BUILD_DIR"
 write_noop_ldconfig_wrapper "$BUILD_TOOLS"
 write_common_build_tool_wrappers
 
-CC="${CC:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang}"
-CXX="${CXX:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang++}"
+CC="${CC:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang-gcc}"
+CXX="${CXX:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang-g++}"
 [[ -x "$CC" ]] || CC="${LLVM_ROOT}/bin/clang"
 [[ -x "$CXX" ]] || CXX="${LLVM_ROOT}/bin/clang++"
 [[ -x "$CC" ]] || die "missing C compiler"
 [[ -x "$CXX" ]] || die "missing C++ compiler"
+write_cross_pg_config_wrapper
+write_meson_cross_file
+PG_CONFIG="${BUILD_TOOLS}/pg_config"
 
-export PATH="${SDK_PREFIX}/bin:${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
+export PATH="${BUILD_TOOLS}:${SDK_PREFIX}/bin:${LLVM_ROOT}/bin:${PATH}"
 export LD_LIBRARY_PATH="${SDK_PREFIX}/lib:${SDK_PREFIX}/lib64:${LD_LIBRARY_PATH:-}"
 export PKG_CONFIG_PATH="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig"
 export PKG_CONFIG_LIBDIR="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig"
@@ -478,20 +620,32 @@ download_archive "https://github.com/pgpartman/pg_partman/archive/refs/tags/v${P
 download_archive "https://github.com/supabase/pg_net/archive/refs/tags/v${PG_NET_VERSION}.tar.gz" "pg_net-${PG_NET_VERSION}.tar.gz"
 download_archive "https://github.com/pramsey/pgsql-http/archive/refs/tags/v${PGSQL_HTTP_VERSION}.tar.gz" "pgsql-http-${PGSQL_HTTP_VERSION}.tar.gz"
 download_archive "https://github.com/pgmq/pgmq/archive/refs/tags/v${PGMQ_VERSION}.tar.gz" "pgmq-${PGMQ_VERSION}.tar.gz"
-download_archive "https://github.com/plv8/plv8/archive/refs/tags/v${PLV8_VERSION}.tar.gz" "plv8-${PLV8_VERSION}.tar.gz"
+if is_enabled "$WITH_PLV8"; then
+  download_archive "https://github.com/plv8/plv8/archive/refs/tags/v${PLV8_VERSION}.tar.gz" "plv8-${PLV8_VERSION}.tar.gz"
+fi
 download_archive "https://github.com/timescale/timescaledb/archive/refs/tags/${TIMESCALEDB_VERSION}.tar.gz" "timescaledb-${TIMESCALEDB_VERSION}.tar.gz"
 download_archive "https://github.com/pgaudit/pgaudit/archive/refs/tags/${PGAUDIT_VERSION}.tar.gz" "pgaudit-${PGAUDIT_VERSION}.tar.gz"
 download_archive "https://github.com/percona/pg_stat_monitor/archive/refs/tags/${PG_STAT_MONITOR_VERSION}.tar.gz" "pg_stat_monitor-${PG_STAT_MONITOR_VERSION}.tar.gz"
-download_archive "https://github.com/percona/pg_tde/archive/refs/tags/${PG_TDE_VERSION}.tar.gz" "pg_tde-${PG_TDE_VERSION}.tar.gz"
+if is_enabled "$WITH_PG_TDE"; then
+  download_archive "https://github.com/percona/pg_tde/archive/refs/tags/${PG_TDE_VERSION}.tar.gz" "pg_tde-${PG_TDE_VERSION}.tar.gz"
+fi
 download_archive "https://github.com/pgaudit/set_user/archive/refs/tags/${SET_USER_VERSION}.tar.gz" "set_user-${SET_USER_VERSION}.tar.gz"
-download_archive "https://github.com/reorg/pg_repack/archive/refs/tags/ver_${PG_REPACK_VERSION}.tar.gz" "pg_repack-${PG_REPACK_VERSION}.tar.gz"
-download_archive "https://github.com/pg-redis-fdw/redis_fdw/archive/refs/heads/REL_18_STABLE.zip" "redis_fdw-REL_18_STABLE.zip"
-download_archive "https://github.com/EnterpriseDB/mysql_fdw/archive/refs/tags/REL-${MYSQL_FDW_VERSION}.tar.gz" "mysql_fdw-${MYSQL_FDW_VERSION}.tar.gz"
-download_archive "https://github.com/tds-fdw/tds_fdw/archive/refs/tags/v${TDS_FDW_VERSION}.tar.gz" "tds_fdw-${TDS_FDW_VERSION}.tar.gz"
-download_archive "https://github.com/pgspider/sqlite_fdw/archive/refs/tags/v${SQLITE_FDW_VERSION}.tar.gz" "sqlite_fdw-${SQLITE_FDW_VERSION}.tar.gz"
-download_archive "https://github.com/EnterpriseDB/mongo_fdw/archive/refs/tags/REL-${MONGO_FDW_VERSION}.tar.gz" "mongo_fdw-${MONGO_FDW_VERSION}.tar.gz"
-download_archive "https://github.com/laurenz/oracle_fdw/archive/refs/tags/ORACLE_FDW_${ORACLE_FDW_VERSION}.tar.gz" "oracle_fdw-${ORACLE_FDW_VERSION}.tar.gz"
-download_archive "https://github.com/pg-fdw/db2_fdw/releases/download/${DB2_FDW_VERSION}/db2_fdw-${DB2_FDW_VERSION}.zip" "db2_fdw-${DB2_FDW_VERSION}.zip"
+if is_enabled "$WITH_PG_REPACK"; then
+  download_archive "https://github.com/reorg/pg_repack/archive/refs/tags/ver_${PG_REPACK_VERSION}.tar.gz" "pg_repack-${PG_REPACK_VERSION}.tar.gz"
+fi
+if is_enabled "$WITH_FDW"; then
+  download_archive "https://github.com/pg-redis-fdw/redis_fdw/archive/refs/heads/REL_18_STABLE.zip" "redis_fdw-REL_18_STABLE.zip"
+  download_archive "https://github.com/EnterpriseDB/mysql_fdw/archive/refs/tags/REL-${MYSQL_FDW_VERSION}.tar.gz" "mysql_fdw-${MYSQL_FDW_VERSION}.tar.gz"
+  download_archive "https://github.com/tds-fdw/tds_fdw/archive/refs/tags/v${TDS_FDW_VERSION}.tar.gz" "tds_fdw-${TDS_FDW_VERSION}.tar.gz"
+  download_archive "https://github.com/pgspider/sqlite_fdw/archive/refs/tags/v${SQLITE_FDW_VERSION}.tar.gz" "sqlite_fdw-${SQLITE_FDW_VERSION}.tar.gz"
+  download_archive "https://github.com/EnterpriseDB/mongo_fdw/archive/refs/tags/REL-${MONGO_FDW_VERSION}.tar.gz" "mongo_fdw-${MONGO_FDW_VERSION}.tar.gz"
+  if is_enabled "$WITH_ORACLE_FDW"; then
+    download_archive "https://github.com/laurenz/oracle_fdw/archive/refs/tags/ORACLE_FDW_${ORACLE_FDW_VERSION}.tar.gz" "oracle_fdw-${ORACLE_FDW_VERSION}.tar.gz"
+  fi
+  if is_enabled "$WITH_DB2_FDW"; then
+    download_archive "https://github.com/pg-fdw/db2_fdw/releases/download/${DB2_FDW_VERSION}/db2_fdw-${DB2_FDW_VERSION}.zip" "db2_fdw-${DB2_FDW_VERSION}.zip"
+  fi
+fi
 
 extract_source "${EXT_SOURCE_DIR}/pgvector" "pgvector-${PGVECTOR_VERSION}.tar.gz" "Makefile"
 extract_source "${EXT_SOURCE_DIR}/age" "apache-age-${AGE_VERSION}-src.tar.gz" "Makefile"
@@ -503,28 +657,59 @@ extract_source "${EXT_SOURCE_DIR}/pg_partman" "pg_partman-${PG_PARTMAN_VERSION}.
 extract_source "${EXT_SOURCE_DIR}/pg_net" "pg_net-${PG_NET_VERSION}.tar.gz" "Makefile"
 extract_source "${EXT_SOURCE_DIR}/pgsql-http" "pgsql-http-${PGSQL_HTTP_VERSION}.tar.gz" "Makefile"
 extract_source "${EXT_SOURCE_DIR}/pgmq" "pgmq-${PGMQ_VERSION}.tar.gz" "pgmq-extension/Makefile"
-extract_source "${EXT_SOURCE_DIR}/plv8" "plv8-${PLV8_VERSION}.tar.gz" "Makefile"
+if is_enabled "$WITH_PLV8"; then
+  extract_source "${EXT_SOURCE_DIR}/plv8" "plv8-${PLV8_VERSION}.tar.gz" "Makefile"
+fi
 extract_source "${EXT_SOURCE_DIR}/timescaledb" "timescaledb-${TIMESCALEDB_VERSION}.tar.gz" "CMakeLists.txt"
 extract_source "${EXT_SOURCE_DIR}/pgaudit" "pgaudit-${PGAUDIT_VERSION}.tar.gz" "Makefile"
 extract_source "${EXT_SOURCE_DIR}/pg_stat_monitor" "pg_stat_monitor-${PG_STAT_MONITOR_VERSION}.tar.gz" "Makefile"
-extract_source "${EXT_SOURCE_DIR}/pg_tde" "pg_tde-${PG_TDE_VERSION}.tar.gz" "Makefile"
+if is_enabled "$WITH_PG_TDE"; then
+  extract_source "${EXT_SOURCE_DIR}/pg_tde" "pg_tde-${PG_TDE_VERSION}.tar.gz" "Makefile"
+fi
 extract_source "${EXT_SOURCE_DIR}/set_user" "set_user-${SET_USER_VERSION}.tar.gz" "Makefile"
-extract_source "${EXT_SOURCE_DIR}/pg_repack" "pg_repack-${PG_REPACK_VERSION}.tar.gz" "Makefile"
-extract_source "${EXT_SOURCE_DIR}/redis_fdw" "redis_fdw-REL_18_STABLE.zip" "Makefile"
-extract_source "${EXT_SOURCE_DIR}/mysql_fdw" "mysql_fdw-${MYSQL_FDW_VERSION}.tar.gz" "Makefile"
-extract_source "${EXT_SOURCE_DIR}/tds_fdw" "tds_fdw-${TDS_FDW_VERSION}.tar.gz" "Makefile"
-extract_source "${EXT_SOURCE_DIR}/sqlite_fdw" "sqlite_fdw-${SQLITE_FDW_VERSION}.tar.gz" "Makefile"
-extract_source "${EXT_SOURCE_DIR}/mongo_fdw" "mongo_fdw-${MONGO_FDW_VERSION}.tar.gz" "Makefile"
-extract_source "${EXT_SOURCE_DIR}/oracle_fdw" "oracle_fdw-${ORACLE_FDW_VERSION}.tar.gz" "Makefile"
-extract_source "${EXT_SOURCE_DIR}/db2_fdw" "db2_fdw-${DB2_FDW_VERSION}.zip" "Makefile"
+if is_enabled "$WITH_PG_REPACK"; then
+  extract_source "${EXT_SOURCE_DIR}/pg_repack" "pg_repack-${PG_REPACK_VERSION}.tar.gz" "Makefile"
+fi
+if is_enabled "$WITH_FDW"; then
+  extract_source "${EXT_SOURCE_DIR}/redis_fdw" "redis_fdw-REL_18_STABLE.zip" "Makefile"
+  extract_source "${EXT_SOURCE_DIR}/mysql_fdw" "mysql_fdw-${MYSQL_FDW_VERSION}.tar.gz" "Makefile"
+  extract_source "${EXT_SOURCE_DIR}/tds_fdw" "tds_fdw-${TDS_FDW_VERSION}.tar.gz" "Makefile"
+  extract_source "${EXT_SOURCE_DIR}/sqlite_fdw" "sqlite_fdw-${SQLITE_FDW_VERSION}.tar.gz" "Makefile"
+  extract_source "${EXT_SOURCE_DIR}/mongo_fdw" "mongo_fdw-${MONGO_FDW_VERSION}.tar.gz" "Makefile"
+  if is_enabled "$WITH_ORACLE_FDW"; then
+    extract_source "${EXT_SOURCE_DIR}/oracle_fdw" "oracle_fdw-${ORACLE_FDW_VERSION}.tar.gz" "Makefile"
+  fi
+  if is_enabled "$WITH_DB2_FDW"; then
+    extract_source "${EXT_SOURCE_DIR}/db2_fdw" "db2_fdw-${DB2_FDW_VERSION}.zip" "Makefile"
+  fi
+fi
 
 INSTALLED_EXTENSIONS=()
 SKIPPED_EXTENSIONS=()
 ORACLE_HOME=""
-install_oracle_client_for_build
-install_db2_cli_for_build
+if is_enabled "$WITH_PLJAVA"; then
+  SKIPPED_EXTENSIONS+=("pljava: disabled; PL/Java build is not implemented in this package yet")
+else
+  SKIPPED_EXTENSIONS+=("pljava: disabled by package configuration")
+fi
+if is_enabled "$WITH_FDW"; then
+  if is_enabled "$WITH_ORACLE_FDW"; then
+    install_oracle_client_for_build
+  else
+    SKIPPED_EXTENSIONS+=("oracle_fdw: disabled by package configuration")
+  fi
+  if is_enabled "$WITH_DB2_FDW"; then
+    install_db2_cli_for_build
+  else
+    SKIPPED_EXTENSIONS+=("db2_fdw: disabled by package configuration")
+  fi
+else
+  SKIPPED_EXTENSIONS+=("fdw extensions: disabled by package configuration")
+  SKIPPED_EXTENSIONS+=("oracle_fdw: disabled by package configuration")
+  SKIPPED_EXTENSIONS+=("db2_fdw: disabled by package configuration")
+fi
 
-make_pgxs_install vector "${EXT_SOURCE_DIR}/pgvector"
+make_pgxs_install vector "${EXT_SOURCE_DIR}/pgvector" OPTFLAGS=
 make_pgxs_install age "${EXT_SOURCE_DIR}/age"
 meson_extension_install pgroonga "${EXT_SOURCE_DIR}/pgroonga" \
   -Dpg_config="$PG_CONFIG" \
@@ -540,20 +725,38 @@ make_pgxs_install pgsql-http "${EXT_SOURCE_DIR}/pgsql-http" \
   PG_CPPFLAGS="-I${SDK_PREFIX}/include" \
   SHLIB_LINK="-L${SDK_PREFIX}/lib -lcurl"
 build_pgmq
-build_plv8
+if is_enabled "$WITH_PLV8"; then
+  build_plv8
+else
+  SKIPPED_EXTENSIONS+=("plv8: disabled by package configuration")
+fi
 build_timescaledb
 make_pgxs_install pgaudit "${EXT_SOURCE_DIR}/pgaudit"
 make_pgxs_install pg_stat_monitor "${EXT_SOURCE_DIR}/pg_stat_monitor"
-build_pg_tde
+if is_enabled "$WITH_PG_TDE"; then
+  build_pg_tde
+else
+  SKIPPED_EXTENSIONS+=("pg_tde: disabled by package configuration")
+fi
 make_pgxs_install set_user "${EXT_SOURCE_DIR}/set_user"
-build_pg_repack
-make_pgxs_install redis_fdw "${EXT_SOURCE_DIR}/redis_fdw"
-build_mysql_fdw
-build_tds_fdw
-build_sqlite_fdw
-build_mongo_fdw
-build_oracle_fdw
-build_db2_fdw
+if is_enabled "$WITH_PG_REPACK"; then
+  build_pg_repack
+else
+  SKIPPED_EXTENSIONS+=("pg_repack: disabled by package configuration")
+fi
+if is_enabled "$WITH_FDW"; then
+  make_pgxs_install redis_fdw "${EXT_SOURCE_DIR}/redis_fdw"
+  build_mysql_fdw
+  build_tds_fdw
+  build_sqlite_fdw
+  build_mongo_fdw
+  if is_enabled "$WITH_ORACLE_FDW"; then
+    build_oracle_fdw
+  fi
+  if is_enabled "$WITH_DB2_FDW"; then
+    build_db2_fdw
+  fi
+fi
 
 remove_static_libraries
 patch_linux_elf_rpaths "$SDK_PREFIX" "$TARGET_KIND"

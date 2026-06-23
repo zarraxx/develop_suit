@@ -15,7 +15,7 @@ Usage:
   ./packages/postgresql18_dist/build.sh --target=x86_64 [options]
 
 Options:
-  --target=<target>                     Distribution target, currently x86_64 Linux
+  --target=<target>                     Distribution target, Linux only
   --arch=<target>                       Alias for --target
   --postgresql-version=<ver>            PostgreSQL package version (default: 18.4)
   --postgis-deps-version=<label>        PostGIS dependency release label
@@ -29,6 +29,14 @@ Options:
   --oracle-sdk-archive=<zip>            Oracle Instant Client SDK archive, optional x86_64 Linux
   --oracle-basic-archive=<zip>          Oracle Instant Client Basic archive, optional x86_64 Linux
   --db2-cli-dir=<dir>                   IBM DB2 CLI/ODBC prefix, optional x86_64 Linux
+  --without-fdw                         Do not build FDW extensions or overlay fdw_dependencies
+  --without-oracle-fdw                  Do not build oracle_fdw
+  --without-db2-fdw                     Do not build db2_fdw
+  --without-pljava                      Do not build PL/Java (currently not implemented)
+  --without-tde                         Do not build pg_tde
+  --without-repack                      Do not build pg_repack
+  --without-plv8                        Do not build plv8 or overlay V8
+  --runtime=<docker|podman>             Container runtime override
   --image=<image>                       Build image
   --jobs=<n>                            Parallel build jobs inside container (default: 4)
   --package-name=<name>                 Override output package name
@@ -109,7 +117,7 @@ rewrite_overlay_prefixes() {
 
   while IFS= read -r -d '' file_path; do
     case "$file_path" in
-      *.pc|*.cmake|*.la|*.m4|*.cfg|*.conf|*.txt|*.md|*.sh|*.h|*.hpp|*.hh|*/bin/*-config|*/bin/*_config|*/README.*)
+      *.pc|*.cmake|*.la|*.m4|*.cfg|*.conf|*.txt|*.md|*.sh|*.h|*.hpp|*.hh|*/Makefile.global|*/Makefile.port|*/bin/*-config|*/bin/*_config|*/README.*)
         ;;
       *)
         continue
@@ -118,7 +126,7 @@ rewrite_overlay_prefixes() {
 
     if grep -IqF "/opt/" "$file_path"; then
       sed -E -i \
-        "s#/opt/[^\"'[:space:]]*${PACKAGE_TRIPLE}#${install_prefix}#g" \
+        "s#/opt/[^/\"'[:space:]]+-${PACKAGE_TRIPLE}#${install_prefix}#g" \
         "$file_path"
     fi
   done < <(
@@ -132,6 +140,7 @@ POSTGIS_DEPS_VERSION="gdal-3.13.1-cgal-5.6.3-qhull-2020.2"
 GROONGA_VERSION="16.0.5"
 V8_VERSION="11.6.189.4"
 BUILD_IMAGE="$PACKAGES_DEFAULT_BUILD_IMAGE"
+REQUESTED_RUNTIME=""
 JOBS="$PACKAGES_DEFAULT_JOBS"
 PACKAGE_NAME=""
 POSTGRESQL_ARCHIVE=""
@@ -142,6 +151,13 @@ V8_ARCHIVE=""
 ORACLE_SDK_ARCHIVE=""
 ORACLE_BASIC_ARCHIVE=""
 DB2_CLI_DIR=""
+WITH_FDW=1
+WITH_ORACLE_FDW=1
+WITH_DB2_FDW=1
+WITH_PLJAVA=0
+WITH_PG_TDE=1
+WITH_PG_REPACK=1
+WITH_PLV8=1
 PULL=0
 CLEAN=0
 
@@ -173,6 +189,15 @@ while [[ $# -gt 0 ]]; do
     --oracle-basic-archive) shift; [[ $# -gt 0 ]] || die "--oracle-basic-archive requires a value"; ORACLE_BASIC_ARCHIVE="$1" ;;
     --db2-cli-dir=*) DB2_CLI_DIR="${1#*=}" ;;
     --db2-cli-dir) shift; [[ $# -gt 0 ]] || die "--db2-cli-dir requires a value"; DB2_CLI_DIR="$1" ;;
+    --without-fdw) WITH_FDW=0; WITH_ORACLE_FDW=0; WITH_DB2_FDW=0 ;;
+    --without-oracle-fdw) WITH_ORACLE_FDW=0 ;;
+    --without-db2-fdw) WITH_DB2_FDW=0 ;;
+    --without-pljava) WITH_PLJAVA=0 ;;
+    --without-tde) WITH_PG_TDE=0 ;;
+    --without-repack) WITH_PG_REPACK=0 ;;
+    --without-plv8) WITH_PLV8=0 ;;
+    --runtime=*) REQUESTED_RUNTIME="${1#*=}" ;;
+    --runtime) shift; [[ $# -gt 0 ]] || die "--runtime requires a value"; REQUESTED_RUNTIME="$1" ;;
     --image=*|--linux-image=*) BUILD_IMAGE="${1#*=}" ;;
     --image|--linux-image) shift; [[ $# -gt 0 ]] || die "--image requires a value"; BUILD_IMAGE="$1" ;;
     --jobs=*) JOBS="${1#*=}" ;;
@@ -190,8 +215,8 @@ done
 [[ -n "$TARGET" ]] || die "--target is required"
 resolve_target "$TARGET" "PostgreSQL 18 distribution target"
 case "${TARGET_KIND}:${ARCH}" in
-  linux:x86_64) ;;
-  *) die "postgresql18_dist currently supports x86_64 Linux first; got ${TARGET_KIND}:${ARCH}" ;;
+  linux:x86_64|linux:aarch64|linux:riscv64|linux:loongarch64) ;;
+  *) die "postgresql18_dist supports Linux package targets; got ${TARGET_KIND}:${ARCH}" ;;
 esac
 
 if [[ -z "$PACKAGE_NAME" ]]; then
@@ -210,16 +235,24 @@ if [[ -z "$GROONGA_ARCHIVE" ]]; then
   GROONGA_ARCHIVE="$(find_local_archive groonga "groonga-${GROONGA_VERSION}-${PACKAGE_TRIPLE}.tar.xz")" \
     || die "missing Groonga archive for ${PACKAGE_TRIPLE}"
 fi
-if [[ -z "$FDW_DEPS_ARCHIVE" ]]; then
+if [[ "$WITH_FDW" -eq 1 && -z "$FDW_DEPS_ARCHIVE" ]]; then
   FDW_DEPS_ARCHIVE="$(find_local_archive fdw_dependencies "fdw_dependencies-${PACKAGE_TRIPLE}.tar.xz")" \
     || die "missing fdw_dependencies archive for ${PACKAGE_TRIPLE}"
 fi
-if [[ -z "$V8_ARCHIVE" ]]; then
+if [[ "$WITH_PLV8" -eq 1 && -z "$V8_ARCHIVE" ]]; then
   V8_ARCHIVE="$(find_local_archive v8 "v8-${V8_VERSION}-${PACKAGE_TRIPLE}.tar.xz")" \
     || die "missing V8 archive for ${PACKAGE_TRIPLE}"
 fi
 
-for archive in "$POSTGRESQL_ARCHIVE" "$POSTGIS_DEPS_ARCHIVE" "$GROONGA_ARCHIVE" "$FDW_DEPS_ARCHIVE" "$V8_ARCHIVE"; do
+REQUIRED_ARCHIVES=("$POSTGRESQL_ARCHIVE" "$POSTGIS_DEPS_ARCHIVE" "$GROONGA_ARCHIVE")
+if [[ "$WITH_FDW" -eq 1 ]]; then
+  REQUIRED_ARCHIVES+=("$FDW_DEPS_ARCHIVE")
+fi
+if [[ "$WITH_PLV8" -eq 1 ]]; then
+  REQUIRED_ARCHIVES+=("$V8_ARCHIVE")
+fi
+
+for archive in "${REQUIRED_ARCHIVES[@]}"; do
   [[ -f "$archive" ]] || die "archive not found: ${archive}"
 done
 if [[ -n "$ORACLE_SDK_ARCHIVE" ]]; then
@@ -232,7 +265,7 @@ if [[ -n "$DB2_CLI_DIR" ]]; then
   [[ -d "$DB2_CLI_DIR" ]] || die "DB2 CLI directory not found: ${DB2_CLI_DIR}"
 fi
 
-CONTAINER_RUNTIME="$(resolve_container_runtime "")"
+CONTAINER_RUNTIME="$(resolve_container_runtime "$REQUESTED_RUNTIME")"
 require_command tar
 
 MOUNT_ROOT="${ROOT_DIR}/mount_root"
@@ -260,8 +293,12 @@ mkdir -p "$OUT_DIR"
 extract_prefix_archive "$OUT_DIR" "$POSTGRESQL_ARCHIVE"
 extract_prefix_archive "$OUT_DIR" "$POSTGIS_DEPS_ARCHIVE"
 extract_prefix_archive "$OUT_DIR" "$GROONGA_ARCHIVE"
-extract_prefix_archive "$OUT_DIR" "$FDW_DEPS_ARCHIVE"
-extract_prefix_archive "$OUT_DIR" "$V8_ARCHIVE"
+if [[ "$WITH_FDW" -eq 1 ]]; then
+  extract_prefix_archive "$OUT_DIR" "$FDW_DEPS_ARCHIVE"
+fi
+if [[ "$WITH_PLV8" -eq 1 ]]; then
+  extract_prefix_archive "$OUT_DIR" "$V8_ARCHIVE"
+fi
 rewrite_overlay_prefixes "$OUT_DIR" "/opt/${PACKAGE_NAME}"
 validate_base_postgresql "$OUT_DIR"
 
@@ -313,6 +350,13 @@ echo "-- output: ${OUT_DIR}"
   -e "ORACLE_SDK_ARCHIVE=${CONTAINER_ORACLE_SDK_ARCHIVE}" \
   -e "ORACLE_BASIC_ARCHIVE=${CONTAINER_ORACLE_BASIC_ARCHIVE}" \
   -e "DB2_CLI_DIR=${CONTAINER_DB2_CLI_DIR}" \
+  -e "WITH_FDW=${WITH_FDW}" \
+  -e "WITH_ORACLE_FDW=${WITH_ORACLE_FDW}" \
+  -e "WITH_DB2_FDW=${WITH_DB2_FDW}" \
+  -e "WITH_PLJAVA=${WITH_PLJAVA}" \
+  -e "WITH_PG_TDE=${WITH_PG_TDE}" \
+  -e "WITH_PG_REPACK=${WITH_PG_REPACK}" \
+  -e "WITH_PLV8=${WITH_PLV8}" \
   "$BUILD_IMAGE" \
   /bin/bash /work/mount_root/container_postgresql18_dist.sh
 
