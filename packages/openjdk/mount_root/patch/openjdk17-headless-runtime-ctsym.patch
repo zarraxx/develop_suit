@@ -1,0 +1,27 @@
+--- a/make/modules/jdk.compiler/Gendata.gmk
++++ b/make/modules/jdk.compiler/Gendata.gmk
+@@ -38,6 +38,15 @@ $(eval $(call ReadImportMetaData))
+ # Modules that should be visible for 9 - the documented modules:
+ CT_MODULES := $(DOCS_MODULES)
+ 
++ifeq ($(OPENJDK_HEADLESS_RUNTIME_ONLY), true)
++CT_MODULES :=
++
++$(SUPPORT_OUTPUTDIR)/symbols/ct.sym:
++	$(RM) -r $(@D)
++	$(MKDIR) -p $(@D)
++	$(TOUCH) $@
++else
++
+ # Get the complete module source path:
+ CT_MODULESOURCEPATH := $(call GetModuleSrcPath)
+ 
+@@ -89,6 +98,8 @@ $(SUPPORT_OUTPUTDIR)/symbols/ct.sym: \
+ 	    $(@D)/system-modules
+ 	$(TOUCH) $@
+ 
++endif
++
+ # Copy ct.sym to the modules libs dir
+ $(eval $(call SetupCopyFiles, COPY_TO_LIBS, \
+     FILES := $(SUPPORT_OUTPUTDIR)/symbols/ct.sym, \

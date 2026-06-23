@@ -1,0 +1,326 @@
+name: package_openjdk
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  OPENJDK25_PACKAGE_VERSION: ${{ inputs.openjdk25_version || '25.0.3' }}
+  OPENJDK17_PACKAGE_VERSION: ${{ inputs.openjdk17_version || '17.0.17' }}
+  MAVEN_PACKAGE_VERSION: ${{ inputs.maven_version || '3.9.16' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      openjdk25_version:
+        description: "OpenJDK 25 version for x86_64/aarch64/mingw64/riscv64 packages"
+        required: false
+        type: string
+        default: "25.0.3"
+      openjdk17_version:
+        description: "OpenJDK 17 version for loongarch64 SRPM package"
+        required: false
+        type: string
+        default: "17.0.17"
+      maven_version:
+        description: "Maven version copied into the package"
+        required: false
+        type: string
+        default: "3.9.16"
+      x64_jdk_url:
+        description: "x86_64 Linux Zulu JDK tar.gz URL"
+        required: false
+        type: string
+        default: "https://cdn.azul.com/zulu/bin/zulu25.34.17-ca-jdk25.0.3-linux_x64.tar.gz"
+      aarch64_jdk_url:
+        description: "aarch64 Linux Zulu JDK tar.gz URL"
+        required: false
+        type: string
+        default: "https://cdn.azul.com/zulu/bin/zulu25.34.17-ca-jdk25.0.3-linux_aarch64.tar.gz"
+      mingw64_jdk_url:
+        description: "x86_64 Windows Zulu JDK zip URL"
+        required: false
+        type: string
+        default: "https://cdn.azul.com/zulu/bin/zulu25.34.17-ca-jdk25.0.3-win_x64.zip"
+      openjdk25_source_url:
+        description: "OpenJDK 25 source archive URL for riscv64"
+        required: false
+        type: string
+        default: "https://openjdk-sources.osci.io/openjdk25/openjdk-25.0.3-ga.tar.xz"
+      loongarch64_openjdk_srpm_url:
+        description: "Loongnix OpenJDK 17 SRPM URL for loongarch64"
+        required: false
+        type: string
+        default: "https://pkg.loongnix.cn/loongnix-server/23.2/os/source/SPackages/java-17-openjdk-17.0.17.0.10-1.lns23.src.rpm"
+      openjdk25_boot_jdk_url:
+        description: "Build-host Boot JDK URL for riscv64 OpenJDK 25 source builds"
+        required: false
+        type: string
+        default: "https://api.adoptium.net/v3/binary/latest/25/ga/linux/x64/jdk/hotspot/normal/eclipse"
+      openjdk17_boot_jdk_url:
+        description: "Build-host Boot JDK URL for loongarch64 OpenJDK 17 source builds"
+        required: false
+        type: string
+        default: "https://cdn.azul.com/zulu/bin/zulu17.66.19-ca-jdk17.0.19-linux_x64.tar.gz"
+      publish_release:
+        description: "Create or update a GitHub Release after building"
+        required: true
+        type: boolean
+        default: true
+      release_tag:
+        description: "Release tag, defaults to openjdk-<openjdk25_version>"
+        required: false
+        type: string
+      release_name:
+        description: "Release title, defaults to release_tag"
+        required: false
+        type: string
+      fontconfig_release_tag:
+        description: "Release tag that contains fontconfig-<version>-<triple>.tar.xz"
+        required: false
+        type: string
+        default: fontconfig-2.16.0
+      fontconfig_asset_prefix:
+        description: "Asset prefix for fontconfig dependency archives"
+        required: false
+        type: string
+        default: fontconfig-2.16.0
+      prerelease:
+        description: "Mark GitHub Releases as prerelease"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-meta:
+    name: resolve-meta
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      fontconfig_release_tag: ${{ steps.meta.outputs.fontconfig_release_tag }}
+      fontconfig_asset_prefix: ${{ steps.meta.outputs.fontconfig_asset_prefix }}
+
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_OPENJDK25_VERSION: ${{ inputs.openjdk25_version }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+          INPUT_FONTCONFIG_RELEASE_TAG: ${{ inputs.fontconfig_release_tag }}
+          INPUT_FONTCONFIG_ASSET_PREFIX: ${{ inputs.fontconfig_asset_prefix }}
+        run: |
+          set -euo pipefail
+
+          openjdk25_version="${INPUT_OPENJDK25_VERSION:-25.0.3}"
+
+          release_tag="${INPUT_RELEASE_TAG}"
+          if [[ -z "${release_tag}" ]]; then
+            release_tag="openjdk-${openjdk25_version}"
+          fi
+
+          release_name="${INPUT_RELEASE_NAME}"
+          if [[ -z "${release_name}" ]]; then
+            release_name="${release_tag}"
+          fi
+
+          fontconfig_release_tag="${INPUT_FONTCONFIG_RELEASE_TAG}"
+          if [[ -z "${fontconfig_release_tag}" ]]; then
+            fontconfig_release_tag="fontconfig-2.16.0"
+          fi
+
+          fontconfig_asset_prefix="${INPUT_FONTCONFIG_ASSET_PREFIX}"
+          if [[ -z "${fontconfig_asset_prefix}" ]]; then
+            fontconfig_asset_prefix="fontconfig-2.16.0"
+          fi
+
+          {
+            echo "release_tag=${release_tag}"
+            echo "release_name=${release_name}"
+            echo "fontconfig_release_tag=${fontconfig_release_tag}"
+            echo "fontconfig_asset_prefix=${fontconfig_asset_prefix}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build-openjdk:
+    name: openjdk-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    needs: resolve-meta
+    timeout-minutes: 480
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64
+            triple: x86_64-unknown-linux-gnu
+            jdk_line: "25"
+            source_build: false
+          - target: aarch64
+            triple: aarch64-unknown-linux-gnu
+            jdk_line: "25"
+            source_build: false
+          - target: mingw64
+            triple: x86_64-w64-windows-gnu
+            jdk_line: "25"
+            source_build: false
+          - target: riscv64
+            triple: riscv64-unknown-linux-gnu
+            jdk_line: "25"
+            source_build: true
+          - target: loongarch64
+            triple: loongarch64-unknown-linux-gnu
+            jdk_line: "17"
+            source_build: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache source archives
+        uses: actions/cache@v5
+        with:
+          path: cache
+          key: ${{ runner.os }}-package-openjdk-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-package-openjdk-cache-
+            ${{ runner.os }}-package-fontconfig-cache-
+            ${{ runner.os }}-package-llvm-dependencies-cache-
+            ${{ runner.os }}-package-llvmsdk-cache-
+            ${{ runner.os }}-stage-mingw64-cache-
+            ${{ runner.os }}-stage-llvm-cache-
+            ${{ runner.os }}-stage-python-cache-
+            ${{ runner.os }}-stage1-cache-
+
+      - name: Download fontconfig dependency archive
+        if: ${{ matrix.source_build }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          DEPENDENCY_RELEASE_TAG: ${{ needs.resolve-meta.outputs.fontconfig_release_tag }}
+          DEPENDENCY_ASSET_PREFIX: ${{ needs.resolve-meta.outputs.fontconfig_asset_prefix }}
+          DEPENDENCY_TRIPLE: ${{ matrix.triple }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p packages/openjdk/build/inputs
+          dependency_asset="${DEPENDENCY_ASSET_PREFIX}-${DEPENDENCY_TRIPLE}.tar.xz"
+
+          for attempt in $(seq 1 72); do
+            if gh release download "${DEPENDENCY_RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --pattern "${dependency_asset}" \
+              --dir packages/openjdk/build/inputs; then
+              exit 0
+            fi
+
+            echo "dependency asset not ready yet: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset} (attempt ${attempt}/72)"
+            sleep 300
+          done
+
+          echo "timed out waiting for dependency asset: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset}" >&2
+          exit 1
+
+      - name: Build OpenJDK package
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ matrix.jdk_line }}" == "17" ]]; then
+            openjdk_version="${{ env.OPENJDK17_PACKAGE_VERSION }}"
+          else
+            openjdk_version="${{ env.OPENJDK25_PACKAGE_VERSION }}"
+          fi
+          package_name="openjdk-${openjdk_version}-${{ matrix.triple }}"
+
+          args=(
+            --target="${{ matrix.target }}"
+            --openjdk-version="${openjdk_version}"
+            --maven-version="${{ env.MAVEN_PACKAGE_VERSION }}"
+            --x64-jdk-url="${{ inputs.x64_jdk_url }}"
+            --aarch64-jdk-url="${{ inputs.aarch64_jdk_url }}"
+            --mingw64-jdk-url="${{ inputs.mingw64_jdk_url }}"
+            --package-name="${package_name}"
+            --clean
+            --pull
+            --jobs=8
+          )
+
+          if [[ "${{ matrix.source_build }}" == "true" ]]; then
+            dependency_archive="packages/openjdk/build/inputs/${{ needs.resolve-meta.outputs.fontconfig_asset_prefix }}-${{ matrix.triple }}.tar.xz"
+            [[ -f "${dependency_archive}" ]] || {
+              echo "missing downloaded fontconfig dependency archive: ${dependency_archive}" >&2
+              exit 1
+            }
+            args+=(--fontconfig-archive="${dependency_archive}")
+          fi
+
+          case "${{ matrix.target }}" in
+            riscv64)
+              args+=(
+                --openjdk-source-url="${{ inputs.openjdk25_source_url }}"
+                --boot-jdk-url="${{ inputs.openjdk25_boot_jdk_url }}"
+              )
+              ;;
+            loongarch64)
+              args+=(
+                --loongarch64-openjdk-srpm-url="${{ inputs.loongarch64_openjdk_srpm_url }}"
+                --boot-jdk-url="${{ inputs.openjdk17_boot_jdk_url }}"
+              )
+              ;;
+          esac
+
+          bash ./packages/openjdk/build.sh "${args[@]}"
+
+      - name: Upload OpenJDK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: openjdk-${{ matrix.target }}
+          path: |
+            packages/openjdk/build/dist/openjdk-*-${{ matrix.triple }}.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-meta
+      - build-openjdk
+    if: ${{ inputs.publish_release }}
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: openjdk-*
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve-meta.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.resolve-meta.outputs.release_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            prerelease_flag=(--prerelease)
+          fi
+
+          if gh release view "${RELEASE_TAG}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GH_REPO}" \
+              --title "${RELEASE_NAME}" \
+              "${prerelease_flag[@]}" \
+              --notes "OpenJDK ${{ env.OPENJDK25_PACKAGE_VERSION }} packages; loongarch64 uses OpenJDK ${{ env.OPENJDK17_PACKAGE_VERSION }} from Loongnix SRPM."
+          fi
+
+          gh release upload "${RELEASE_TAG}" --repo "${GH_REPO}" artifacts/*.tar.xz --clobber

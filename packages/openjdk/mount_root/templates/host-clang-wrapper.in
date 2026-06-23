@@ -27,4 +27,4 @@ fi
 if [ "$compile_only" = 1 ]; then
   exec "@REAL_COMPILER@" @EXTRA_FLAGS@ "$@"
 fi
-exec "@REAL_COMPILER@" @EXTRA_FLAGS@ @EXTRA_LINK_FLAGS@ "$@"
+exec "@REAL_COMPILER@" @EXTRA_FLAGS@ "$@" @EXTRA_LINK_FLAGS@

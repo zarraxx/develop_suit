@@ -1,0 +1,92 @@
+--- a/make/autoconf/libraries.m4
++++ b/make/autoconf/libraries.m4
+@@ -37,46 +37,55 @@ m4_include([lib-tests.m4])
+ ################################################################################
+ AC_DEFUN_ONCE([LIB_DETERMINE_DEPENDENCIES],
+ [
+-  # Check if X11 is needed
+-  if test "x$OPENJDK_TARGET_OS" = xwindows || test "x$OPENJDK_TARGET_OS" = xmacosx; then
+-    # No X11 support on windows or macosx
++  if test "x$OPENJDK_HEADLESS_RUNTIME_ONLY" = xtrue; then
++    # develop_suit service-runtime builds do not build java.desktop/AWT.
+     NEEDS_LIB_X11=false
+-  elif test "x$ENABLE_HEADLESS_ONLY" = xtrue; then
+-    # No X11 support needed when building headless only
+-    NEEDS_LIB_X11=false
+-  else
+-    # All other instances need X11
+-    NEEDS_LIB_X11=true
+-  fi
+-
+-  # Check if fontconfig is needed
+-  if test "x$OPENJDK_TARGET_OS" = xwindows || test "x$OPENJDK_TARGET_OS" = xmacosx; then
+-    # No fontconfig support on windows or macosx
+     NEEDS_LIB_FONTCONFIG=false
+-  else
+-    # All other instances need fontconfig, even if building headless only,
+-    # libawt still needs fontconfig headers.
+-    NEEDS_LIB_FONTCONFIG=true
+-  fi
+-
+-  # Check if cups is needed
+-  if test "x$OPENJDK_TARGET_OS" = xwindows; then
+-    # Windows have a separate print system
+     NEEDS_LIB_CUPS=false
++    NEEDS_LIB_FREETYPE=false
++    NEEDS_LIB_ALSA=false
+   else
+-    NEEDS_LIB_CUPS=true
+-  fi
++    # Check if X11 is needed
++    if test "x$OPENJDK_TARGET_OS" = xwindows || test "x$OPENJDK_TARGET_OS" = xmacosx; then
++      # No X11 support on windows or macosx
++      NEEDS_LIB_X11=false
++    elif test "x$ENABLE_HEADLESS_ONLY" = xtrue; then
++      # No X11 support needed when building headless only
++      NEEDS_LIB_X11=false
++    else
++      # All other instances need X11
++      NEEDS_LIB_X11=true
++    fi
+ 
+-  # A custom hook may have set this already
+-  if test "x$NEEDS_LIB_FREETYPE" = "x"; then
+-    NEEDS_LIB_FREETYPE=true
+-  fi
++    # Check if fontconfig is needed
++    if test "x$OPENJDK_TARGET_OS" = xwindows || test "x$OPENJDK_TARGET_OS" = xmacosx; then
++      # No fontconfig support on windows or macosx
++      NEEDS_LIB_FONTCONFIG=false
++    else
++      # All other instances need fontconfig, even if building headless only,
++      # libawt still needs fontconfig headers.
++      NEEDS_LIB_FONTCONFIG=true
++    fi
+ 
+-  # Check if alsa is needed
+-  if test "x$OPENJDK_TARGET_OS" = xlinux; then
+-    NEEDS_LIB_ALSA=true
+-  else
+-    NEEDS_LIB_ALSA=false
++    # Check if cups is needed
++    if test "x$OPENJDK_TARGET_OS" = xwindows; then
++      # Windows have a separate print system
++      NEEDS_LIB_CUPS=false
++    else
++      NEEDS_LIB_CUPS=true
++    fi
++
++    # A custom hook may have set this already
++    if test "x$NEEDS_LIB_FREETYPE" = "x"; then
++      NEEDS_LIB_FREETYPE=true
++    fi
++
++    # Check if alsa is needed
++    if test "x$OPENJDK_TARGET_OS" = xlinux; then
++      NEEDS_LIB_ALSA=true
++    else
++      NEEDS_LIB_ALSA=false
++    fi
+   fi
+ 
+   # Check if ffi is needed

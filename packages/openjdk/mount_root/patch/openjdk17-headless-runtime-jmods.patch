@@ -1,0 +1,38 @@
+--- a/make/CreateJmods.gmk
++++ b/make/CreateJmods.gmk
+@@ -159,8 +159,15 @@ ifeq ($(MODULE), java.base)
+     # When creating interim versions of jmods, skip hashes
+     ifneq ($(INTERIM_JMOD), true)
+       ALL_UPGRADEABLE_MODULES := $(call FindAllUpgradeableModules)
++      HASH_MODULES := $(call FindAllModules)
++      ifeq ($(OPENJDK_HEADLESS_RUNTIME_ONLY), true)
++        ifneq ($(strip $(JMOD_MODULES)), )
++          HASH_MODULES := $(JMOD_MODULES)
++        endif
++      endif
++
+       DEPS += $(patsubst %, $(JMODS_DIR)/%.jmod, \
+-          $(filter-out java.base $(ALL_UPGRADEABLE_MODULES), $(call FindAllModules)))
++          $(filter-out java.base $(ALL_UPGRADEABLE_MODULES), $(HASH_MODULES)))
+ 
+       EXCLUDE_PATTERN := $(strip $(subst $(SPACE),$$|,$(strip $(ALL_UPGRADEABLE_MODULES))))
+ 
+--- a/make/Main.gmk
++++ b/make/Main.gmk
+@@ -396,10 +396,15 @@ $(eval $(call SetupTarget, jrtfs-jar, \
+     DEPS := interim-langtools, \
+ ))
+ 
++JDK_IMAGE_DEPS := jmods zip-source demos release-file
++ifeq ($(OPENJDK_HEADLESS_RUNTIME_ONLY), true)
++  JDK_IMAGE_DEPS := jmods zip-source release-file
++endif
++
+ $(eval $(call SetupTarget, jdk-image, \
+     MAKEFILE := Images, \
+     TARGET := jdk, \
+-    DEPS := jmods zip-source demos release-file, \
++    DEPS := $(JDK_IMAGE_DEPS), \
+ ))
+ 
+ $(eval $(call SetupTarget, legacy-jre-image, \

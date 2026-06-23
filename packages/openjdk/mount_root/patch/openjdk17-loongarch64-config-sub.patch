@@ -1,0 +1,16 @@
+--- a/make/autoconf/build-aux/config.sub
++++ b/make/autoconf/build-aux/config.sub
+@@ -46,6 +46,13 @@ if echo $* | grep '^riscv\(32\|64\)-linux' >/dev/null ; then
+     exit
+ fi
+ 
++# Canonicalize for loongarch64 which autoconf-config.sub in JDK 17 does not handle
++if echo $* | grep '^loongarch64-linux' >/dev/null ; then
++    result=`echo $@ | sed 's/linux/unknown-linux/'`
++    echo $result
++    exit
++fi
++
+ # Filter out everything that doesn't begin with "aarch64-"
+ if ! echo $* | grep '^aarch64-' >/dev/null ; then
+     . $DIR/autoconf-config.sub "$@"

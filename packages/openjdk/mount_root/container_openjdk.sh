@@ -42,14 +42,64 @@ extract_tar_source() {
   [[ -e "${source_dir}/${marker_path}" ]] || die "invalid source tree: ${source_dir}"
 }
 
+loongarch64_openjdk_srpm_archive_name() {
+  local archive_name=""
+
+  archive_name="$(basename "${LOONGARCH64_OPENJDK_SRPM_URL:-}")"
+  case "$archive_name" in
+    *.src.rpm|*.rpm)
+      printf '%s\n' "$archive_name"
+      ;;
+    *)
+      printf 'java-17-openjdk-17.0.17.0.10-1.lns23.src.rpm\n'
+      ;;
+  esac
+}
+
+extract_loongarch64_openjdk_srpm() {
+  local srpm_archive="$1"
+  local srpm_dir="${SOURCE_ROOT}/openjdk-srpm"
+  local archive_marker="${srpm_dir}/.source-archive"
+  local archive_name=""
+  local source_archive=""
+  local source_patch=""
+
+  require_command rpm2cpio
+  require_command cpio
+
+  archive_name="$(basename "$srpm_archive")"
+  if [[ ! -f "$archive_marker" ]] || ! grep -qx "$archive_name" "$archive_marker"; then
+    rm -rf "$srpm_dir"
+    mkdir -p "$srpm_dir"
+    (
+      cd "$srpm_dir"
+      rpm2cpio "$srpm_archive" | cpio -idmu --quiet
+    )
+    printf '%s\n' "$archive_name" >"$archive_marker"
+  fi
+
+  source_archive="$(find "$srpm_dir" -maxdepth 1 -type f -name 'openjdk-*.tar.xz' | sort | head -n 1)"
+  source_patch="$(find "$srpm_dir" -maxdepth 1 -type f -name 'jdk17-LoongArch64.patch' | sort | head -n 1)"
+  [[ -f "$source_archive" ]] || die "missing OpenJDK source archive in SRPM: ${srpm_archive}"
+  [[ -f "$source_patch" ]] || die "missing LoongArch64 OpenJDK patch in SRPM: ${srpm_archive}"
+
+  OPENJDK_ARCHIVE="$source_archive"
+  if [[ -z "${LOONGARCH64_OPENJDK_PATCH:-}" ]]; then
+    LOONGARCH64_OPENJDK_PATCH="$source_patch"
+  fi
+}
+
 ensure_host_zip() {
   local zip_source_dir="${SOURCE_ROOT}/zip"
   local zip_archive_name=""
   local zip_bin="${BUILD_TOOLS}/zip"
   local zip_cc=""
+  local found_zip=""
 
-  if command -v zip >/dev/null 2>&1; then
-    ln -sf "$(command -v zip)" "$zip_bin"
+  found_zip="$(command -v zip 2>/dev/null || true)"
+  if [[ -n "$found_zip" && "$found_zip" != "$zip_bin" && -x "$found_zip" ]]; then
+    rm -f "$zip_bin"
+    ln -sf "$found_zip" "$zip_bin"
     return 0
   fi
 
@@ -82,14 +132,31 @@ ensure_host_zip() {
   )
 
   [[ -x "${zip_source_dir}/zip" ]] || die "failed to build host zip tool"
+  rm -f "$zip_bin"
   cp -f "${zip_source_dir}/zip" "$zip_bin"
   chmod 755 "$zip_bin"
 }
 
 openjdk_source_archive_name() {
   case "${OPENJDK_SOURCE_URL:-}" in
+    *github.com/loongson/jdk17u*) printf 'loongson-jdk17u-jdk-%s-ls-ga.tar.gz\n' "$OPENJDK_VERSION" ;;
+    *github.com/loongson/jdk25u*) printf 'loongson-jdk25u-jdk-%s-ls-ga.tar.gz\n' "$OPENJDK_VERSION" ;;
     *.tar.gz|*.tgz) printf 'openjdk-%s-ga.tar.gz\n' "$OPENJDK_VERSION" ;;
     *) printf 'openjdk-%s-ga.tar.xz\n' "$OPENJDK_VERSION" ;;
+  esac
+}
+
+boot_jdk_archive_name() {
+  local archive_name=""
+
+  archive_name="$(basename "${BOOT_JDK_URL:-}")"
+  case "$archive_name" in
+    *.tar|*.tar.gz|*.tgz|*.tar.xz|*.txz)
+      printf '%s\n' "$archive_name"
+      ;;
+    *)
+      printf 'boot-jdk-%s-linux-x64.tar.gz\n' "$OPENJDK_VERSION"
+      ;;
   esac
 }
 
@@ -104,12 +171,70 @@ openjdk_target_triplet() {
   esac
 }
 
+openjdk_patch_family() {
+  case "${OPENJDK_SOURCE_URL:-}:${OPENJDK_VERSION:-}" in
+    *github.com/loongson/jdk17u*|*:17.*) printf 'openjdk17' ;;
+    *) printf 'openjdk25' ;;
+  esac
+}
+
 apply_openjdk_patches() {
-  if [[ ! -e "${OPENJDK_SOURCE_DIR}/.develop-suit-headless-runtime.patch.applied" ]]; then
+  local patch_family=""
+
+  patch_family="$(openjdk_patch_family)"
+  if [[ "$patch_family" == "openjdk17" \
+      && "$ARCH" == "loongarch64" \
+      && ! -e "${OPENJDK_SOURCE_DIR}/.develop-suit-openjdk17-loongarch64-config-sub.patch.applied" ]]; then
     (
       cd "$OPENJDK_SOURCE_DIR"
-      patch -p1 -i /work/mount_root/patch/openjdk25-headless-runtime-only.patch
-      touch .develop-suit-headless-runtime.patch.applied
+      patch -p1 -i /work/mount_root/patch/openjdk17-loongarch64-config-sub.patch
+      touch .develop-suit-openjdk17-loongarch64-config-sub.patch.applied
+    )
+  fi
+  if [[ "$patch_family" == "openjdk25" \
+      && "$ARCH" == "riscv64" \
+      && ! -e "${OPENJDK_SOURCE_DIR}/.develop-suit-openjdk25-riscv64-float-type-scope.patch.applied" ]]; then
+    (
+      cd "$OPENJDK_SOURCE_DIR"
+      patch -p1 -i /work/mount_root/patch/openjdk25-riscv64-float-type-scope.patch
+      touch .develop-suit-openjdk25-riscv64-float-type-scope.patch.applied
+    )
+  fi
+  if [[ ! -e "${OPENJDK_SOURCE_DIR}/.develop-suit-${patch_family}-headless-runtime.patch.applied" ]]; then
+    (
+      cd "$OPENJDK_SOURCE_DIR"
+      patch -p1 -i "/work/mount_root/patch/${patch_family}-headless-runtime-only.patch"
+      touch ".develop-suit-${patch_family}-headless-runtime.patch.applied"
+    )
+  fi
+  if [[ ! -e "${OPENJDK_SOURCE_DIR}/.develop-suit-${patch_family}-headless-runtime-ctsym.patch.applied" ]]; then
+    (
+      cd "$OPENJDK_SOURCE_DIR"
+      patch -p1 -i "/work/mount_root/patch/${patch_family}-headless-runtime-ctsym.patch"
+      touch ".develop-suit-${patch_family}-headless-runtime-ctsym.patch.applied"
+    )
+  fi
+  if [[ ! -e "${OPENJDK_SOURCE_DIR}/.develop-suit-${patch_family}-headless-runtime-jmods.patch.applied" ]]; then
+    (
+      cd "$OPENJDK_SOURCE_DIR"
+      patch -p1 -i "/work/mount_root/patch/${patch_family}-headless-runtime-jmods.patch"
+      touch ".develop-suit-${patch_family}-headless-runtime-jmods.patch.applied"
+    )
+  fi
+}
+
+apply_openjdk_loongarch64_patch() {
+  if [[ -z "${LOONGARCH64_OPENJDK_PATCH:-}" ]]; then
+    return 0
+  fi
+  if [[ "$ARCH" != "loongarch64" ]]; then
+    die "--loongarch64-openjdk-patch is only valid for loongarch64"
+  fi
+  if [[ ! -e "${OPENJDK_SOURCE_DIR}/.develop-suit-loongarch64-openjdk.patch.applied" ]]; then
+    (
+      cd "$OPENJDK_SOURCE_DIR"
+      patch -p1 -i "$LOONGARCH64_OPENJDK_PATCH"
+      touch .develop-suit-loongarch64-openjdk.patch.applied
     )
   fi
 }
@@ -122,6 +247,27 @@ first_existing_dir() {
     return 0
   done
   return 0
+}
+
+filter_existing_openjdk_modules() {
+  local modules="$1"
+  local module=""
+  local filtered=()
+  local skipped=()
+
+  for module in $modules; do
+    if [[ -d "${OPENJDK_SOURCE_DIR}/src/${module}" ]]; then
+      filtered+=("$module")
+    else
+      skipped+=("$module")
+    fi
+  done
+
+  if [[ "${#skipped[@]}" -gt 0 ]]; then
+    log "Skipping modules not present in OpenJDK source: ${skipped[*]}"
+  fi
+
+  printf '%s\n' "${filtered[*]}"
 }
 
 write_clang_wrapper() {
@@ -142,11 +288,13 @@ write_clang_wrapper() {
 write_host_clang_wrapper() {
   local wrapper_path="$1"
   local real_compiler="$2"
+  local extra_flags="${3:-}"
+  local extra_link_flags="${4:-}"
 
   render_template "${TEMPLATE_DIR}/host-clang-wrapper.in" "$wrapper_path" \
     "REAL_COMPILER=${real_compiler}" \
-    "EXTRA_FLAGS=" \
-    "EXTRA_LINK_FLAGS="
+    "EXTRA_FLAGS=${extra_flags}" \
+    "EXTRA_LINK_FLAGS=${extra_link_flags}"
   chmod +x "$wrapper_path"
 }
 
@@ -217,10 +365,20 @@ extract_boot_jdk() {
 
 configure_and_build_source_jdk() {
   local openjdk_target=""
-  local runtime_modules=""
   local configure_args=()
+  local make_args=()
+  local pkg_config_paths=()
+  local build_cxx_runtime_dir="${LLVM_ROOT}/lib/x86_64-unknown-linux-gnu"
+  local build_cxx_link_flags=""
+  local jvm_variants="${OPENJDK_JVM_VARIANTS:-server}"
+  local default_headless_build_modules=""
+  local default_headless_runtime_modules=""
 
   openjdk_target="$(openjdk_target_triplet)"
+  if [[ -z "${OPENJDK_JVM_VARIANTS:-}" && "$ARCH" == "loongarch64" \
+      && ! -d "${OPENJDK_SOURCE_DIR}/src/hotspot/cpu/loongarch" ]]; then
+    jvm_variants="zero"
+  fi
 
   COMMON_CFLAGS="-fPIC -Wno-unused-command-line-argument"
   COMMON_CXXFLAGS="-fPIC -Wno-unused-command-line-argument"
@@ -228,16 +386,41 @@ configure_and_build_source_jdk() {
   if [[ "$ARCH" == "riscv64" ]]; then
     COMMON_CFLAGS="-mno-relax ${COMMON_CFLAGS}"
     COMMON_CXXFLAGS="-mno-relax ${COMMON_CXXFLAGS}"
-    COMMON_LDFLAGS="-Wl,--no-relax ${COMMON_LDFLAGS}"
+    COMMON_LDFLAGS="-Wl,--undefined-version -Wl,--no-relax ${COMMON_LDFLAGS}"
+  fi
+  if [[ "$ARCH" == "loongarch64" ]]; then
+    COMMON_LDFLAGS="-Wl,--undefined-version ${COMMON_LDFLAGS}"
+  fi
+  default_headless_build_modules="java.base java.compiler java.datatransfer java.instrument java.logging java.management java.management.rmi java.naming java.net.http java.prefs java.rmi java.scripting java.security.jgss java.security.sasl java.sql java.sql.rowset java.transaction.xa java.xml java.xml.crypto jdk.attach jdk.charsets jdk.compiler jdk.crypto.cryptoki jdk.crypto.ec jdk.httpserver jdk.internal.ed jdk.internal.jvmstat jdk.internal.le jdk.internal.md jdk.internal.opt jdk.jartool jdk.javadoc jdk.jcmd jdk.jdeps jdk.jdi jdk.jdwp.agent jdk.jfr jdk.jlink jdk.localedata jdk.management jdk.management.agent jdk.naming.dns jdk.naming.rmi jdk.net jdk.nio.mapmode jdk.sctp jdk.security.auth jdk.security.jgss jdk.unsupported jdk.zipfs"
+  default_headless_runtime_modules="java.base java.compiler java.datatransfer java.instrument java.logging java.management java.management.rmi java.naming java.net.http java.prefs java.rmi java.scripting java.security.jgss java.security.sasl java.sql java.sql.rowset java.transaction.xa java.xml java.xml.crypto jdk.attach jdk.charsets jdk.crypto.cryptoki jdk.crypto.ec jdk.httpserver jdk.internal.ed jdk.internal.jvmstat jdk.internal.le jdk.internal.md jdk.internal.opt jdk.jartool jdk.jcmd jdk.jdi jdk.jdwp.agent jdk.jfr jdk.localedata jdk.management jdk.management.agent jdk.naming.dns jdk.naming.rmi jdk.net jdk.nio.mapmode jdk.sctp jdk.security.auth jdk.security.jgss jdk.unsupported jdk.zipfs"
+  HEADLESS_BUILD_MODULES="${HEADLESS_BUILD_MODULES:-$default_headless_build_modules}"
+  HEADLESS_RUNTIME_MODULES="${HEADLESS_RUNTIME_MODULES:-$default_headless_runtime_modules}"
+  HEADLESS_BUILD_MODULES="$(filter_existing_openjdk_modules "$HEADLESS_BUILD_MODULES")"
+  HEADLESS_RUNTIME_MODULES="$(filter_existing_openjdk_modules "$HEADLESS_RUNTIME_MODULES")"
+  if [[ -n "${FONTCONFIG_PREFIX:-}" ]]; then
+    [[ -d "$FONTCONFIG_PREFIX" ]] || die "missing fontconfig dependency prefix: ${FONTCONFIG_PREFIX}"
+    [[ -f "${FONTCONFIG_PREFIX}/include/freetype2/ft2build.h" ]] || die "missing FreeType headers: ${FONTCONFIG_PREFIX}"
+    [[ -f "${FONTCONFIG_PREFIX}/include/fontconfig/fontconfig.h" ]] || die "missing fontconfig headers: ${FONTCONFIG_PREFIX}"
+    [[ -f "${FONTCONFIG_PREFIX}/lib/pkgconfig/freetype2.pc" ]] || die "missing freetype2.pc: ${FONTCONFIG_PREFIX}"
+    [[ -f "${FONTCONFIG_PREFIX}/lib/pkgconfig/fontconfig.pc" ]] || die "missing fontconfig.pc: ${FONTCONFIG_PREFIX}"
+
+    COMMON_CFLAGS="-I${FONTCONFIG_PREFIX}/include -I${FONTCONFIG_PREFIX}/include/freetype2 ${COMMON_CFLAGS}"
+    COMMON_CXXFLAGS="-I${FONTCONFIG_PREFIX}/include -I${FONTCONFIG_PREFIX}/include/freetype2 ${COMMON_CXXFLAGS}"
+    COMMON_LDFLAGS="-L${FONTCONFIG_PREFIX}/lib -Wl,-rpath-link,${FONTCONFIG_PREFIX}/lib ${COMMON_LDFLAGS}"
+    pkg_config_paths+=("${FONTCONFIG_PREFIX}/lib/pkgconfig" "${FONTCONFIG_PREFIX}/share/pkgconfig")
   fi
 
   write_clang_wrapper "${BUILD_TOOLS}/clang" "$TARGET_CC_REAL" "$COMMON_CFLAGS" "$COMMON_LDFLAGS"
   write_clang_wrapper "${BUILD_TOOLS}/clang++" "$TARGET_CXX_REAL" "$COMMON_CXXFLAGS" "$COMMON_LDFLAGS"
   write_host_clang_wrapper "${BUILD_TOOLS}/build-clang" "$BUILD_CC_REAL"
-  write_host_clang_wrapper "${BUILD_TOOLS}/build-clang++" "$BUILD_CXX_REAL"
+  if [[ -d "$build_cxx_runtime_dir" ]]; then
+    build_cxx_link_flags="-L${build_cxx_runtime_dir} -Wl,-rpath,${build_cxx_runtime_dir} -Wl,--start-group -lc++ -lc++abi -lunwind -Wl,--end-group"
+  fi
+  if [[ "$ARCH" == "loongarch64" ]]; then
+    build_cxx_link_flags="${build_cxx_link_flags} -Wl,--undefined-version"
+  fi
+  write_host_clang_wrapper "${BUILD_TOOLS}/build-clang++" "$BUILD_CXX_REAL" "" "$build_cxx_link_flags"
   link_llvm_binutils
-  runtime_modules="${HEADLESS_RUNTIME_MODULES:-java.base java.logging java.xml java.naming java.management java.instrument java.security.sasl java.sql java.transaction.xa java.net.http java.compiler jdk.compiler jdk.unsupported jdk.crypto.ec jdk.charsets jdk.localedata jdk.zipfs jdk.management jdk.management.agent jdk.jdwp.agent}"
-
   configure_args=(
     --with-conf-name="${TARGET_TRIPLE}"
     --with-boot-jdk="$BOOT_JDK_DIR"
@@ -247,9 +430,10 @@ configure_and_build_source_jdk() {
     --with-extra-path="${BUILD_TOOLS}:${LLVM_ROOT}/bin"
     --with-sysroot="$SYSROOT"
     --enable-headless-only
-    --with-jvm-variants=server
+    --with-jvm-variants="$jvm_variants"
     --with-debug-level=release
     --with-native-debug-symbols=none
+    --with-jobs="$JOBS"
     --disable-warnings-as-errors
     --with-version-opt=develop-suit
     --with-build-user=develop_suit
@@ -259,10 +443,32 @@ configure_and_build_source_jdk() {
     "BUILD_CC=${BUILD_TOOLS}/build-clang"
     "BUILD_CXX=${BUILD_TOOLS}/build-clang++"
   )
+  if [[ -n "${FONTCONFIG_PREFIX:-}" ]]; then
+    configure_args+=(
+      --with-freetype=system
+      --with-freetype-include="${FONTCONFIG_PREFIX}/include"
+      --with-freetype-lib="${FONTCONFIG_PREFIX}/lib"
+      --with-fontconfig="${FONTCONFIG_PREFIX}"
+    )
+  fi
+  make_args=(CONF_NAME="$TARGET_TRIPLE" jdk-image JOBS="$JOBS" OPENJDK_HEADLESS_RUNTIME_ONLY=true)
+  if [[ -n "${HEADLESS_RUNTIME_MODULES:-}" ]]; then
+    make_args+=(
+      ALL_MODULES="${HEADLESS_BUILD_MODULES:-$HEADLESS_RUNTIME_MODULES}"
+      JAVA_MODULES="${HEADLESS_BUILD_MODULES:-$HEADLESS_RUNTIME_MODULES}"
+      JMOD_MODULES="${HEADLESS_BUILD_MODULES:-$HEADLESS_RUNTIME_MODULES}"
+      JDK_MODULES="$HEADLESS_RUNTIME_MODULES"
+      JRE_MODULES="$HEADLESS_RUNTIME_MODULES"
+    )
+  fi
   log "Configuring OpenJDK ${OPENJDK_VERSION} for ${TARGET_TRIPLE} as ${openjdk_target}"
   (
     cd "$OPENJDK_SOURCE_DIR"
     env \
+      PKG_CONFIG="${PKG_CONFIG:-pkg-config}" \
+      PKG_CONFIG_PATH="$(IFS=:; echo "${pkg_config_paths[*]}")" \
+      PKG_CONFIG_LIBDIR="$(IFS=:; echo "${pkg_config_paths[*]}")" \
+      PKG_CONFIG_SYSROOT_DIR= \
       CC="${BUILD_TOOLS}/clang" \
       CXX="${BUILD_TOOLS}/clang++" \
       LD="${BUILD_TOOLS}/clang++" \
@@ -277,12 +483,7 @@ configure_and_build_source_jdk() {
       bash configure "${configure_args[@]}"
 
     log "Building OpenJDK headless runtime image"
-    make CONF_NAME="$TARGET_TRIPLE" jdk-image JOBS="$JOBS" \
-      ALL_MODULES="$runtime_modules" \
-      JAVA_MODULES="$runtime_modules" \
-      JMOD_MODULES="$runtime_modules" \
-      JDK_MODULES="$runtime_modules" \
-      JRE_MODULES="$runtime_modules"
+    make "${make_args[@]}"
   )
 
   [[ -x "${OPENJDK_SOURCE_DIR}/build/${TARGET_TRIPLE}/images/jdk/bin/java" ]] || die "missing built JDK image"
@@ -314,7 +515,9 @@ EOF
     chmod 755 "${SDK_PREFIX}/bin/mvn" "${SDK_PREFIX}/bin/mvn.cmd"
   else
     ln -s ../jdk/bin/java "${SDK_PREFIX}/bin/java"
-    ln -s ../jdk/bin/javac "${SDK_PREFIX}/bin/javac"
+    if [[ -x "${SDK_PREFIX}/jdk/bin/javac" ]]; then
+      ln -s ../jdk/bin/javac "${SDK_PREFIX}/bin/javac"
+    fi
     cat >"${SDK_PREFIX}/bin/mvn" <<'EOF'
 #!/usr/bin/env sh
 set -eu
@@ -329,10 +532,14 @@ EOF
 validate_package() {
   if [[ "$TARGET_KIND" == "mingw" ]]; then
     [[ -f "${SDK_PREFIX}/jdk/bin/java.exe" ]] || die "missing java.exe launcher"
-    [[ -f "${SDK_PREFIX}/jdk/bin/javac.exe" ]] || die "missing javac.exe launcher"
+    if [[ "${REQUIRE_JAVAC:-true}" == "true" ]]; then
+      [[ -f "${SDK_PREFIX}/jdk/bin/javac.exe" ]] || die "missing javac.exe launcher"
+    fi
   else
     [[ -x "${SDK_PREFIX}/jdk/bin/java" ]] || die "missing java launcher"
-    [[ -x "${SDK_PREFIX}/jdk/bin/javac" ]] || die "missing javac launcher"
+    if [[ "${REQUIRE_JAVAC:-true}" == "true" ]]; then
+      [[ -x "${SDK_PREFIX}/jdk/bin/javac" ]] || die "missing javac launcher"
+    fi
   fi
   [[ -x "${SDK_PREFIX}/maven/bin/mvn" ]] || die "missing Maven launcher"
 }
@@ -349,6 +556,7 @@ CACHE_DIR="${CACHE_DIR:-/work/cache}"
 BUILD_DIR="${BUILD_DIR:-/work/build}"
 LLVM_ROOT="${LLVM_ROOT:-/opt/llvm-${LLVM_VERSION}}"
 TEMPLATE_DIR="${TEMPLATE_DIR:-/work/mount_root/templates}"
+FONTCONFIG_PREFIX="${FONTCONFIG_PREFIX:-}"
 
 [[ -n "$ARCH" ]] || die "ARCH is required"
 case "${TARGET_KIND}:${ARCH}" in
@@ -401,6 +609,8 @@ case "$ARCH" in
     install_prebuilt_jdk "$AARCH64_JDK_ARCHIVE"
     ;;
   riscv64|loongarch64)
+    JDK_SOURCE="source"
+    REQUIRE_JAVAC="${REQUIRE_JAVAC:-false}"
     [[ -d "$LLVM_ROOT" ]] || die "missing LLVM root: ${LLVM_ROOT}"
     SYSROOT="${SYSROOT:-/opt/sysroot/${TARGET_TRIPLE}}"
     [[ -d "$SYSROOT" ]] || die "missing sysroot: ${SYSROOT}"
@@ -421,19 +631,32 @@ case "$ARCH" in
     [[ -x "$TARGET_CXX_REAL" ]] || die "missing target C++ compiler: ${TARGET_CXX_REAL}"
 
     if [[ -z "${OPENJDK_ARCHIVE:-}" ]]; then
-      OPENJDK_ARCHIVE="${CACHE_DIR}/$(openjdk_source_archive_name)"
-      download_archive "$OPENJDK_SOURCE_URL" "$(basename "$OPENJDK_ARCHIVE")"
+      if [[ "$ARCH" == "loongarch64" \
+          && ( -n "${LOONGARCH64_OPENJDK_SRPM_ARCHIVE:-}" \
+            || -n "${LOONGARCH64_OPENJDK_SRPM_URL:-}" ) ]]; then
+        if [[ -z "${LOONGARCH64_OPENJDK_SRPM_ARCHIVE:-}" ]]; then
+          LOONGARCH64_OPENJDK_SRPM_ARCHIVE="${CACHE_DIR}/$(loongarch64_openjdk_srpm_archive_name)"
+          download_archive "$LOONGARCH64_OPENJDK_SRPM_URL" "$(basename "$LOONGARCH64_OPENJDK_SRPM_ARCHIVE")"
+        fi
+      else
+        OPENJDK_ARCHIVE="${CACHE_DIR}/$(openjdk_source_archive_name)"
+        download_archive "$OPENJDK_SOURCE_URL" "$(basename "$OPENJDK_ARCHIVE")"
+      fi
+    fi
+    if [[ "$ARCH" == "loongarch64" && -n "${LOONGARCH64_OPENJDK_SRPM_ARCHIVE:-}" ]]; then
+      extract_loongarch64_openjdk_srpm "$LOONGARCH64_OPENJDK_SRPM_ARCHIVE"
     fi
     if [[ -z "${BOOT_JDK_ARCHIVE:-}" ]]; then
-      BOOT_JDK_ARCHIVE="${CACHE_DIR}/boot-jdk-25-linux-x64.tar.gz"
+      BOOT_JDK_ARCHIVE="${CACHE_DIR}/$(boot_jdk_archive_name)"
       download_archive "$BOOT_JDK_URL" "$(basename "$BOOT_JDK_ARCHIVE")"
     fi
 
     export PATH="${BOOT_JDK_DIR}/bin:${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
-    export LANG=C.UTF-8
-    export LC_ALL=C.UTF-8
+    export LANG=C
+    export LC_ALL=C
     ensure_host_zip
     extract_tar_source "$OPENJDK_SOURCE_DIR" "$OPENJDK_ARCHIVE" "configure"
+    apply_openjdk_loongarch64_patch
     apply_openjdk_patches
     extract_boot_jdk
     configure_and_build_source_jdk

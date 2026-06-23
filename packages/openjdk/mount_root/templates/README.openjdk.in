@@ -11,7 +11,7 @@ Layout:
 - jdk/: JDK image
 - maven/: Apache Maven
 - bin/java -> ../jdk/bin/java
-- bin/javac -> ../jdk/bin/javac
+- bin/javac -> ../jdk/bin/javac when the image includes jdk.compiler
 - bin/mvn -> ../maven/bin/mvn
 
 x86_64 and aarch64 Linux are packaged from Azul Zulu prebuilt JDK archives.
