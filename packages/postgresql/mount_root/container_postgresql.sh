@@ -168,9 +168,27 @@ rewrite_dependency_prefixes() {
 
 remove_static_libraries() {
   find "${SDK_PREFIX}/lib" -type f -name '*.la' -delete
-  find "${SDK_PREFIX}/lib" -type f -name '*.a' \
-    ! -name '*.dll.a' \
-    -delete
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    find "${SDK_PREFIX}/lib" -type f -name '*.a' \
+      ! -name '*.dll.a' \
+      ! -name 'libpostgres.a' \
+      ! -name 'libpgcommon.a' \
+      ! -name 'libpgport.a' \
+      -delete
+  else
+    find "${SDK_PREFIX}/lib" -type f -name '*.a' \
+      ! -name '*.dll.a' \
+      -delete
+  fi
+}
+
+install_mingw_pgxs_archives() {
+  [[ "$TARGET_KIND" == "mingw" ]] || return 0
+
+  install -d "${SDK_PREFIX}/lib"
+  install -m 0644 "${POSTGRESQL_BUILD_DIR}/src/backend/libpostgres.a" "${SDK_PREFIX}/lib/libpostgres.a"
+  install -m 0644 "${POSTGRESQL_BUILD_DIR}/src/common/libpgcommon.a" "${SDK_PREFIX}/lib/libpgcommon.a"
+  install -m 0644 "${POSTGRESQL_BUILD_DIR}/src/port/libpgport.a" "${SDK_PREFIX}/lib/libpgport.a"
 }
 
 remove_postgresql_docs() {
@@ -886,6 +904,7 @@ if [[ "$TARGET_KIND" == "linux" ]]; then
 else
   build_postgresql_configure
 fi
+install_mingw_pgxs_archives
 copy_system_tzdata_into_prefix
 remove_static_libraries
 remove_postgresql_docs

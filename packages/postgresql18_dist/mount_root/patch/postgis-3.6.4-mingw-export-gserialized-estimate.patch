@@ -1,0 +1,41 @@
+--- a/postgis/gserialized_estimate.c
++++ b/postgis/gserialized_estimate.c
+@@ -130,18 +130,18 @@
+ 
+ 
+ /* Prototypes */
+-Datum gserialized_gist_joinsel(PG_FUNCTION_ARGS);
+-Datum gserialized_gist_joinsel_2d(PG_FUNCTION_ARGS);
+-Datum gserialized_gist_joinsel_nd(PG_FUNCTION_ARGS);
+-Datum gserialized_gist_sel(PG_FUNCTION_ARGS);
+-Datum gserialized_gist_sel_2d(PG_FUNCTION_ARGS);
+-Datum gserialized_gist_sel_nd(PG_FUNCTION_ARGS);
+-Datum gserialized_analyze_nd(PG_FUNCTION_ARGS);
+-Datum gserialized_estimated_extent(PG_FUNCTION_ARGS);
+-Datum _postgis_gserialized_index_extent(PG_FUNCTION_ARGS);
+-Datum _postgis_gserialized_sel(PG_FUNCTION_ARGS);
+-Datum _postgis_gserialized_joinsel(PG_FUNCTION_ARGS);
+-Datum _postgis_gserialized_stats(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum gserialized_gist_joinsel(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum gserialized_gist_joinsel_2d(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum gserialized_gist_joinsel_nd(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum gserialized_gist_sel(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum gserialized_gist_sel_2d(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum gserialized_gist_sel_nd(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum gserialized_analyze_nd(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum gserialized_estimated_extent(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum _postgis_gserialized_index_extent(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum _postgis_gserialized_sel(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum _postgis_gserialized_joinsel(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum _postgis_gserialized_stats(PG_FUNCTION_ARGS);
+ 
+ /* Local prototypes */
+ static Oid table_get_spatial_index(Oid tbl_oid, int16 attnum, int *key_type, int16 *idx_attnum);
+@@ -152,7 +152,7 @@
+ float8 gserialized_sel_internal(PlannerInfo *root, List *args, int varRelid, int mode);
+ 
+ /* Old Prototype */
+-Datum geometry_estimated_extent(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum geometry_estimated_extent(PG_FUNCTION_ARGS);
+ 
+ /*

@@ -1,0 +1,13 @@
+diff --git a/meson.build b/meson.build
+index 6e7d378..ce46437 100644
+--- a/meson.build
++++ b/meson.build
+@@ -44,7 +44,7 @@ pgrn_c_args = [f'-DPGRN_VERSION="@pgrn_version@"']
+ if get_option('buildtype').startswith('debug')
+   pgrn_c_args += ['-DPGROONGA_DEBUG=1']
+ endif
+-if host_machine.system() == 'windows'
++if host_machine.system() == 'windows' and cc.get_argument_syntax() == 'msvc'
+   pgrn_c_args += ['/EHsc']
+ endif
+ 

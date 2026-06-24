@@ -74,9 +74,15 @@ apply_source_patch() {
 }
 
 extension_env() {
+  local ld_library_path="${SDK_PREFIX}/lib:${SDK_PREFIX}/lib64:${LD_LIBRARY_PATH:-}"
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    ld_library_path="${SDK_PREFIX}/bin:${ld_library_path}"
+  fi
+
   env \
     PATH="${BUILD_TOOLS}:${SDK_PREFIX}/bin:${LLVM_ROOT}/bin:${PATH}" \
-    LD_LIBRARY_PATH="${SDK_PREFIX}/lib:${SDK_PREFIX}/lib64:${LD_LIBRARY_PATH:-}" \
+    LD_LIBRARY_PATH="${ld_library_path}" \
     PKG_CONFIG_PATH="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig" \
     PKG_CONFIG_LIBDIR="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig" \
     PKG_CONFIG_SYSROOT_DIR= \
@@ -87,11 +93,12 @@ extension_env() {
     RANLIB="${RANLIB:-${LLVM_ROOT}/bin/llvm-ranlib}" \
     NM="${NM:-${LLVM_ROOT}/bin/llvm-nm}" \
     STRIP="${STRIP:-${LLVM_ROOT}/bin/llvm-strip}" \
-    CPPFLAGS="-I${SDK_PREFIX}/include ${CPPFLAGS:-}" \
-    PG_CPPFLAGS="-I${SDK_PREFIX}/include ${PG_CPPFLAGS:-}" \
-    CFLAGS="-I${SDK_PREFIX}/include -fPIC ${CFLAGS:-}" \
-    CXXFLAGS="-I${SDK_PREFIX}/include -fPIC ${CXXFLAGS:-}" \
-    LDFLAGS="-L${SDK_PREFIX}/lib -Wl,-rpath,${SDK_PREFIX}/lib -Wl,-rpath-link,${SDK_PREFIX}/lib ${LDFLAGS:-}" \
+    WINDRES="${WINDRES:-}" \
+    CPPFLAGS="${COMMON_CPPFLAGS} ${CPPFLAGS:-}" \
+    PG_CPPFLAGS="${COMMON_PG_CPPFLAGS} ${PG_CPPFLAGS:-}" \
+    CFLAGS="${COMMON_CFLAGS} ${CFLAGS:-}" \
+    CXXFLAGS="${COMMON_CXXFLAGS} ${CXXFLAGS:-}" \
+    LDFLAGS="${COMMON_LDFLAGS} ${LDFLAGS:-}" \
     "$@"
 }
 
@@ -115,8 +122,24 @@ cmake_extension_install() {
   shift 2
 
   local build_dir="${EXT_BUILD_DIR}/${package_name}"
+  local cmake_target_args=()
+  local cmake_rpath_args=()
   rm -rf "$build_dir"
   mkdir -p "$build_dir"
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    cmake_target_args+=(
+      -DCMAKE_SYSTEM_NAME=Windows
+      -DCMAKE_RC_COMPILER="$WINDRES"
+      -DCMAKE_DLL_NAME_WITH_SOVERSION=ON
+    )
+  else
+    cmake_rpath_args+=(
+      "-DCMAKE_INSTALL_RPATH=${SDK_PREFIX}/lib"
+      -DCMAKE_BUILD_WITH_INSTALL_RPATH=OFF
+      -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=OFF
+    )
+  fi
 
   log "Configuring CMake extension: ${package_name}"
   extension_env cmake -S "$source_dir" -B "$build_dir" -G Ninja \
@@ -125,10 +148,13 @@ cmake_extension_install() {
     -DCMAKE_PREFIX_PATH="$SDK_PREFIX" \
     -DCMAKE_C_COMPILER="$CC" \
     -DCMAKE_CXX_COMPILER="$CXX" \
-    -DCMAKE_C_FLAGS="-I${SDK_PREFIX}/include -fPIC" \
-    -DCMAKE_CXX_FLAGS="-I${SDK_PREFIX}/include -fPIC" \
-    -DCMAKE_EXE_LINKER_FLAGS="-L${SDK_PREFIX}/lib -Wl,-rpath,${SDK_PREFIX}/lib -Wl,-rpath-link,${SDK_PREFIX}/lib" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-L${SDK_PREFIX}/lib -Wl,-rpath,${SDK_PREFIX}/lib -Wl,-rpath-link,${SDK_PREFIX}/lib" \
+    -DCMAKE_C_FLAGS="${COMMON_CFLAGS}" \
+    -DCMAKE_CXX_FLAGS="${COMMON_CXXFLAGS}" \
+    -DCMAKE_EXE_LINKER_FLAGS="${COMMON_LDFLAGS}" \
+    -DCMAKE_SHARED_LINKER_FLAGS="${COMMON_LDFLAGS}" \
+    -DCMAKE_MODULE_LINKER_FLAGS="${COMMON_LDFLAGS}" \
+    "${cmake_target_args[@]}" \
+    "${cmake_rpath_args[@]}" \
     "$@"
 
   extension_env cmake --build "$build_dir" --parallel "$JOBS"
@@ -163,8 +189,8 @@ install_oracle_client_for_build() {
   ORACLE_HOME="${BUILD_DIR}/oracle/instantclient"
   rm -rf "${BUILD_DIR}/oracle"
   mkdir -p "${BUILD_DIR}/oracle"
-  unzip -q "$ORACLE_BASIC_ARCHIVE" -d "${BUILD_DIR}/oracle"
-  unzip -q "$ORACLE_SDK_ARCHIVE" -d "${BUILD_DIR}/oracle"
+  unzip -oq "$ORACLE_BASIC_ARCHIVE" -d "${BUILD_DIR}/oracle"
+  unzip -oq "$ORACLE_SDK_ARCHIVE" -d "${BUILD_DIR}/oracle"
   ORACLE_HOME="$(find "${BUILD_DIR}/oracle" -mindepth 1 -maxdepth 1 -type d -name 'instantclient*' | sort | head -n 1)"
   [[ -n "$ORACLE_HOME" && -d "$ORACLE_HOME/sdk/include" ]] || die "invalid Oracle Instant Client archives"
   export ORACLE_HOME
@@ -184,6 +210,25 @@ install_db2_cli_for_build() {
 build_postgis() {
   local source_dir="${EXT_SOURCE_DIR}/postgis"
   local build_dir="${EXT_BUILD_DIR}/postgis"
+  local extra_libs="-L${SDK_PREFIX}/lib -liconv"
+  local extra_cflags="${COMMON_CFLAGS}"
+  local extra_ldflags="${COMMON_LDFLAGS}"
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    apply_source_patch "$source_dir" "/work/mount_root/patch/postgis-3.6.4-mingw-export-st-symdifference.patch"
+    apply_source_patch "$source_dir" "/work/mount_root/patch/postgis-3.6.4-mingw-export-gserialized-estimate.patch"
+  fi
+
+  if [[ "$TARGET_KIND" == "linux" ]]; then
+    extra_libs+=" -lpthread"
+    extra_cflags+=" -pthread"
+    extra_ldflags+=" -pthread"
+  else
+    extra_cflags+=" -Wno-error=dll-attribute-on-redeclaration"
+    if [[ ! -e "${SDK_PREFIX}/lib/libproj_9.dll.a" && -e "${SDK_PREFIX}/lib/libproj.dll.a" ]]; then
+      ln -s "libproj.dll.a" "${SDK_PREFIX}/lib/libproj_9.dll.a"
+    fi
+  fi
 
   rm -rf "$build_dir"
   mkdir -p "$build_dir"
@@ -193,28 +238,35 @@ build_postgis() {
     extension_env \
       XML2_CONFIG="${SDK_PREFIX}/bin/xml2-config" \
       LIBXML2_CFLAGS="-I${SDK_PREFIX}/include -I${SDK_PREFIX}/include/libxml2" \
-      LIBXML2_LIBS="-L${SDK_PREFIX}/lib -lxml2 -lz -liconv -lm -lpthread" \
-      LIBS="-L${SDK_PREFIX}/lib -liconv -lpthread ${LIBS:-}" \
-      CFLAGS="-I${SDK_PREFIX}/include -fPIC -pthread ${CFLAGS:-}" \
-      LDFLAGS="-L${SDK_PREFIX}/lib -Wl,-rpath,${SDK_PREFIX}/lib -Wl,-rpath-link,${SDK_PREFIX}/lib -pthread ${LDFLAGS:-}" \
+      LIBXML2_LIBS="-L${SDK_PREFIX}/lib -lxml2 -lz -liconv -lm" \
+      LIBS="${extra_libs} ${LIBS:-}" \
+      CFLAGS="${extra_cflags} ${CFLAGS:-}" \
+      LDFLAGS="${extra_ldflags} ${LDFLAGS:-}" \
       PERL="${BUILD_TOOLS}/perl" \
       CPPBIN="$CC -E -x c" \
       "${source_dir}/configure" \
       --build="${BUILD_TRIPLE}" \
-      --host="$TARGET_TRIPLE" \
+      --host="$CONFIGURE_HOST_TRIPLE" \
       --prefix="$SDK_PREFIX" \
       --with-pgconfig="$PG_CONFIG" \
       --with-geosconfig="${SDK_PREFIX}/bin/geos-config" \
       --with-gdalconfig="${SDK_PREFIX}/bin/gdal-config" \
       --with-sfcgal="${SDK_PREFIX}/bin/sfcgal-config" \
       --without-protobuf
-    extension_env make -j "$JOBS"
-    extension_env make install
+    mkdir -p "${build_dir}/liblwgeom/topo"
+    extension_env make -j "$JOBS" CXX="$CXX"
+    extension_env make install CXX="$CXX"
   )
   INSTALLED_EXTENSIONS+=(postgis)
 }
 
 build_pgrouting() {
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    log "Skipping pgrouting: PostgreSQL Win32 header macros conflict with libc++ locale support under MinGW"
+    SKIPPED_EXTENSIONS+=("pgrouting: disabled on MinGW due to win32_port.h locale/ctype macro conflicts with libc++")
+    return 0
+  fi
+
   cmake_extension_install pgrouting "${EXT_SOURCE_DIR}/pgrouting" \
     -DPOSTGRESQL_PG_CONFIG="$PG_CONFIG" \
     -DPOSTGRESQL_BIN="${SDK_PREFIX}/bin" \
@@ -223,9 +275,78 @@ build_pgrouting() {
     -DWITH_INTERNAL_TESTS=OFF
 }
 
+build_pg_cron() {
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    log "Skipping pg_cron: upstream sources require POSIX process, uid/gid, rlimit, and poll APIs not provided by MinGW"
+    SKIPPED_EXTENSIONS+=("pg_cron: disabled on MinGW due to POSIX-only scheduler/process APIs")
+    return 0
+  fi
+
+  make_pgxs_install pg_cron "${EXT_SOURCE_DIR}/pg_cron"
+}
+
+build_pg_net() {
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    log "Skipping pg_net: upstream sources require kqueue/sys/event.h style event loop APIs unavailable on MinGW"
+    SKIPPED_EXTENSIONS+=("pg_net: disabled on MinGW due to missing sys/event.h and event loop support")
+    return 0
+  fi
+
+  make_pgxs_install pg_net "${EXT_SOURCE_DIR}/pg_net"
+}
+
+build_pgsql_http() {
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    log "Skipping pgsql-http: upstream sources require POSIX regex headers unavailable on MinGW"
+    SKIPPED_EXTENSIONS+=("pgsql-http: disabled on MinGW due to missing regex.h/POSIX regex support")
+    return 0
+  fi
+
+  make_pgxs_install pgsql-http "${EXT_SOURCE_DIR}/pgsql-http" \
+    CURL_CONFIG="${SDK_PREFIX}/bin/curl-config" \
+    PG_CPPFLAGS="-I${SDK_PREFIX}/include" \
+    SHLIB_LINK="-L${SDK_PREFIX}/lib -lcurl"
+}
+
+build_pgaudit() {
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    log "Skipping pgaudit: upstream build expects Windows resource inputs that are not shipped for MinGW packaging"
+    SKIPPED_EXTENSIONS+=("pgaudit: disabled on MinGW due to missing win32ver.rc/resource packaging support")
+    return 0
+  fi
+
+  make_pgxs_install pgaudit "${EXT_SOURCE_DIR}/pgaudit"
+}
+
+build_pg_stat_monitor() {
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    log "Skipping pg_stat_monitor: upstream build expects win32ver resources and non-portable uint usage on MinGW"
+    SKIPPED_EXTENSIONS+=("pg_stat_monitor: disabled on MinGW due to missing win32ver.rc and non-portable type assumptions")
+    return 0
+  fi
+
+  make_pgxs_install pg_stat_monitor "${EXT_SOURCE_DIR}/pg_stat_monitor"
+}
+
+build_age() {
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    log "Skipping age: upstream Apache AGE sources are not currently MinGW-compatible"
+    SKIPPED_EXTENSIONS+=("age: upstream Apache AGE sources conflict with MinGW/Win32 headers and missing clock_gettime")
+    return 0
+  fi
+
+  make_pgxs_install age "${EXT_SOURCE_DIR}/age"
+}
+
 build_timescaledb() {
   local source_dir="${EXT_SOURCE_DIR}/timescaledb"
   local build_dir="${EXT_BUILD_DIR}/timescaledb"
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    log "Skipping timescaledb: Windows/MinGW packaging is not supported in this distribution yet"
+    SKIPPED_EXTENSIONS+=("timescaledb: disabled on MinGW pending upstream/runtime packaging support")
+    return 0
+  fi
 
   rm -rf "$build_dir"
   mkdir -p "$build_dir"
@@ -244,8 +365,24 @@ build_timescaledb() {
   INSTALLED_EXTENSIONS+=(timescaledb)
 }
 
+build_pgroonga() {
+  local source_dir="${EXT_SOURCE_DIR}/pgroonga"
+
+  apply_source_patch "$source_dir" "/work/mount_root/patch/pgroonga-4.0.6-mingw-avoid-msvc-flags.patch"
+  meson_extension_install pgroonga "$source_dir" \
+    -Dpg_config="$PG_CONFIG" \
+    -Dinstall_to_postgresql=true \
+    -Dtest=false
+}
+
 build_plv8() {
   local source_dir="${EXT_SOURCE_DIR}/plv8"
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    log "Skipping plv8: PostgreSQL Win32 open/rename macros conflict with libc++ headers used by V8"
+    SKIPPED_EXTENSIONS+=("plv8: disabled on MinGW due to port.h macro conflicts with libc++/V8 headers")
+    return 0
+  fi
 
   apply_source_patch "$source_dir" "/work/mount_root/patch/plv8-3.2.4-external-v8-prefix.patch"
   make_pgxs_install plv8 "$source_dir" \
@@ -291,11 +428,20 @@ build_mysql_fdw() {
   [[ -x "${SDK_PREFIX}/bin/mariadb_config" ]] || die "missing mariadb_config for mysql_fdw"
   [[ -f "${SDK_PREFIX}/include/mariadb/mysql.h" ]] || die "missing MariaDB/MySQL headers for mysql_fdw"
 
-  if [[ ! -e "${SDK_PREFIX}/lib/libmysqlclient.so" && -e "${SDK_PREFIX}/lib/mariadb/libmysqlclient.so" ]]; then
-    ln -s "mariadb/libmysqlclient.so" "${SDK_PREFIX}/lib/libmysqlclient.so"
-  fi
-  if [[ ! -e "${SDK_PREFIX}/lib/libmariadb.so.3" && -e "${SDK_PREFIX}/lib/mariadb/libmariadb.so.3" ]]; then
-    ln -s "mariadb/libmariadb.so.3" "${SDK_PREFIX}/lib/libmariadb.so.3"
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    if [[ ! -e "${SDK_PREFIX}/lib/libmysqlclient.dll.a" && -e "${SDK_PREFIX}/lib/mariadb/libmysqlclient.dll.a" ]]; then
+      ln -s "mariadb/libmysqlclient.dll.a" "${SDK_PREFIX}/lib/libmysqlclient.dll.a"
+    fi
+    if [[ ! -e "${SDK_PREFIX}/lib/libmariadb.dll.a" && -e "${SDK_PREFIX}/lib/mariadb/libmariadb.dll.a" ]]; then
+      ln -s "mariadb/libmariadb.dll.a" "${SDK_PREFIX}/lib/libmariadb.dll.a"
+    fi
+  else
+    if [[ ! -e "${SDK_PREFIX}/lib/libmysqlclient.so" && -e "${SDK_PREFIX}/lib/mariadb/libmysqlclient.so" ]]; then
+      ln -s "mariadb/libmysqlclient.so" "${SDK_PREFIX}/lib/libmysqlclient.so"
+    fi
+    if [[ ! -e "${SDK_PREFIX}/lib/libmariadb.so.3" && -e "${SDK_PREFIX}/lib/mariadb/libmariadb.so.3" ]]; then
+      ln -s "mariadb/libmariadb.so.3" "${SDK_PREFIX}/lib/libmariadb.so.3"
+    fi
   fi
 
   cat >"${BUILD_TOOLS}/mariadb_config" <<EOF
@@ -325,7 +471,11 @@ EOF
 
 build_tds_fdw() {
   [[ -f "${SDK_PREFIX}/include/sybfront.h" ]] || die "missing FreeTDS sybfront.h for tds_fdw"
-  [[ -f "${SDK_PREFIX}/lib/libsybdb.so" ]] || die "missing FreeTDS libsybdb.so for tds_fdw"
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    [[ -f "${SDK_PREFIX}/lib/libsybdb.dll.a" ]] || die "missing FreeTDS libsybdb.dll.a for tds_fdw"
+  else
+    [[ -f "${SDK_PREFIX}/lib/libsybdb.so" ]] || die "missing FreeTDS libsybdb.so for tds_fdw"
+  fi
 
   make_pgxs_install tds_fdw "${EXT_SOURCE_DIR}/tds_fdw" \
     TDS_INCLUDE="-I${SDK_PREFIX}/include" \
@@ -341,9 +491,15 @@ build_mongo_fdw() {
   [[ -f "${SDK_PREFIX}/include/libmongoc-1.0/mongoc/mongoc.h" ]] || die "missing mongo-c-driver 1.x headers for mongo_fdw"
   [[ -f "${SDK_PREFIX}/include/libbson-1.0/bson/bson.h" ]] || die "missing libbson 1.x headers for mongo_fdw"
   [[ -f "${SDK_PREFIX}/include/json-c/json.h" ]] || die "missing json-c headers for mongo_fdw"
-  find "${SDK_PREFIX}/lib" \( -type f -o -type l \) -name 'libmongoc-1.0.so*' | grep -q . || die "missing libmongoc-1.0 for mongo_fdw"
-  find "${SDK_PREFIX}/lib" \( -type f -o -type l \) -name 'libbson-1.0.so*' | grep -q . || die "missing libbson-1.0 for mongo_fdw"
-  [[ -f "${SDK_PREFIX}/lib/libjson-c.so" ]] || die "missing libjson-c for mongo_fdw"
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    find "${SDK_PREFIX}/lib" \( -type f -o -type l \) -name 'libmongoc-1.0.dll.a' | grep -q . || die "missing libmongoc-1.0.dll.a for mongo_fdw"
+    find "${SDK_PREFIX}/lib" \( -type f -o -type l \) -name 'libbson-1.0.dll.a' | grep -q . || die "missing libbson-1.0.dll.a for mongo_fdw"
+    [[ -f "${SDK_PREFIX}/lib/libjson-c.dll.a" ]] || die "missing libjson-c.dll.a for mongo_fdw"
+  else
+    find "${SDK_PREFIX}/lib" \( -type f -o -type l \) -name 'libmongoc-1.0.so*' | grep -q . || die "missing libmongoc-1.0 for mongo_fdw"
+    find "${SDK_PREFIX}/lib" \( -type f -o -type l \) -name 'libbson-1.0.so*' | grep -q . || die "missing libbson-1.0 for mongo_fdw"
+    [[ -f "${SDK_PREFIX}/lib/libjson-c.so" ]] || die "missing libjson-c for mongo_fdw"
+  fi
 
   make_pgxs_install mongo_fdw "${EXT_SOURCE_DIR}/mongo_fdw" \
     LIBJSON_OBJS= \
@@ -373,7 +529,20 @@ build_db2_fdw() {
 
 remove_static_libraries() {
   find "${SDK_PREFIX}/lib" -type f -name '*.la' -delete 2>/dev/null || true
-  find "${SDK_PREFIX}/lib" -type f -name '*.a' -delete 2>/dev/null || true
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    find "${SDK_PREFIX}/lib" -type f -name '*.a' ! -name '*.dll.a' -delete 2>/dev/null || true
+  else
+    find "${SDK_PREFIX}/lib" -type f -name '*.a' -delete 2>/dev/null || true
+  fi
+}
+
+copy_mingw_dlls_to_bin() {
+  [[ "$TARGET_KIND" == "mingw" ]] || return 0
+
+  mkdir -p "${SDK_PREFIX}/bin"
+  find "$SDK_PREFIX" \
+    -path "${SDK_PREFIX}/bin" -prune \
+    -o -type f -name '*.dll' -exec cp -f {} "${SDK_PREFIX}/bin/" \; 2>/dev/null || true
 }
 
 write_distribution_readme() {
@@ -409,11 +578,28 @@ EOF
   chmod +x "$wrapper_path"
 }
 
+write_windres_wrapper() {
+  local wrapper_path="$1"
+  local real_windres="$2"
+
+  cat >"$wrapper_path" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec "${real_windres}" \
+  --target="${TARGET_TRIPLE}" \
+  -I"${SYSROOT}/usr/${TARGET_TRIPLE}/include" \
+  -I"${SDK_PREFIX}/include" \
+  "\$@"
+EOF
+  chmod +x "$wrapper_path"
+}
+
 write_common_build_tool_wrappers() {
   local tool_name=""
   local real_tool=""
 
-  for tool_name in perl python python3; do
+  for tool_name in perl python python3 curl; do
     real_tool="$(command -v "$tool_name" 2>/dev/null || true)"
     if [[ -n "$real_tool" ]]; then
       write_exec_wrapper "${BUILD_TOOLS}/${tool_name}" "$real_tool"
@@ -423,6 +609,12 @@ write_common_build_tool_wrappers() {
 
 write_cross_pg_config_wrapper() {
   local wrapper_path="${BUILD_TOOLS}/pg_config"
+  local configure_host_triple="$CONFIGURE_HOST_TRIPLE"
+  local cflags_sl="-fPIC"
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    cflags_sl=""
+  fi
 
   cat >"$wrapper_path" <<EOF
 #!/usr/bin/env bash
@@ -430,9 +622,9 @@ set -euo pipefail
 
 prefix="${SDK_PREFIX}"
 cc="${CC}"
-cppflags="-D_GNU_SOURCE -I${SDK_PREFIX}/include"
-cflags="-I${SDK_PREFIX}/include -fPIC"
-ldflags="-L${SDK_PREFIX}/lib -Wl,-rpath,${SDK_PREFIX}/lib -Wl,-rpath-link,${SDK_PREFIX}/lib"
+cppflags="${COMMON_CPPFLAGS}"
+cflags="${COMMON_CFLAGS}"
+ldflags="${COMMON_LDFLAGS}"
 
 if [[ "\$#" -eq 0 ]]; then
   set -- --help
@@ -456,13 +648,13 @@ for option in "\$@"; do
     --cc) printf '%s\n' "\${cc}" ;;
     --cppflags) printf '%s\n' "\${cppflags}" ;;
     --cflags) printf '%s\n' "\${cflags}" ;;
-    --cflags_sl) printf '%s\n' "-fPIC" ;;
+    --cflags_sl) printf '%s\n' "${cflags_sl}" ;;
     --ldflags) printf '%s\n' "\${ldflags}" ;;
     --ldflags_ex) printf '%s\n' "\${ldflags}" ;;
     --ldflags_sl) printf '%s\n' "\${ldflags}" ;;
     --libs) printf '%s\n' "" ;;
     --version) printf '%s\n' "PostgreSQL ${POSTGRESQL_VERSION}" ;;
-    --configure) printf '%s\n' "--prefix=\${prefix} --host=${TARGET_TRIPLE}" ;;
+    --configure) printf '%s\n' "--prefix=\${prefix} --host=${configure_host_triple}" ;;
     --help)
       cat <<'HELP'
 Usage: pg_config [OPTION]
@@ -482,6 +674,9 @@ EOF
 write_meson_cross_file() {
   local cross_file="${BUILD_TOOLS}/meson-${TARGET_TRIPLE}.ini"
   local cpu_family="$ARCH"
+  local meson_system="linux"
+  local meson_extra_c_args=", '-I${SDK_PREFIX}/include/ncursesw', '-I${SDK_PREFIX}/include/libxml2'"
+  local meson_extra_link_args=""
 
   case "$ARCH" in
     x86_64) cpu_family="x86_64" ;;
@@ -490,29 +685,31 @@ write_meson_cross_file() {
     loongarch64) cpu_family="loongarch64" ;;
   esac
 
-  cat >"$cross_file" <<EOF
-[binaries]
-c = '${CC}'
-cpp = '${CXX}'
-ar = '${AR:-${LLVM_ROOT}/bin/llvm-ar}'
-strip = '${STRIP:-${LLVM_ROOT}/bin/llvm-strip}'
-pkg-config = 'pkg-config'
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    meson_system="windows"
+    meson_extra_c_args=""
+  else
+    meson_extra_link_args+=" , '-Wl,-rpath,${SDK_PREFIX}/lib'"
+    meson_extra_link_args+=" , '-Wl,-rpath-link,${SDK_PREFIX}/lib'"
+    meson_extra_link_args+=" , '-Wl,-rpath-link,${SYSROOT}/usr/lib'"
+    meson_extra_link_args+=" , '-Wl,-rpath-link,${SYSROOT}/usr/lib64'"
+    meson_extra_link_args+=" , '-Wl,-rpath-link,${SYSROOT}/lib'"
+    meson_extra_link_args+=" , '-Wl,-rpath-link,${SYSROOT}/lib64'"
+  fi
 
-[host_machine]
-system = 'linux'
-cpu_family = '${cpu_family}'
-cpu = '${ARCH}'
-endian = 'little'
-
-[properties]
-needs_exe_wrapper = true
-
-[built-in options]
-c_args = ['-I${SDK_PREFIX}/include', '-fPIC']
-cpp_args = ['-I${SDK_PREFIX}/include', '-fPIC']
-c_link_args = ['-L${SDK_PREFIX}/lib', '-Wl,-rpath,${SDK_PREFIX}/lib', '-Wl,-rpath-link,${SDK_PREFIX}/lib']
-cpp_link_args = ['-L${SDK_PREFIX}/lib', '-Wl,-rpath,${SDK_PREFIX}/lib', '-Wl,-rpath-link,${SDK_PREFIX}/lib']
-EOF
+  render_template "/work/mount_root/templates/meson-cross.ini.in" "$cross_file" \
+    "CC=${CC}" \
+    "CXX=${CXX}" \
+    "AR=${AR:-${LLVM_ROOT}/bin/llvm-ar}" \
+    "STRIP=${STRIP:-${LLVM_ROOT}/bin/llvm-strip}" \
+    "SDK_PREFIX=${SDK_PREFIX}" \
+    "TARGET_TRIPLE=${TARGET_TRIPLE}" \
+    "SYSROOT=${SYSROOT}" \
+    "MESON_SYSTEM=${meson_system}" \
+    "MESON_CPU_FAMILY=${cpu_family}" \
+    "MESON_CPU=${ARCH}" \
+    "MESON_EXTRA_C_ARGS=${meson_extra_c_args}" \
+    "MESON_EXTRA_LINK_ARGS=${meson_extra_link_args}"
 
   MESON_CROSS_FILE="$cross_file"
 }
@@ -520,6 +717,7 @@ EOF
 ARCH="${ARCH:-}"
 TARGET_KIND="${TARGET_KIND:-linux}"
 TARGET_TRIPLE="${TARGET_TRIPLE:-}"
+CONFIGURE_HOST_TRIPLE="${CONFIGURE_HOST_TRIPLE:-${TARGET_TRIPLE:-}}"
 BUILD_TRIPLE="${BUILD_TRIPLE:-x86_64-pc-linux-gnu}"
 JOBS="${JOBS:-4}"
 SDK_PREFIX="${SDK_PREFIX:-/opt/postgresql18_dist-${TARGET_TRIPLE}}"
@@ -563,10 +761,9 @@ MONGO_FDW_VERSION="${MONGO_FDW_VERSION:-5_5_3}"
 ORACLE_FDW_VERSION="${ORACLE_FDW_VERSION:-2_9_0}"
 DB2_FDW_VERSION="${DB2_FDW_VERSION:-18.1.2}"
 
-[[ "$TARGET_KIND" == "linux" ]] || die "container currently supports Linux targets"
-case "$ARCH" in
-  x86_64|aarch64|riscv64|loongarch64) ;;
-  *) die "container supports Linux package targets; got ${ARCH}" ;;
+case "$TARGET_KIND:$ARCH" in
+  linux:x86_64|linux:aarch64|linux:riscv64|linux:loongarch64|mingw:x86_64) ;;
+  *) die "container supports Linux x86_64/aarch64/riscv64/loongarch64 and MinGW x86_64 package targets; got ${TARGET_KIND}:${ARCH}" ;;
 esac
 [[ -d "$SDK_PREFIX" ]] || die "missing distribution prefix: ${SDK_PREFIX}"
 [[ -d "$LLVM_ROOT" ]] || die "missing LLVM root: ${LLVM_ROOT}"
@@ -581,10 +778,43 @@ require_command meson
 require_command pkg-config
 require_command patch
 
-TARGET_PG_CONFIG="${SDK_PREFIX}/bin/pg_config"
-[[ -x "$TARGET_PG_CONFIG" ]] || die "missing pg_config: ${TARGET_PG_CONFIG}"
+EXEEXT=""
+MESON_SYSTEM="linux"
+MESON_CPU_FAMILY="$ARCH"
+MESON_CPU="$ARCH"
+COMMON_CPPFLAGS="-D_GNU_SOURCE -I${SDK_PREFIX}/include"
+COMMON_PG_CPPFLAGS="-I${SDK_PREFIX}/include"
+COMMON_CFLAGS="-I${SDK_PREFIX}/include -fPIC"
+COMMON_CXXFLAGS="-I${SDK_PREFIX}/include -fPIC"
+COMMON_LDFLAGS="-L${SDK_PREFIX}/lib -Wl,-rpath,${SDK_PREFIX}/lib -Wl,-rpath-link,${SDK_PREFIX}/lib"
 
-SYSROOT="${SYSROOT:-/opt/sysroot/${TARGET_TRIPLE}}"
+case "$TARGET_KIND" in
+  linux)
+    SYSROOT="${SYSROOT:-/opt/sysroot/${TARGET_TRIPLE}}"
+    COMMON_CPPFLAGS+=" -I${SDK_PREFIX}/include/ncursesw -I${SDK_PREFIX}/include/libxml2"
+    COMMON_PG_CPPFLAGS+=" -I${SDK_PREFIX}/include/ncursesw -I${SDK_PREFIX}/include/libxml2"
+    COMMON_CFLAGS+=" -I${SDK_PREFIX}/include/ncursesw -I${SDK_PREFIX}/include/libxml2"
+    COMMON_CXXFLAGS+=" -I${SDK_PREFIX}/include/ncursesw -I${SDK_PREFIX}/include/libxml2"
+    COMMON_LDFLAGS+=" -Wl,-rpath-link,${SYSROOT}/usr/lib -Wl,-rpath-link,${SYSROOT}/usr/lib64 -Wl,-rpath-link,${SYSROOT}/lib -Wl,-rpath-link,${SYSROOT}/lib64"
+    ;;
+  mingw)
+    EXEEXT=".exe"
+    MESON_SYSTEM="windows"
+    MESON_CPU_FAMILY="x86_64"
+    MESON_CPU="x86_64"
+    CONFIGURE_HOST_TRIPLE="x86_64-w64-mingw32"
+    TARGET_ROOT="${TARGET_ROOT:-/opt/${TARGET_TRIPLE}}"
+    SYSROOT="${SYSROOT:-${TARGET_ROOT}/sysroot}"
+    COMMON_CPPFLAGS+=" -I${SDK_PREFIX}/include/libxml2"
+    COMMON_PG_CPPFLAGS+=" -I${SDK_PREFIX}/include/libxml2"
+    COMMON_CFLAGS="-I${SDK_PREFIX}/include -I${SDK_PREFIX}/include/libxml2"
+    COMMON_CXXFLAGS="-I${SDK_PREFIX}/include -I${SDK_PREFIX}/include/libxml2"
+    COMMON_LDFLAGS="-L${SDK_PREFIX}/lib"
+    ;;
+esac
+
+TARGET_PG_CONFIG="${SDK_PREFIX}/bin/pg_config${EXEEXT}"
+[[ -x "$TARGET_PG_CONFIG" ]] || die "missing pg_config: ${TARGET_PG_CONFIG}"
 [[ -d "$SYSROOT" ]] || die "missing sysroot: ${SYSROOT}"
 
 BUILD_TOOLS="${BUILD_DIR}/tools"
@@ -596,16 +826,35 @@ write_common_build_tool_wrappers
 
 CC="${CC:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang-gcc}"
 CXX="${CXX:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-clang-g++}"
+AR="${AR:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-ar}"
+RANLIB="${RANLIB:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-ranlib}"
+NM="${NM:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-nm}"
+STRIP="${STRIP:-${LLVM_ROOT}/bin/${TARGET_TRIPLE}-strip}"
+WINDRES="${WINDRES:-${LLVM_ROOT}/bin/llvm-windres}"
 [[ -x "$CC" ]] || CC="${LLVM_ROOT}/bin/clang"
 [[ -x "$CXX" ]] || CXX="${LLVM_ROOT}/bin/clang++"
+[[ -x "$AR" ]] || AR="${LLVM_ROOT}/bin/llvm-ar"
+[[ -x "$RANLIB" ]] || RANLIB="${LLVM_ROOT}/bin/llvm-ranlib"
+[[ -x "$NM" ]] || NM="${LLVM_ROOT}/bin/llvm-nm"
+[[ -x "$STRIP" ]] || STRIP="${LLVM_ROOT}/bin/llvm-strip"
 [[ -x "$CC" ]] || die "missing C compiler"
 [[ -x "$CXX" ]] || die "missing C++ compiler"
+if [[ "$TARGET_KIND" == "mingw" ]]; then
+  [[ -x "$WINDRES" ]] || WINDRES="$(command -v llvm-windres 2>/dev/null || true)"
+  [[ -n "$WINDRES" && -x "$WINDRES" ]] || die "missing windres tool for mingw build"
+  write_windres_wrapper "${BUILD_TOOLS}/${TARGET_TRIPLE}-windres" "$WINDRES"
+  WINDRES="${BUILD_TOOLS}/${TARGET_TRIPLE}-windres"
+fi
 write_cross_pg_config_wrapper
 write_meson_cross_file
 PG_CONFIG="${BUILD_TOOLS}/pg_config"
 
 export PATH="${BUILD_TOOLS}:${SDK_PREFIX}/bin:${LLVM_ROOT}/bin:${PATH}"
-export LD_LIBRARY_PATH="${SDK_PREFIX}/lib:${SDK_PREFIX}/lib64:${LD_LIBRARY_PATH:-}"
+if [[ "$TARGET_KIND" == "mingw" ]]; then
+  export LD_LIBRARY_PATH="${SDK_PREFIX}/bin:${SDK_PREFIX}/lib:${SDK_PREFIX}/lib64:${LD_LIBRARY_PATH:-}"
+else
+  export LD_LIBRARY_PATH="${SDK_PREFIX}/lib:${SDK_PREFIX}/lib64:${LD_LIBRARY_PATH:-}"
+fi
 export PKG_CONFIG_PATH="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig"
 export PKG_CONFIG_LIBDIR="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig"
 export PKG_CONFIG_SYSROOT_DIR=
@@ -710,20 +959,14 @@ else
 fi
 
 make_pgxs_install vector "${EXT_SOURCE_DIR}/pgvector" OPTFLAGS=
-make_pgxs_install age "${EXT_SOURCE_DIR}/age"
-meson_extension_install pgroonga "${EXT_SOURCE_DIR}/pgroonga" \
-  -Dpg_config="$PG_CONFIG" \
-  -Dinstall_to_postgresql=true \
-  -Dtest=false
+build_age
+build_pgroonga
 build_postgis
 build_pgrouting
-make_pgxs_install pg_cron "${EXT_SOURCE_DIR}/pg_cron"
+build_pg_cron
 make_pgxs_install pg_partman "${EXT_SOURCE_DIR}/pg_partman"
-make_pgxs_install pg_net "${EXT_SOURCE_DIR}/pg_net"
-make_pgxs_install pgsql-http "${EXT_SOURCE_DIR}/pgsql-http" \
-  CURL_CONFIG="${SDK_PREFIX}/bin/curl-config" \
-  PG_CPPFLAGS="-I${SDK_PREFIX}/include" \
-  SHLIB_LINK="-L${SDK_PREFIX}/lib -lcurl"
+build_pg_net
+build_pgsql_http
 build_pgmq
 if is_enabled "$WITH_PLV8"; then
   build_plv8
@@ -731,8 +974,8 @@ else
   SKIPPED_EXTENSIONS+=("plv8: disabled by package configuration")
 fi
 build_timescaledb
-make_pgxs_install pgaudit "${EXT_SOURCE_DIR}/pgaudit"
-make_pgxs_install pg_stat_monitor "${EXT_SOURCE_DIR}/pg_stat_monitor"
+build_pgaudit
+build_pg_stat_monitor
 if is_enabled "$WITH_PG_TDE"; then
   build_pg_tde
 else
@@ -759,6 +1002,7 @@ if is_enabled "$WITH_FDW"; then
 fi
 
 remove_static_libraries
+copy_mingw_dlls_to_bin
 patch_linux_elf_rpaths "$SDK_PREFIX" "$TARGET_KIND"
 write_distribution_readme
 

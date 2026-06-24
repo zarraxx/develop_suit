@@ -1,0 +1,13 @@
+diff --git a/postgis/lwgeom_geos.c b/postgis/lwgeom_geos.c
+index 27371d4..6f5f0a7 100644
+--- a/postgis/lwgeom_geos.c
++++ b/postgis/lwgeom_geos.c
+@@ -59,7 +59,7 @@ Datum convexhull(PG_FUNCTION_ARGS);
+ Datum topologypreservesimplify(PG_FUNCTION_ARGS);
+ Datum ST_Difference(PG_FUNCTION_ARGS);
+ Datum boundary(PG_FUNCTION_ARGS);
+-Datum ST_SymDifference(PG_FUNCTION_ARGS);
++PGDLLEXPORT Datum ST_SymDifference(PG_FUNCTION_ARGS);
+ Datum ST_Union(PG_FUNCTION_ARGS);
+ Datum issimple(PG_FUNCTION_ARGS);
+ Datum isring(PG_FUNCTION_ARGS);

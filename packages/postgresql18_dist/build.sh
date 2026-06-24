@@ -14,8 +14,14 @@ usage() {
 Usage:
   ./packages/postgresql18_dist/build.sh --target=x86_64 [options]
 
+Targets:
+  x86_64, aarch64, riscv64, loongarch64
+  x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu,
+  riscv64-unknown-linux-gnu, loongarch64-unknown-linux-gnu
+  mingw64, windows, x86_64-w64-windows-gnu
+
 Options:
-  --target=<target>                     Distribution target, Linux only
+  --target=<target>                     Distribution target, see list above
   --arch=<target>                       Alias for --target
   --postgresql-version=<ver>            PostgreSQL package version (default: 18.4)
   --postgis-deps-version=<label>        PostGIS dependency release label
@@ -26,9 +32,9 @@ Options:
   --groonga-archive=<tar>               Groonga package archive
   --fdw-deps-archive=<tar>              FDW dependency package archive
   --v8-archive=<tar>                    V8 package archive
-  --oracle-sdk-archive=<zip>            Oracle Instant Client SDK archive, optional x86_64 Linux
-  --oracle-basic-archive=<zip>          Oracle Instant Client Basic archive, optional x86_64 Linux
-  --db2-cli-dir=<dir>                   IBM DB2 CLI/ODBC prefix, optional x86_64 Linux
+  --oracle-sdk-archive=<zip>            Oracle Instant Client SDK archive, optional x86_64 Linux/MinGW
+  --oracle-basic-archive=<zip>          Oracle Instant Client Basic archive, optional x86_64 Linux/MinGW
+  --db2-cli-dir=<dir>                   IBM DB2 CLI/ODBC prefix, optional x86_64 Linux/MinGW
   --without-fdw                         Do not build FDW extensions or overlay fdw_dependencies
   --without-oracle-fdw                  Do not build oracle_fdw
   --without-db2-fdw                     Do not build db2_fdw
@@ -103,9 +109,14 @@ extract_prefix_archive() {
 
 validate_base_postgresql() {
   local dir="$1"
+  local exeext=""
 
-  [[ -x "${dir}/bin/pg_config" ]] || die "missing pg_config in base PostgreSQL package"
-  [[ -x "${dir}/bin/postgres" ]] || die "missing postgres in base PostgreSQL package"
+  if [[ "${TARGET_KIND:-linux}" == "mingw" ]]; then
+    exeext=".exe"
+  fi
+
+  [[ -x "${dir}/bin/pg_config${exeext}" ]] || die "missing pg_config in base PostgreSQL package"
+  [[ -x "${dir}/bin/postgres${exeext}" ]] || die "missing postgres in base PostgreSQL package"
   [[ -d "${dir}/include/server" ]] || die "missing PostgreSQL server headers"
   [[ -d "${dir}/lib" ]] || die "missing PostgreSQL lib directory"
 }
@@ -215,8 +226,8 @@ done
 [[ -n "$TARGET" ]] || die "--target is required"
 resolve_target "$TARGET" "PostgreSQL 18 distribution target"
 case "${TARGET_KIND}:${ARCH}" in
-  linux:x86_64|linux:aarch64|linux:riscv64|linux:loongarch64) ;;
-  *) die "postgresql18_dist supports Linux package targets; got ${TARGET_KIND}:${ARCH}" ;;
+  linux:x86_64|linux:aarch64|linux:riscv64|linux:loongarch64|mingw:x86_64) ;;
+  *) die "postgresql18_dist supports Linux x86_64/aarch64/riscv64/loongarch64 and MinGW x86_64 package targets; got ${TARGET_KIND}:${ARCH}" ;;
 esac
 
 if [[ -z "$PACKAGE_NAME" ]]; then
