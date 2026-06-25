@@ -168,18 +168,6 @@ rewrite_dependency_prefixes() {
 
 remove_static_libraries() {
   find "${SDK_PREFIX}/lib" -type f -name '*.la' -delete
-  if [[ "$TARGET_KIND" == "mingw" ]]; then
-    find "${SDK_PREFIX}/lib" -type f -name '*.a' \
-      ! -name '*.dll.a' \
-      ! -name 'libpostgres.a' \
-      ! -name 'libpgcommon.a' \
-      ! -name 'libpgport.a' \
-      -delete
-  else
-    find "${SDK_PREFIX}/lib" -type f -name '*.a' \
-      ! -name '*.dll.a' \
-      -delete
-  fi
 }
 
 install_mingw_pgxs_archives() {

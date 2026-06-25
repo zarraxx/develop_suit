@@ -1,0 +1,12 @@
+diff --git a/Makefile b/Makefile
+index 49eda09..845ca0d 100644
+--- a/Makefile
++++ b/Makefile
+@@ -4,7 +4,6 @@ EXTVERSION = $(shell grep default_version $(EXTENSION).control | \
+ LDFLAGS_SL += $(filter -lm, $(LIBS))
+ MODULES = src/set_user
+ PG_CONFIG = pg_config
+-PGFILEDESC = "set_user - similar to SET ROLE but with added logging"
+ REGRESS = set_user
+ 
+ all: extension/$(EXTENSION)--$(EXTVERSION).sql

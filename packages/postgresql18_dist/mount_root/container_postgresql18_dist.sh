@@ -73,6 +73,28 @@ apply_source_patch() {
   )
 }
 
+generate_mingw_import_library() {
+  local dll_path="$1"
+  local output_lib="$2"
+  local library_name="${3:-$(basename "$dll_path")}"
+  local def_file="${output_lib}.def"
+
+  [[ -f "$dll_path" ]] || die "missing DLL for import library generation: ${dll_path}"
+  require_command "${LLVM_ROOT}/bin/llvm-objdump"
+  require_command "${LLVM_ROOT}/bin/llvm-dlltool"
+
+  {
+    printf 'LIBRARY %s\n' "$library_name"
+    printf 'EXPORTS\n'
+    "${LLVM_ROOT}/bin/llvm-objdump" -p "$dll_path" \
+      | awk '/^[[:space:]]*[0-9]+[[:space:]]+0x[[:xdigit:]]+[[:space:]]+[[:graph:]]+$/ { print $3 }'
+  } >"$def_file"
+
+  [[ "$(wc -l <"$def_file")" -gt 2 ]] || die "could not read exports from DLL: ${dll_path}"
+  "${LLVM_ROOT}/bin/llvm-dlltool" -m i386:x86-64 -d "$def_file" -l "$output_lib"
+  rm -f "$def_file"
+}
+
 extension_env() {
   local ld_library_path="${SDK_PREFIX}/lib:${SDK_PREFIX}/lib64:${LD_LIBRARY_PATH:-}"
 
@@ -193,15 +215,45 @@ install_oracle_client_for_build() {
   unzip -oq "$ORACLE_SDK_ARCHIVE" -d "${BUILD_DIR}/oracle"
   ORACLE_HOME="$(find "${BUILD_DIR}/oracle" -mindepth 1 -maxdepth 1 -type d -name 'instantclient*' | sort | head -n 1)"
   [[ -n "$ORACLE_HOME" && -d "$ORACLE_HOME/sdk/include" ]] || die "invalid Oracle Instant Client archives"
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    generate_mingw_import_library "${ORACLE_HOME}/oci.dll" "${ORACLE_HOME}/liboci.a" "oci.dll"
+  fi
   export ORACLE_HOME
   export LD_LIBRARY_PATH="${ORACLE_HOME}:${LD_LIBRARY_PATH:-}"
 }
 
 install_db2_cli_for_build() {
+  if [[ -z "$DB2_CLI_DIR" && -n "$DB2_CLI_ARCHIVE" ]]; then
+    local db2_extract_dir="${BUILD_DIR}/db2_cli"
+    rm -rf "$db2_extract_dir"
+    mkdir -p "$db2_extract_dir"
+    case "$DB2_CLI_ARCHIVE" in
+      *.zip)
+        require_command unzip
+        unzip -oq "$DB2_CLI_ARCHIVE" -d "$db2_extract_dir"
+        ;;
+      *.tar|*.tar.gz|*.tgz)
+        tar -xf "$DB2_CLI_ARCHIVE" -C "$db2_extract_dir"
+        ;;
+      *)
+        die "unsupported DB2 CLI archive type: ${DB2_CLI_ARCHIVE}"
+        ;;
+    esac
+    DB2_CLI_DIR="$(
+      find "$db2_extract_dir" -type d -name clidriver \
+        | sort \
+        | head -n 1
+    )"
+    [[ -n "$DB2_CLI_DIR" ]] || die "could not find clidriver in DB2 CLI archive"
+  fi
+
   [[ -n "$DB2_CLI_DIR" ]] || return 0
 
   [[ -d "$DB2_CLI_DIR/include" ]] || die "DB2 CLI directory missing include: ${DB2_CLI_DIR}"
   [[ -d "$DB2_CLI_DIR/lib" ]] || die "DB2 CLI directory missing lib: ${DB2_CLI_DIR}"
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    generate_mingw_import_library "${DB2_CLI_DIR}/bin/db2app64.dll" "${DB2_CLI_DIR}/lib/libdb2.a" "db2app64.dll"
+  fi
   export DB2_HOME="$DB2_CLI_DIR"
   export IBM_DB_HOME="$DB2_CLI_DIR"
   export LD_LIBRARY_PATH="${DB2_CLI_DIR}/lib:${LD_LIBRARY_PATH:-}"
@@ -310,19 +362,23 @@ build_pgsql_http() {
 
 build_pgaudit() {
   if [[ "$TARGET_KIND" == "mingw" ]]; then
-    log "Skipping pgaudit: upstream build expects Windows resource inputs that are not shipped for MinGW packaging"
-    SKIPPED_EXTENSIONS+=("pgaudit: disabled on MinGW due to missing win32ver.rc/resource packaging support")
-    return 0
+    apply_source_patch "${EXT_SOURCE_DIR}/pgaudit" "/work/mount_root/patch/pgaudit-18.0-mingw-no-win32-resource.patch"
   fi
 
   make_pgxs_install pgaudit "${EXT_SOURCE_DIR}/pgaudit"
 }
 
+build_set_user() {
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    apply_source_patch "${EXT_SOURCE_DIR}/set_user" "/work/mount_root/patch/set_user-REL4_2_0-mingw-no-win32-resource.patch"
+  fi
+
+  make_pgxs_install set_user "${EXT_SOURCE_DIR}/set_user"
+}
+
 build_pg_stat_monitor() {
   if [[ "$TARGET_KIND" == "mingw" ]]; then
-    log "Skipping pg_stat_monitor: upstream build expects win32ver resources and non-portable uint usage on MinGW"
-    SKIPPED_EXTENSIONS+=("pg_stat_monitor: disabled on MinGW due to missing win32ver.rc and non-portable type assumptions")
-    return 0
+    apply_source_patch "${EXT_SOURCE_DIR}/pg_stat_monitor" "/work/mount_root/patch/pg_stat_monitor-2.3.2-mingw-no-win32-resource-and-uint.patch"
   fi
 
   make_pgxs_install pg_stat_monitor "${EXT_SOURCE_DIR}/pg_stat_monitor"
@@ -421,20 +477,34 @@ build_pg_repack() {
     return 0
   fi
 
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    apply_source_patch "${EXT_SOURCE_DIR}/pg_repack" "/work/mount_root/patch/pg_repack-1.5.3-mingw-sleep-signature.patch"
+  fi
+
   make_pgxs_install pg_repack "${EXT_SOURCE_DIR}/pg_repack"
 }
 
 build_mysql_fdw() {
-  [[ -x "${SDK_PREFIX}/bin/mariadb_config" ]] || die "missing mariadb_config for mysql_fdw"
   [[ -f "${SDK_PREFIX}/include/mariadb/mysql.h" ]] || die "missing MariaDB/MySQL headers for mysql_fdw"
 
   if [[ "$TARGET_KIND" == "mingw" ]]; then
     if [[ ! -e "${SDK_PREFIX}/lib/libmysqlclient.dll.a" && -e "${SDK_PREFIX}/lib/mariadb/libmysqlclient.dll.a" ]]; then
       ln -s "mariadb/libmysqlclient.dll.a" "${SDK_PREFIX}/lib/libmysqlclient.dll.a"
     fi
+    if [[ ! -e "${SDK_PREFIX}/lib/libmysqlclient.dll.a" && -e "${SDK_PREFIX}/lib/mariadb/libmariadb.dll.a" ]]; then
+      ln -s "mariadb/libmariadb.dll.a" "${SDK_PREFIX}/lib/libmysqlclient.dll.a"
+    fi
+    if [[ ! -e "${SDK_PREFIX}/lib/libmysqlclient.dll.a" && -e "${SDK_PREFIX}/lib/mariadb/liblibmariadb.dll.a" ]]; then
+      ln -s "mariadb/liblibmariadb.dll.a" "${SDK_PREFIX}/lib/libmysqlclient.dll.a"
+    fi
     if [[ ! -e "${SDK_PREFIX}/lib/libmariadb.dll.a" && -e "${SDK_PREFIX}/lib/mariadb/libmariadb.dll.a" ]]; then
       ln -s "mariadb/libmariadb.dll.a" "${SDK_PREFIX}/lib/libmariadb.dll.a"
     fi
+    if [[ ! -e "${SDK_PREFIX}/lib/libmariadb.dll.a" && -e "${SDK_PREFIX}/lib/mariadb/liblibmariadb.dll.a" ]]; then
+      ln -s "mariadb/liblibmariadb.dll.a" "${SDK_PREFIX}/lib/libmariadb.dll.a"
+    fi
+    [[ -e "${SDK_PREFIX}/lib/libmysqlclient.dll.a" ]] || die "missing MariaDB/MySQL import library for mysql_fdw"
+    apply_source_patch "${EXT_SOURCE_DIR}/mysql_fdw" "/work/mount_root/patch/mysql_fdw-2_9_3-mingw-dlopen.patch"
   else
     if [[ ! -e "${SDK_PREFIX}/lib/libmysqlclient.so" && -e "${SDK_PREFIX}/lib/mariadb/libmysqlclient.so" ]]; then
       ln -s "mariadb/libmysqlclient.so" "${SDK_PREFIX}/lib/libmysqlclient.so"
@@ -465,14 +535,25 @@ esac
 EOF
   chmod +x "${BUILD_TOOLS}/mariadb_config"
 
-  make_pgxs_install mysql_fdw "${EXT_SOURCE_DIR}/mysql_fdw" \
-    MYSQL_CONFIG="${BUILD_TOOLS}/mariadb_config"
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    make_pgxs_install mysql_fdw "${EXT_SOURCE_DIR}/mysql_fdw" \
+      MYSQL_CONFIG="${BUILD_TOOLS}/mariadb_config" \
+      MYSQL_LIBNAME="libmariadb-3.dll"
+  else
+    make_pgxs_install mysql_fdw "${EXT_SOURCE_DIR}/mysql_fdw" \
+      MYSQL_CONFIG="${BUILD_TOOLS}/mariadb_config"
+  fi
 }
 
 build_tds_fdw() {
   [[ -f "${SDK_PREFIX}/include/sybfront.h" ]] || die "missing FreeTDS sybfront.h for tds_fdw"
   if [[ "$TARGET_KIND" == "mingw" ]]; then
     [[ -f "${SDK_PREFIX}/lib/libsybdb.dll.a" ]] || die "missing FreeTDS libsybdb.dll.a for tds_fdw"
+    apply_source_patch "${EXT_SOURCE_DIR}/tds_fdw" "/work/mount_root/patch/tds_fdw-2.0.5-mingw-win32-headers.patch"
+    make_pgxs_install tds_fdw "${EXT_SOURCE_DIR}/tds_fdw" \
+      TDS_INCLUDE="-I${SDK_PREFIX}/include" \
+      SHLIB_LINK="-L${SDK_PREFIX}/lib -lsybdb -lpostgres"
+    return
   else
     [[ -f "${SDK_PREFIX}/lib/libsybdb.so" ]] || die "missing FreeTDS libsybdb.so for tds_fdw"
   fi
@@ -501,6 +582,14 @@ build_mongo_fdw() {
     [[ -f "${SDK_PREFIX}/lib/libjson-c.so" ]] || die "missing libjson-c for mongo_fdw"
   fi
 
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    make_pgxs_install mongo_fdw "${EXT_SOURCE_DIR}/mongo_fdw" \
+      LIBJSON_OBJS= \
+      PG_CPPFLAGS="--std=c99 -I${SDK_PREFIX}/include/libmongoc-1.0 -I${SDK_PREFIX}/include/libbson-1.0 -I${SDK_PREFIX}/include/json-c -I${SDK_PREFIX}/include" \
+      SHLIB_LINK="-L${SDK_PREFIX}/lib -lmongoc-1.0 -lbson-1.0 -ljson-c -lpostgres"
+    return
+  fi
+
   make_pgxs_install mongo_fdw "${EXT_SOURCE_DIR}/mongo_fdw" \
     LIBJSON_OBJS= \
     PG_CPPFLAGS="--std=c99 -I${SDK_PREFIX}/include/libmongoc-1.0 -I${SDK_PREFIX}/include/libbson-1.0 -I${SDK_PREFIX}/include/json-c -I${SDK_PREFIX}/include" \
@@ -513,6 +602,13 @@ build_oracle_fdw() {
     SKIPPED_EXTENSIONS+=("oracle_fdw: Oracle Instant Client SDK/Basic archives were not provided")
     return 0
   }
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    make_pgxs_install oracle_fdw "${EXT_SOURCE_DIR}/oracle_fdw" \
+      ORACLE_SHLIB=oci \
+      SHLIB_LINK="-L${ORACLE_HOME} -L${ORACLE_HOME}/bin -L${ORACLE_HOME}/lib -loci -lpostgres"
+    rm -rf "${SDK_PREFIX}/instantclient" "${SDK_PREFIX}/lib/libclntsh"* "${SDK_PREFIX}/lib/libocci"*
+    return
+  fi
   make_pgxs_install oracle_fdw "${EXT_SOURCE_DIR}/oracle_fdw"
   rm -rf "${SDK_PREFIX}/instantclient" "${SDK_PREFIX}/lib/libclntsh"* "${SDK_PREFIX}/lib/libocci"*
 }
@@ -523,7 +619,17 @@ build_db2_fdw() {
     SKIPPED_EXTENSIONS+=("db2_fdw: DB2 CLI directory was not provided")
     return 0
   }
-  make_pgxs_install db2_fdw "${EXT_SOURCE_DIR}/db2_fdw"
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    apply_source_patch "${EXT_SOURCE_DIR}/db2_fdw" "/work/mount_root/patch/db2_fdw-18.1.2-mingw-sal-annotations.patch"
+    make_pgxs_install db2_fdw "${EXT_SOURCE_DIR}/db2_fdw" \
+      PG_CPPFLAGS="-g -include ./include/db2_fdw_mingw_compat.h -I${DB2_HOME}/include -I./include" \
+      SHLIB_LINK="-L${DB2_HOME}/lib -L${DB2_HOME}/bin -ldb2 -lpostgres"
+    rm -f "${SDK_PREFIX}/lib/libdb2."*
+    return
+  fi
+  make_pgxs_install db2_fdw "${EXT_SOURCE_DIR}/db2_fdw" \
+    PG_CPPFLAGS="-g -fPIC -I${DB2_HOME}/include -I./include" \
+    SHLIB_LINK="-fPIC -L${DB2_HOME}/lib -L${DB2_HOME}/lib64 -L${DB2_HOME}/bin -ldb2"
   rm -f "${SDK_PREFIX}/lib/libdb2."*
 }
 
@@ -727,6 +833,7 @@ LLVM_VERSION="${LLVM_VERSION:-18.1.8}"
 LLVM_ROOT="${LLVM_ROOT:-/opt/llvm-${LLVM_VERSION}}"
 ORACLE_SDK_ARCHIVE="${ORACLE_SDK_ARCHIVE:-}"
 ORACLE_BASIC_ARCHIVE="${ORACLE_BASIC_ARCHIVE:-}"
+DB2_CLI_ARCHIVE="${DB2_CLI_ARCHIVE:-}"
 DB2_CLI_DIR="${DB2_CLI_DIR:-}"
 WITH_FDW="${WITH_FDW:-1}"
 WITH_ORACLE_FDW="${WITH_ORACLE_FDW:-1}"
@@ -981,7 +1088,7 @@ if is_enabled "$WITH_PG_TDE"; then
 else
   SKIPPED_EXTENSIONS+=("pg_tde: disabled by package configuration")
 fi
-make_pgxs_install set_user "${EXT_SOURCE_DIR}/set_user"
+build_set_user
 if is_enabled "$WITH_PG_REPACK"; then
   build_pg_repack
 else

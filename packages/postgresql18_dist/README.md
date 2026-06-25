@@ -64,6 +64,30 @@ https://github.com/EnterpriseDB/mongo_fdw/archive/refs/tags/REL-5_5_3.tar.gz
 https://github.com/laurenz/oracle_fdw/archive/refs/tags/ORACLE_FDW_2_9_0.tar.gz
 https://github.com/pg-fdw/db2_fdw/releases/download/18.1.2/db2_fdw-18.1.2.zip
 
+Vendor FDW inputs
+
+Oracle Instant Client and IBM DB2 CLI/ODBC are vendor binaries. They can be used
+as local build inputs for oracle_fdw and db2_fdw, but they should not be bundled
+as reusable dependency packages.
+
+MinGW64:
+
+```bash
+./packages/postgresql18_dist/build.sh --target=mingw64 --runtime=docker --jobs=8 \
+  --oracle-sdk-archive=cache/vendor/instantclient-sdk-windows.x64-23.26.2.0.0.zip \
+  --oracle-basic-archive=cache/vendor/instantclient-basic-windows.x64-23.26.2.0.0.zip \
+  --db2-cli-archive=cache/vendor/ntx64_odbc_cli.zip
+```
+
+x86_64 Linux:
+
+```bash
+./packages/postgresql18_dist/build.sh --target=x86_64 --jobs=8 \
+  --oracle-sdk-archive=cache/vendor/instantclient-sdk-linux.x64-21.22.0.0.0dbru.zip \
+  --oracle-basic-archive=cache/vendor/instantclient-basic-linux.x64-21.22.0.0.0dbru.zip \
+  --db2-cli-archive=cache/vendor/linuxx64_odbc_cli.tar.gz
+```
+
 
 <!-- java
 

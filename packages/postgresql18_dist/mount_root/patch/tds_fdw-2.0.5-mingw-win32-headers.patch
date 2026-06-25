@@ -1,0 +1,26 @@
+diff --git a/include/visibility.h b/include/visibility.h
+--- a/include/visibility.h
++++ b/include/visibility.h
+@@ -1,9 +1,11 @@
+ #ifndef VISIBILITY_H
+ #define VISIBILITY_H
+ 
+ 
++#ifndef _WIN32
+ #if __GNUC__ >= 4
+ #define PGDLLEXPORT __attribute__((visibility("default")))
+ #endif
++#endif
+ 
+ #endif
+diff --git a/src/tds_fdw.c b/src/tds_fdw.c
+--- a/src/tds_fdw.c
++++ b/src/tds_fdw.c
+@@ -20,7 +20,6 @@
+ 
+ #include <stdio.h>
+ #include <string.h>
+-#include <sys/stat.h>
+ #include <unistd.h>
+ 
+ /* Override PGDLLEXPORT for visibility */

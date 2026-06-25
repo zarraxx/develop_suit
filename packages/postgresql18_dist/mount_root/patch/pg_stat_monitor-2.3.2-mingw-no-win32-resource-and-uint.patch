@@ -1,0 +1,48 @@
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -1,13 +1,11 @@
+ # contrib/pg_stat_monitor/Makefile
+ 
+ MODULE_big = pg_stat_monitor
+-OBJS = hash_query.o guc.o pg_stat_monitor.o $(WIN32RES)
++OBJS = hash_query.o guc.o pg_stat_monitor.o
+ 
+ EXTENSION = pg_stat_monitor
+ DATA = pg_stat_monitor--2.0.sql pg_stat_monitor--1.0--2.0.sql pg_stat_monitor--2.0--2.1.sql pg_stat_monitor--2.1--2.2.sql pg_stat_monitor--2.2--2.3.sql
+ 
+-PGFILEDESC = "pg_stat_monitor - execution statistics of SQL statements"
+-
+ LDFLAGS_SL += $(filter -lm, $(LIBS)) 
+ 
+ TAP_TESTS = 1
+diff --git a/pg_stat_monitor.c b/pg_stat_monitor.c
+--- a/pg_stat_monitor.c
++++ b/pg_stat_monitor.c
+@@ -154,7 +154,7 @@ PG_FUNCTION_INFO_V1(pg_stat_monitor);
+ PG_FUNCTION_INFO_V1(get_histogram_timings);
+ PG_FUNCTION_INFO_V1(pg_stat_monitor_hook_stats);
+ 
+-static uint pg_get_client_addr(bool *ok);
++static unsigned int pg_get_client_addr(bool *ok);
+ static int	pg_get_application_name(char *name, int buff_size);
+ static PgBackendStatus *pg_get_backend_status(void);
+ static Datum intarray_get_datum(int32 arr[], int len);
+@@ -1345,7 +1345,7 @@ pg_get_application_name(char *name, int buff_size)
+ 	return strlen(name);
+ }
+ 
+-static uint
++static unsigned int
+ pg_get_client_addr(bool *ok)
+ {
+ 	PgBackendStatus *beentry = pg_get_backend_status();
+@@ -2668,7 +2668,7 @@ need_bucket_update(void)
+ 	 * definitely make the while condition to fail, we can stop the loop as
+ 	 * another thread has already updated prev_bucket_sec.
+ 	 */
+-	while ((tv.tv_sec - (uint) current_bucket_sec) >= ((uint) pgsm_bucket_time))
++	while ((tv.tv_sec - (unsigned int) current_bucket_sec) >= ((unsigned int) pgsm_bucket_time))
+ 	{
+ 		if (pg_atomic_compare_exchange_u64(&pgsm->prev_bucket_sec, &current_bucket_sec, (uint64) tv.tv_sec))
+ 		{

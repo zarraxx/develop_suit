@@ -34,6 +34,7 @@ Options:
   --v8-archive=<tar>                    V8 package archive
   --oracle-sdk-archive=<zip>            Oracle Instant Client SDK archive, optional x86_64 Linux/MinGW
   --oracle-basic-archive=<zip>          Oracle Instant Client Basic archive, optional x86_64 Linux/MinGW
+  --db2-cli-archive=<archive>           IBM DB2 CLI/ODBC archive, optional x86_64 Linux/MinGW
   --db2-cli-dir=<dir>                   IBM DB2 CLI/ODBC prefix, optional x86_64 Linux/MinGW
   --without-fdw                         Do not build FDW extensions or overlay fdw_dependencies
   --without-oracle-fdw                  Do not build oracle_fdw
@@ -161,6 +162,7 @@ FDW_DEPS_ARCHIVE=""
 V8_ARCHIVE=""
 ORACLE_SDK_ARCHIVE=""
 ORACLE_BASIC_ARCHIVE=""
+DB2_CLI_ARCHIVE=""
 DB2_CLI_DIR=""
 WITH_FDW=1
 WITH_ORACLE_FDW=1
@@ -198,6 +200,8 @@ while [[ $# -gt 0 ]]; do
     --oracle-sdk-archive) shift; [[ $# -gt 0 ]] || die "--oracle-sdk-archive requires a value"; ORACLE_SDK_ARCHIVE="$1" ;;
     --oracle-basic-archive=*) ORACLE_BASIC_ARCHIVE="${1#*=}" ;;
     --oracle-basic-archive) shift; [[ $# -gt 0 ]] || die "--oracle-basic-archive requires a value"; ORACLE_BASIC_ARCHIVE="$1" ;;
+    --db2-cli-archive=*) DB2_CLI_ARCHIVE="${1#*=}" ;;
+    --db2-cli-archive) shift; [[ $# -gt 0 ]] || die "--db2-cli-archive requires a value"; DB2_CLI_ARCHIVE="$1" ;;
     --db2-cli-dir=*) DB2_CLI_DIR="${1#*=}" ;;
     --db2-cli-dir) shift; [[ $# -gt 0 ]] || die "--db2-cli-dir requires a value"; DB2_CLI_DIR="$1" ;;
     --without-fdw) WITH_FDW=0; WITH_ORACLE_FDW=0; WITH_DB2_FDW=0 ;;
@@ -272,6 +276,9 @@ fi
 if [[ -n "$ORACLE_BASIC_ARCHIVE" ]]; then
   [[ -f "$ORACLE_BASIC_ARCHIVE" ]] || die "Oracle Basic archive not found: ${ORACLE_BASIC_ARCHIVE}"
 fi
+if [[ -n "$DB2_CLI_ARCHIVE" ]]; then
+  [[ -f "$DB2_CLI_ARCHIVE" ]] || die "DB2 CLI archive not found: ${DB2_CLI_ARCHIVE}"
+fi
 if [[ -n "$DB2_CLI_DIR" ]]; then
   [[ -d "$DB2_CLI_DIR" ]] || die "DB2 CLI directory not found: ${DB2_CLI_DIR}"
 fi
@@ -290,8 +297,12 @@ ARCHIVE_PATH="${DIST_DIR}/${PACKAGE_NAME}.tar.xz"
 
 [[ -f "${MOUNT_ROOT}/container_postgresql18_dist.sh" ]] || die "missing container script"
 
-make_host_writable "$PACKAGE_ROOT"
 mkdir -p "$CACHE_DIR" "$BUILD_DIR" "$OUT_BASE" "$DIST_DIR"
+make_host_writable "$BUILD_DIR"
+make_host_writable "$OUT_BASE"
+make_host_writable "$OUT_DIR"
+make_host_writable "$DIST_DIR"
+make_host_writable "$ARCHIVE_PATH"
 
 if [[ "$CLEAN" -eq 1 ]]; then
   echo "-- cleaning PostgreSQL 18 distribution target: ${TARGET_TRIPLE}"
@@ -321,6 +332,7 @@ fi
 EXTRA_MOUNTS=()
 CONTAINER_ORACLE_SDK_ARCHIVE=""
 CONTAINER_ORACLE_BASIC_ARCHIVE=""
+CONTAINER_DB2_CLI_ARCHIVE=""
 CONTAINER_DB2_CLI_DIR=""
 if [[ -n "$ORACLE_SDK_ARCHIVE" ]]; then
   CONTAINER_ORACLE_SDK_ARCHIVE="/work/oracle/$(basename "$ORACLE_SDK_ARCHIVE")"
@@ -335,6 +347,10 @@ fi
 if [[ -n "$DB2_CLI_DIR" ]]; then
   CONTAINER_DB2_CLI_DIR="/work/db2_cli"
   EXTRA_MOUNTS+=(-v "$(cd "$DB2_CLI_DIR" && pwd):${CONTAINER_DB2_CLI_DIR}:ro")
+fi
+if [[ -n "$DB2_CLI_ARCHIVE" ]]; then
+  CONTAINER_DB2_CLI_ARCHIVE="/work/db2_archive/$(basename "$DB2_CLI_ARCHIVE")"
+  EXTRA_MOUNTS+=(-v "$(cd "$(dirname "$DB2_CLI_ARCHIVE")" && pwd):/work/db2_archive:ro")
 fi
 
 echo "-- PostgreSQL 18 distribution build"
@@ -360,6 +376,7 @@ echo "-- output: ${OUT_DIR}"
   -e "SDK_PREFIX=/opt/${PACKAGE_NAME}" \
   -e "ORACLE_SDK_ARCHIVE=${CONTAINER_ORACLE_SDK_ARCHIVE}" \
   -e "ORACLE_BASIC_ARCHIVE=${CONTAINER_ORACLE_BASIC_ARCHIVE}" \
+  -e "DB2_CLI_ARCHIVE=${CONTAINER_DB2_CLI_ARCHIVE}" \
   -e "DB2_CLI_DIR=${CONTAINER_DB2_CLI_DIR}" \
   -e "WITH_FDW=${WITH_FDW}" \
   -e "WITH_ORACLE_FDW=${WITH_ORACLE_FDW}" \
@@ -371,7 +388,7 @@ echo "-- output: ${OUT_DIR}"
   "$BUILD_IMAGE" \
   /bin/bash /work/mount_root/container_postgresql18_dist.sh
 
-make_host_writable "$PACKAGE_ROOT"
+make_host_writable "$OUT_DIR"
 normalize_package_permissions "$OUT_DIR"
 
 rm -f "$ARCHIVE_PATH"
