@@ -68,7 +68,7 @@ show_log() {
     echo "--- end postgresql log ---" >&2
   fi
 }
-
+   
 psql_scalar() {
   local psql_bin="$1"
   local host="$2"

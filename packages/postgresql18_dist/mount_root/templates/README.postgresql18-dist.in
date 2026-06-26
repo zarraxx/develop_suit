@@ -23,3 +23,8 @@ Skipped extensions:
 Oracle Instant Client and IBM DB2 CLI are build-time/runtime inputs owned by
 their vendors. When oracle_fdw or db2_fdw are built, this package includes only
 the PostgreSQL extension files, not the vendor client libraries.
+
+Linux packages also install systemd templates under `share/systemd/`:
+
+- `postgresql18-dist.service`
+- `postgresql18-dist.env`

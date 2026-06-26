@@ -672,6 +672,60 @@ write_distribution_readme() {
     "SKIPPED_EXTENSIONS=${skipped_lines}"
 }
 
+write_systemd_templates() {
+  local systemd_dir="${SDK_PREFIX}/share/systemd"
+  local python_dir=""
+  local python_path=""
+  local perl_archlib=""
+  local perl_privlib=""
+  local perl_path=""
+  local tcl_library=""
+
+  [[ "${TARGET_KIND}" == "linux" ]] || return 0
+
+  mkdir -p "${systemd_dir}"
+
+  python_dir="$(
+    find "${SDK_PREFIX}/lib" -maxdepth 1 -type d -name 'python3.*' \
+      | sort \
+      | head -n 1
+  )"
+  if [[ -n "${python_dir}" ]]; then
+    python_path="${python_dir}"
+    [[ -d "${python_dir}/lib-dynload" ]] && python_path="${python_path}:${python_dir}/lib-dynload"
+    [[ -d "${python_dir}/site-packages" ]] && python_path="${python_path}:${python_dir}/site-packages"
+  fi
+
+  perl_archlib="$(
+    find "${SDK_PREFIX}/lib" -path '*/Config_heavy.pl' -type f -print 2>/dev/null \
+      | sort \
+      | head -n 1
+  )"
+  if [[ -n "${perl_archlib}" ]]; then
+    perl_archlib="$(dirname "${perl_archlib}")"
+    perl_privlib="$(dirname "${perl_archlib}")"
+    perl_path="${perl_archlib}:${perl_privlib}"
+  fi
+
+  tcl_library="$(
+    find "${SDK_PREFIX}/lib" -maxdepth 1 -type d -name 'tcl8.*' \
+      | sort \
+      | head -n 1
+  )"
+
+  render_template "/work/mount_root/templates/postgresql18-dist.env.in" \
+    "${systemd_dir}/postgresql18-dist.env" \
+    "SDK_PREFIX=${SDK_PREFIX}" \
+    "POSTGRESQL18_DIST_PYTHONPATH=${python_path}" \
+    "POSTGRESQL18_DIST_PERL5LIB=${perl_path}" \
+    "POSTGRESQL18_DIST_TCL_LIBRARY=${tcl_library}"
+
+  render_template "/work/mount_root/templates/postgresql18-dist.service.in" \
+    "${systemd_dir}/postgresql18-dist.service" \
+    "SDK_PREFIX=${SDK_PREFIX}" \
+    "TARGET_TRIPLE=${TARGET_TRIPLE}"
+}
+
 write_exec_wrapper() {
   local wrapper_path="$1"
   local real_tool="$2"
@@ -1112,5 +1166,6 @@ remove_static_libraries
 copy_mingw_dlls_to_bin
 patch_linux_elf_rpaths "$SDK_PREFIX" "$TARGET_KIND"
 write_distribution_readme
+write_systemd_templates
 
 log "PostgreSQL 18 distribution package ready: ${SDK_PREFIX}"

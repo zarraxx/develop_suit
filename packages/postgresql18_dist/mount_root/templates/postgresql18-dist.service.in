@@ -1,0 +1,29 @@
+[Unit]
+Description=PostgreSQL 18 distribution (@TARGET_TRIPLE@)
+Documentation=file:@SDK_PREFIX@/README.postgresql18-dist
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+EnvironmentFile=-%h/.config/postgresql18-dist/postgresql18-dist.env
+Environment=POSTGRESQL18_DIST_PREFIX=@SDK_PREFIX@
+Environment=POSTGRESQL18_DIST_DATADIR=/var/lib/postgresql18-dist
+Environment=POSTGRESQL18_DIST_PORT=5432
+Environment=POSTGRESQL18_DIST_LISTEN_ADDRESSES=127.0.0.1
+Environment=POSTGRESQL18_DIST_EXTRA_POSTGRES_ARGS=
+ExecStartPre=/bin/sh -lc 'test -f "${POSTGRESQL18_DIST_DATADIR}/PG_VERSION"'
+ExecStart=/bin/sh -lc 'exec "${POSTGRESQL18_DIST_PREFIX}/bin/postgres" -D "${POSTGRESQL18_DIST_DATADIR}" -p "${POSTGRESQL18_DIST_PORT}" -c listen_addresses="${POSTGRESQL18_DIST_LISTEN_ADDRESSES}" ${POSTGRESQL18_DIST_EXTRA_POSTGRES_ARGS}'
+ExecReload=/bin/sh -lc 'exec "${POSTGRESQL18_DIST_PREFIX}/bin/pg_ctl" reload -D "${POSTGRESQL18_DIST_DATADIR}"'
+ExecStop=/bin/sh -lc 'exec "${POSTGRESQL18_DIST_PREFIX}/bin/pg_ctl" stop -D "${POSTGRESQL18_DIST_DATADIR}" -m fast'
+ExecStopPost=/bin/sh -lc 'rm -f "${POSTGRESQL18_DIST_DATADIR}/postmaster.pid"'
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStartSec=120
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=default.target
