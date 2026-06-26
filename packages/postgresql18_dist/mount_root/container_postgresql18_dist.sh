@@ -132,8 +132,8 @@ make_pgxs_install() {
   log "Building PGXS extension: ${package_name}"
   (
     cd "$source_dir"
-    extension_env make -j "$JOBS" PG_CONFIG="$PG_CONFIG" USE_PGXS=1 "$@"
-    extension_env make install PG_CONFIG="$PG_CONFIG" USE_PGXS=1 "$@"
+    extension_env make -j "$JOBS" PG_CONFIG="$PG_CONFIG" USE_PGXS=1 with_llvm=no "$@"
+    extension_env make install PG_CONFIG="$PG_CONFIG" USE_PGXS=1 with_llvm=no "$@"
   )
   INSTALLED_EXTENSIONS+=("$package_name")
 }
@@ -306,8 +306,8 @@ build_postgis() {
       --with-sfcgal="${SDK_PREFIX}/bin/sfcgal-config" \
       --without-protobuf
     mkdir -p "${build_dir}/liblwgeom/topo"
-    extension_env make -j "$JOBS" CXX="$CXX"
-    extension_env make install CXX="$CXX"
+    extension_env make -j "$JOBS" CXX="$CXX" with_llvm=no
+    extension_env make install CXX="$CXX" with_llvm=no
   )
   INSTALLED_EXTENSIONS+=(postgis)
 }
