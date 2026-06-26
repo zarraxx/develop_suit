@@ -1,7 +1,7 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -39,6 +39,23 @@
- include(CheckPythonModuleExists)
+@@ -38,4 +38,27 @@ include(CheckPythonModuleExists)
  include(GenerateBuiltinsList)
  
 +set(V8_HOST_BYTECODE_BUILTINS_LIST_GENERATOR "" CACHE FILEPATH "Path to host bytecode_builtins_list_generator")
@@ -30,7 +30,7 @@
  check_python_module_exists(PYTHON_HAVE_MARKUPSAFE markupsafe)
  
  if (NOT CMAKE_CXX_STANDARD)
-@@ -629,7 +646,7 @@
+@@ -628,18 +651,18 @@ target_link_libraries(v8_snapshot
  # Note: allow passing in v8_random_seed
  add_custom_command(
    COMMAND
@@ -39,7 +39,11 @@
      --embedded_src ${PROJECT_BINARY_DIR}/embedded.S
      --startup_src ${PROJECT_BINARY_DIR}/snapshot.cc
      $<${is-arm64}:--target_arch=arm64>
-@@ -640,7 +657,7 @@
+     $<${is-x64}:--target_arch=x64>
+     $<${is-ppc}:--target_arch=ppc>
+     $<${is-ppc64}:--target_arch=ppc64>
+     $<$<PLATFORM_ID:Darwin>:--target_os=mac>
+     $<$<PLATFORM_ID:Linux>:--target_os=linux>
      $<$<PLATFORM_ID:Windows>:--target_os=win>
      --turbo_instruction_scheduling
    DEPENDS
@@ -48,7 +52,7 @@
    OUTPUT
      ${PROJECT_BINARY_DIR}/embedded.S
      ${PROJECT_BINARY_DIR}/snapshot.cc
-@@ -1004,13 +1021,13 @@
+@@ -1008,15 +1031,15 @@ file(WRITE "${PROJECT_BINARY_DIR}/touch_torque_outputs.cmake"
  
  add_custom_command(
    COMMAND
@@ -65,9 +69,11 @@
      ${torque_dirs}
      ${torque_files_abs}
    OUTPUT
+     ${torque-outputs}
+diff --git a/cmake/GenerateBuiltinsList.cmake b/cmake/GenerateBuiltinsList.cmake
 --- a/cmake/GenerateBuiltinsList.cmake
 +++ b/cmake/GenerateBuiltinsList.cmake
-@@ -7,8 +7,8 @@
+@@ -7,8 +7,8 @@ function(v8_generate_builtins_list target-dir)
      COMMENT "Generating ${directory}"
      VERBATIM)
    add_custom_command(
