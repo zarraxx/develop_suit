@@ -190,8 +190,6 @@ jobs:
             ${{ runner.os }}-package-groonga-cache-
             ${{ runner.os }}-package-postgresql-dependencies-cache-
             ${{ runner.os }}-stage-mingw64-cache-
-            ${{ runner.os }}-stage-llvm-cache-
-            ${{ runner.os }}-stage-python-cache-
 
       - name: Download package inputs
         env:
