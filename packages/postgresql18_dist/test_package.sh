@@ -78,7 +78,7 @@ if [[ -n "$ARCHIVE" ]]; then
     find "$TEST_ROOT" -mindepth 1 -maxdepth 1 -type d -print \
       | sort \
       | head -n 1
-  )"
+  )" || true
 fi
 
 [[ -n "$PACKAGE_DIR" ]] || die "--package-dir or --archive is required"
@@ -113,7 +113,11 @@ find_package_executable() {
     local pattern="$1"
     local candidate=""
     shift
-    candidate="$(find "${PACKAGE_DIR}/bin" -maxdepth 1 -type f -name "${pattern}" | sort | head -n 1 || true)"
+    candidate="$(
+      find "${PACKAGE_DIR}/bin" -maxdepth 1 -type f -name "${pattern}" \
+        | sort \
+        | head -n 1
+    )" || true
     if [[ -n "${candidate}" && -x "${candidate}" ]]; then
       printf '%s\n' "${candidate}"
       return 0
@@ -127,9 +131,11 @@ find_first_dir() {
   local base="$1"
   local pattern="$2"
 
-  find "$base" -type d -path "$pattern" -print 2>/dev/null \
-    | sort \
-    | head -n 1
+  {
+    find "$base" -type d -path "$pattern" -print 2>/dev/null \
+      | sort \
+      | head -n 1
+  } || true
 }
 
 extension_enabled() {
@@ -165,7 +171,7 @@ setup_runtime_env() {
     find "${PACKAGE_DIR}/lib" -path '*/Config_heavy.pl' -type f -print 2>/dev/null \
       | sort \
       | head -n 1
-  )"
+  )" || true
   if [[ -n "${perl_config}" ]]; then
     perl_archlib="$(dirname "${perl_config}")"
     perl_privlib="$(dirname "${perl_archlib}")"
