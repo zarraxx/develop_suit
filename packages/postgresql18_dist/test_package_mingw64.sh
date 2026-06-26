@@ -68,6 +68,60 @@ show_log() {
   fi
 }
 
+log_section() {
+  local title="$1"
+  echo "=== ${title} ===" >&2
+}
+
+show_file_head() {
+  local path="$1"
+  local lines="${2:-80}"
+  if [[ -f "${path}" ]]; then
+    echo "--- file: ${path} (first ${lines} lines) ---" >&2
+    sed -n "1,${lines}p" "${path}" >&2 || true
+    echo "--- end file: ${path} ---" >&2
+  fi
+}
+
+show_runtime_context() {
+  log_section "runtime context"
+  echo "package_dir=${PACKAGE_DIR}" >&2
+  echo "port=${PORT}" >&2
+  echo "data_dir=${DATA_DIR}" >&2
+  echo "log_file=${LOG_FILE}" >&2
+  echo "shared_preload=${SHARED_PRELOAD[*]:-(none)}" >&2
+  echo "postgres_opts=${POSTGRES_OPTS[*]}" >&2
+  echo "proj_data=${PROJ_DATA:-}" >&2
+  echo "gdal_data=${GDAL_DATA:-}" >&2
+  echo "pythonhome=${PYTHONHOME:-}" >&2
+  echo "pythonpath=${PYTHONPATH:-}" >&2
+  echo "perl5lib=${PERL5LIB:-}" >&2
+  echo "tcl_library=${TCL_LIBRARY:-}" >&2
+  echo "extensions=$(find "${PACKAGE_DIR}/share/extension" -maxdepth 1 -name '*.control' -printf '%f\n' 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')" >&2
+}
+
+show_cluster_context() {
+  log_section "cluster context"
+  "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" status >&2 || true
+  echo "--- data directory files ---" >&2
+  find "${DATA_DIR}" -maxdepth 2 \( -type f -o -type d \) | LC_ALL=C sort >&2 || true
+  echo "--- end data directory files ---" >&2
+  show_file_head "${DATA_DIR}/postgresql.conf" 120
+  show_file_head "${DATA_DIR}/postgresql.auto.conf" 120
+  show_file_head "${DATA_DIR}/postmaster.opts" 40
+  show_file_head "${DATA_DIR}/postmaster.pid" 20
+}
+
+show_command_output() {
+  local label="$1"
+  local file_path="$2"
+  if [[ -s "${file_path}" ]]; then
+    echo "--- ${label}: ${file_path} ---" >&2
+    cat "${file_path}" >&2 || true
+    echo "--- end ${label} ---" >&2
+  fi
+}
+
 psql_scalar() {
   local psql_bin="$1"
   local host="$2"
@@ -143,6 +197,8 @@ fi
 TEST_ROOT="$(mktemp -d)"
 DATA_DIR="${TEST_ROOT}/data"
 LOG_FILE="${TEST_ROOT}/postgresql.log"
+STEP_STDOUT="${TEST_ROOT}/step.stdout"
+STEP_STDERR="${TEST_ROOT}/step.stderr"
 PORT=56432
 
 mkdir -p "${DATA_DIR}"
@@ -184,8 +240,14 @@ stop_cluster() {
 }
 
 start_cluster() {
-  "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" -l "${LOG_FILE}" -o "$(printf "%q " "${POSTGRES_OPTS[@]}")" -w start >/dev/null || {
+  local postgres_opts_string=""
+
+  postgres_opts_string="$(printf '%s\n' "${POSTGRES_OPTS[*]}")"
+  log_section "starting cluster"
+  echo "pg_ctl options: ${postgres_opts_string}" >&2
+  "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" -l "${LOG_FILE}" -o "${postgres_opts_string}" -w start >/dev/null || {
     show_log "${LOG_FILE}"
+    show_cluster_context
     return 1
   }
   CLUSTER_STARTED=1
@@ -212,9 +274,16 @@ run_sql_step() {
 
   ensure_cluster_running
   echo "running sql step: ${label}"
-  if ! "${PACKAGE_DIR}/bin/psql.exe" -h 127.0.0.1 -p "${PORT}" -U postgres -d "${database}" -v ON_ERROR_STOP=1 -c "${sql}" >/dev/null; then
+  : > "${STEP_STDOUT}"
+  : > "${STEP_STDERR}"
+  if ! "${PACKAGE_DIR}/bin/psql.exe" -h 127.0.0.1 -p "${PORT}" -U postgres -d "${database}" -v ON_ERROR_STOP=1 -c "${sql}" >"${STEP_STDOUT}" 2>"${STEP_STDERR}"; then
     echo "sql step failed: ${label}" >&2
+    echo "database=${database}" >&2
+    echo "sql=${sql}" >&2
+    show_command_output "psql stdout" "${STEP_STDOUT}"
+    show_command_output "psql stderr" "${STEP_STDERR}"
     show_log "${LOG_FILE}"
+    show_cluster_context
     record_failure "sql step failed: ${label}"
     stop_cluster
     ensure_cluster_running
@@ -230,8 +299,14 @@ check_scalar() {
   local actual=""
 
   ensure_cluster_running
-  if ! actual="$(psql_scalar "${PACKAGE_DIR}/bin/psql.exe" 127.0.0.1 "${PORT}" "${database}" "${sql}" 2>/dev/null)"; then
+  : > "${STEP_STDOUT}"
+  : > "${STEP_STDERR}"
+  if ! actual="$("${PACKAGE_DIR}/bin/psql.exe" -h 127.0.0.1 -p "${PORT}" -U postgres -d "${database}" -Atqc "${sql}" 2>"${STEP_STDERR}")"; then
+    show_command_output "psql stderr" "${STEP_STDERR}"
+    echo "database=${database}" >&2
+    echo "sql=${sql}" >&2
     show_log "${LOG_FILE}"
+    show_cluster_context
     record_failure "query failed: ${label}"
     stop_cluster
     ensure_cluster_running
@@ -248,8 +323,14 @@ check_true() {
   local actual=""
 
   ensure_cluster_running
-  if ! actual="$(psql_scalar "${PACKAGE_DIR}/bin/psql.exe" 127.0.0.1 "${PORT}" "${database}" "${sql}" 2>/dev/null)"; then
+  : > "${STEP_STDOUT}"
+  : > "${STEP_STDERR}"
+  if ! actual="$("${PACKAGE_DIR}/bin/psql.exe" -h 127.0.0.1 -p "${PORT}" -U postgres -d "${database}" -Atqc "${sql}" 2>"${STEP_STDERR}")"; then
+    show_command_output "psql stderr" "${STEP_STDERR}"
+    echo "database=${database}" >&2
+    echo "sql=${sql}" >&2
     show_log "${LOG_FILE}"
+    show_cluster_context
     record_failure "query failed: ${label}"
     stop_cluster
     ensure_cluster_running
@@ -264,6 +345,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+show_runtime_context
 start_cluster || exit 1
 
 run_sql_step postgres "create database" "CREATE DATABASE dist_test;"
