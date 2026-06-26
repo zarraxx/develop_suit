@@ -224,23 +224,6 @@ require_true() {
   [[ "${actual}" == "t" || "${actual}" == "1" ]] || die "expected true result for [${sql}], got [${actual}]"
 }
 
-run_sql_step() {
-  local psql_bin="$1"
-  local host="$2"
-  local port="$3"
-  local database="$4"
-  local log_file="$5"
-  local label="$6"
-  local sql="$7"
-
-  echo "running sql step: ${label}"
-  if ! "${psql_bin}" -h "$host" -p "$port" -U postgres -d "$database" -v ON_ERROR_STOP=1 -c "$sql" >/dev/null; then
-    echo "sql step failed: ${label}" >&2
-    show_postgresql_log "${log_file}"
-    die "postgresql SQL step failed: ${label}"
-  fi
-}
-
 run_postgresql18_dist_test() {
   local initdb_bin="$1"
   local pg_ctl_bin="$2"
@@ -254,14 +237,114 @@ run_postgresql18_dist_test() {
   local preload_libraries=()
   local preload_setting=""
   local psql_host=""
+  local -a failures=()
+  local cluster_started=0
 
   rm -rf "$data_dir" "$socket_dir"
   mkdir -p "$data_dir" "$socket_dir"
 
-  cleanup_cluster() {
-    if [[ -n "${pg_ctl_bin:-}" && -d "$data_dir" ]]; then
+  record_failure() {
+    local message="$1"
+    failures+=("${message}")
+    echo "TEST FAILURE: ${message}" >&2
+  }
+
+  stop_cluster() {
+    if [[ "${cluster_started}" == "1" ]]; then
       "${pg_ctl_bin}" -D "$data_dir" -m immediate stop >/dev/null 2>&1 || true
+      cluster_started=0
     fi
+  }
+
+  start_cluster() {
+    "${pg_ctl_bin}" \
+      -D "$data_dir" \
+      -l "$log_file" \
+      -o "$(printf "%q " "${postgres_opts[@]}")" \
+      -w start >/dev/null || {
+        show_postgresql_log "${log_file}"
+        return 1
+      }
+    cluster_started=1
+    return 0
+  }
+
+  ensure_cluster_running() {
+    if [[ "${cluster_started}" == "1" ]] && "${pg_ctl_bin}" -D "$data_dir" status >/dev/null 2>&1; then
+      return 0
+    fi
+
+    echo "postgresql is not running, attempting restart" >&2
+    stop_cluster
+    if ! start_cluster; then
+      record_failure "postgresql cluster restart failed"
+      return 0
+    fi
+    return 0
+  }
+
+  run_sql_step() {
+    local database="$1"
+    local label="$2"
+    local sql="$3"
+
+    ensure_cluster_running
+    echo "running sql step: ${label}"
+    if ! "${psql_bin}" -h "$psql_host" -p "$port" -U postgres -d "$database" -v ON_ERROR_STOP=1 -c "$sql" >/dev/null; then
+      echo "sql step failed: ${label}" >&2
+      show_postgresql_log "${log_file}"
+      record_failure "sql step failed: ${label}"
+      stop_cluster
+      ensure_cluster_running
+    fi
+    return 0
+  }
+
+  check_scalar() {
+    local database="$1"
+    local label="$2"
+    local sql="$3"
+    local expected="$4"
+    local actual=""
+
+    ensure_cluster_running
+    if ! actual="$("${psql_bin}" -h "$psql_host" -p "$port" -U postgres -d "$database" -Atqc "$sql" 2>/dev/null)"; then
+      show_postgresql_log "${log_file}"
+      record_failure "query failed: ${label}"
+      stop_cluster
+      ensure_cluster_running
+      return 0
+    fi
+    if [[ "${actual}" != "${expected}" ]]; then
+      record_failure "unexpected result for ${label}: expected [${expected}], got [${actual}]"
+      return 0
+    fi
+    return 0
+  }
+
+  check_true() {
+    local database="$1"
+    local label="$2"
+    local sql="$3"
+    local actual=""
+
+    ensure_cluster_running
+    if ! actual="$("${psql_bin}" -h "$psql_host" -p "$port" -U postgres -d "$database" -Atqc "$sql" 2>/dev/null)"; then
+      show_postgresql_log "${log_file}"
+      record_failure "query failed: ${label}"
+      stop_cluster
+      ensure_cluster_running
+      return 0
+    fi
+    if [[ "${actual}" != "t" && "${actual}" != "1" ]]; then
+      record_failure "expected true for ${label}, got [${actual}]"
+      return 0
+    fi
+    return 0
+  }
+
+  cleanup_cluster() {
+    stop_cluster
   }
   trap cleanup_cluster EXIT
 
@@ -296,14 +379,7 @@ run_postgresql18_dist_test() {
     postgres_opts+=("-k" "${socket_dir}")
   fi
 
-  "${pg_ctl_bin}" \
-    -D "$data_dir" \
-    -l "$log_file" \
-    -o "$(printf "%q " "${postgres_opts[@]}")" \
-    -w start >/dev/null || {
-      show_postgresql_log "${log_file}"
-      die "postgresql cluster failed to start"
-    }
+  start_cluster || die "postgresql cluster failed to start"
 
   if [[ -n "${socket_dir}" ]]; then
     psql_host="${socket_dir}"
@@ -311,134 +387,140 @@ run_postgresql18_dist_test() {
     psql_host="${host_addr}"
   fi
 
-  run_sql_step "${psql_bin}" "${psql_host}" "${port}" postgres "${log_file}" "create database" "CREATE DATABASE dist_test;"
-  run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create random data table" \
+  run_sql_step postgres "create database" "CREATE DATABASE dist_test;"
+  run_sql_step dist_test "create random data table" \
     "CREATE TABLE dist_random_data AS SELECT gs AS id, ((random() * 100)::integer) AS n, format('row-%s postgresql graph search', gs) AS content FROM generate_series(1, 64) AS gs;"
 
   if extension_enabled plpython3u; then
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension plpython3u" "CREATE EXTENSION plpython3u;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create plpython helper codex_plpython_bucket" \
+    run_sql_step dist_test "create extension plpython3u" "CREATE EXTENSION plpython3u;"
+    run_sql_step dist_test "create plpython helper codex_plpython_bucket" \
       "CREATE OR REPLACE FUNCTION codex_plpython_bucket(v integer) RETURNS integer LANGUAGE plpython3u AS \$\$ return v * v \$\$;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create plpython helper codex_plpython_upper" \
+    run_sql_step dist_test "create plpython helper codex_plpython_upper" \
       "CREATE OR REPLACE FUNCTION codex_plpython_upper(v text) RETURNS text LANGUAGE plpython3u AS \$\$ return v.upper() \$\$;"
   fi
 
   if extension_enabled plperl; then
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension plperl" "CREATE EXTENSION plperl;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create plperl helper codex_plperl_reverse" \
+    run_sql_step dist_test "create extension plperl" "CREATE EXTENSION plperl;"
+    run_sql_step dist_test "create plperl helper codex_plperl_reverse" \
       "CREATE OR REPLACE FUNCTION codex_plperl_reverse(v text) RETURNS text LANGUAGE plperl AS \$\$ return scalar reverse \$_[0]; \$\$;"
   fi
 
   if extension_enabled pltcl; then
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension pltcl" "CREATE EXTENSION pltcl;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create pltcl helper codex_pltcl_repeat" \
+    run_sql_step dist_test "create extension pltcl" "CREATE EXTENSION pltcl;"
+    run_sql_step dist_test "create pltcl helper codex_pltcl_repeat" \
       "CREATE OR REPLACE FUNCTION codex_pltcl_repeat(v text, n integer) RETURNS text LANGUAGE pltcl AS \$\$ return [string repeat \$1 \$2] \$\$;"
   fi
 
   if extension_enabled plv8; then
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension plv8" "CREATE EXTENSION plv8;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create plv8 helper codex_plv8_sum" \
+    run_sql_step dist_test "create extension plv8" "CREATE EXTENSION plv8;"
+    run_sql_step dist_test "create plv8 helper codex_plv8_sum" \
       "CREATE OR REPLACE FUNCTION codex_plv8_sum(v text) RETURNS integer LANGUAGE plv8 AS \$\$ return JSON.parse(v).reduce((a, b) => a + b, 0); \$\$;"
   fi
 
   if extension_enabled postgis; then
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension postgis" "CREATE EXTENSION postgis;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create dist_points" \
+    run_sql_step dist_test "create extension postgis" "CREATE EXTENSION postgis;"
+    run_sql_step dist_test "create dist_points" \
       "CREATE TABLE dist_points AS SELECT id, ST_SetSRID(ST_MakePoint(id::double precision, id::double precision), 4326) AS geom FROM generate_series(1, 8) AS id;"
   fi
 
   if extension_enabled pgrouting; then
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension pgrouting" "CREATE EXTENSION pgrouting;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create dist_edges" \
+    run_sql_step dist_test "create extension pgrouting" "CREATE EXTENSION pgrouting;"
+    run_sql_step dist_test "create dist_edges" \
       "CREATE TABLE dist_edges (id bigint, source bigint, target bigint, cost double precision, reverse_cost double precision);"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "insert dist_edges" \
+    run_sql_step dist_test "insert dist_edges" \
       "INSERT INTO dist_edges VALUES (1, 1, 2, 1, 1), (2, 2, 3, 1, 1), (3, 1, 3, 5, 5);"
   fi
 
   if extension_enabled vector; then
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension vector" "CREATE EXTENSION vector;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create dist_vectors" \
+    run_sql_step dist_test "create extension vector" "CREATE EXTENSION vector;"
+    run_sql_step dist_test "create dist_vectors" \
       "CREATE TABLE dist_vectors (id integer PRIMARY KEY, embedding vector(3));"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "insert dist_vectors" \
+    run_sql_step dist_test "insert dist_vectors" \
       "INSERT INTO dist_vectors VALUES (1, '[0,0,0]'), (2, '[1,1,1]'), (3, '[3,3,3]');"
   fi
 
   if extension_enabled age; then
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension age" "CREATE EXTENSION age;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create age graph" \
+    run_sql_step dist_test "create extension age" "CREATE EXTENSION age;"
+    run_sql_step dist_test "create age graph" \
       "LOAD 'age'; SET search_path = ag_catalog, \"\$user\", public; SELECT create_graph('dist_graph'); RESET search_path;"
   fi
 
   if extension_enabled pgroonga; then
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension pgroonga" "CREATE EXTENSION pgroonga;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create dist_docs" \
+    run_sql_step dist_test "create extension pgroonga" "CREATE EXTENSION pgroonga;"
+    run_sql_step dist_test "create dist_docs" \
       "CREATE TABLE dist_docs (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, content text NOT NULL);"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "insert dist_docs" \
+    run_sql_step dist_test "insert dist_docs" \
       "INSERT INTO dist_docs(content) VALUES ('postgresql extension testing with pgroonga'), ('graph search with postgresql and groonga'), ('plain text row');"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create pgroonga index" \
+    run_sql_step dist_test "create pgroonga index" \
       "CREATE INDEX dist_docs_content_idx ON dist_docs USING pgroonga (content);"
   fi
 
   if extension_enabled pgaudit; then
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension pgaudit" "CREATE EXTENSION pgaudit;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "run pgaudit probe" \
+    run_sql_step dist_test "create extension pgaudit" "CREATE EXTENSION pgaudit;"
+    run_sql_step dist_test "run pgaudit probe" \
       "SELECT /* codex_audit_probe */ count(*) FROM dist_random_data;"
   fi
 
   if extension_enabled pg_stat_monitor; then
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension pg_stat_monitor" "CREATE EXTENSION pg_stat_monitor;"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "reset pg_stat_monitor" \
+    run_sql_step dist_test "create extension pg_stat_monitor" "CREATE EXTENSION pg_stat_monitor;"
+    run_sql_step dist_test "reset pg_stat_monitor" \
       "SELECT pg_stat_monitor_reset();"
-    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "run pg_stat_monitor probe" \
+    run_sql_step dist_test "run pg_stat_monitor probe" \
       "SELECT /* codex_monitor_probe */ count(*) FROM dist_random_data WHERE n >= 0;"
   fi
 
-  require_scalar "$psql_bin" "$psql_host" "$port" dist_test "SELECT count(*) FROM dist_random_data;" "64"
-  require_true "$psql_bin" "$psql_host" "$port" dist_test "SELECT avg(n) >= 0 FROM dist_random_data;"
+  check_scalar dist_test "count random data" "SELECT count(*) FROM dist_random_data;" "64"
+  check_true dist_test "avg random data nonnegative" "SELECT avg(n) >= 0 FROM dist_random_data;"
 
   if extension_enabled plpython3u; then
-    require_scalar "$psql_bin" "$psql_host" "$port" dist_test "SELECT codex_plpython_bucket(7);" "49"
-    require_scalar "$psql_bin" "$psql_host" "$port" dist_test "SELECT codex_plpython_upper(content) FROM dist_random_data ORDER BY id LIMIT 1;" "ROW-1 POSTGRESQL GRAPH SEARCH"
+    check_scalar dist_test "plpython bucket" "SELECT codex_plpython_bucket(7);" "49"
+    check_scalar dist_test "plpython upper" "SELECT codex_plpython_upper(content) FROM dist_random_data ORDER BY id LIMIT 1;" "ROW-1 POSTGRESQL GRAPH SEARCH"
   fi
   if extension_enabled plperl; then
-    require_scalar "$psql_bin" "$psql_host" "$port" dist_test "SELECT codex_plperl_reverse('stressed');" "desserts"
+    check_scalar dist_test "plperl reverse" "SELECT codex_plperl_reverse('stressed');" "desserts"
   fi
   if extension_enabled pltcl; then
-    require_scalar "$psql_bin" "$psql_host" "$port" dist_test "SELECT codex_pltcl_repeat('pg', 3);" "pgpgpg"
+    check_scalar dist_test "pltcl repeat" "SELECT codex_pltcl_repeat('pg', 3);" "pgpgpg"
   fi
   if extension_enabled plv8; then
-    require_scalar "$psql_bin" "$psql_host" "$port" dist_test "SELECT codex_plv8_sum('[1,2,3,4]');" "10"
+    check_scalar dist_test "plv8 sum" "SELECT codex_plv8_sum('[1,2,3,4]');" "10"
   fi
   if extension_enabled postgis; then
-    require_true "$psql_bin" "$psql_host" "$port" dist_test "SELECT postgis_full_version() LIKE '%PROJ%';"
-    require_true "$psql_bin" "$psql_host" "$port" dist_test "SELECT ST_SRID(ST_Transform(ST_SetSRID(ST_MakePoint(116.397,39.908),4326),3857)) = 3857;"
+    check_true dist_test "postgis full version has proj" "SELECT postgis_full_version() LIKE '%PROJ%';"
+    check_true dist_test "postgis transform srid" "SELECT ST_SRID(ST_Transform(ST_SetSRID(ST_MakePoint(116.397,39.908),4326),3857)) = 3857;"
   fi
   if extension_enabled pgrouting; then
-    require_scalar "$psql_bin" "$psql_host" "$port" dist_test "SELECT array_to_string(array_agg(node ORDER BY seq), ',') FROM pgr_dijkstra('SELECT id, source, target, cost, reverse_cost FROM dist_edges', 1, 3, true);" "1,2,3"
+    check_scalar dist_test "pgrouting dijkstra" "SELECT array_to_string(array_agg(node ORDER BY seq), ',') FROM pgr_dijkstra('SELECT id, source, target, cost, reverse_cost FROM dist_edges', 1, 3, true);" "1,2,3"
   fi
   if extension_enabled vector; then
-    require_scalar "$psql_bin" "$psql_host" "$port" dist_test "SELECT id FROM dist_vectors ORDER BY embedding <-> '[1,1,1]'::vector LIMIT 1;" "2"
+    check_scalar dist_test "vector nearest neighbor" "SELECT id FROM dist_vectors ORDER BY embedding <-> '[1,1,1]'::vector LIMIT 1;" "2"
   fi
   if extension_enabled age; then
-    require_scalar "$psql_bin" "$psql_host" "$port" dist_test "SELECT count(*) FROM ag_catalog.ag_graph WHERE name = 'dist_graph';" "1"
-    require_scalar "$psql_bin" "$psql_host" "$port" dist_test "LOAD 'age'; SELECT * FROM ag_catalog.cypher('dist_graph', \$\$ RETURN 1 \$\$) AS (v ag_catalog.agtype);" "1"
-    require_scalar "$psql_bin" "$psql_host" "$port" dist_test "LOAD 'age'; SELECT * FROM ag_catalog.cypher('dist_graph', \$\$ RETURN 6 \$\$) AS (v ag_catalog.agtype);" "6"
+    check_scalar dist_test "age graph count" "SELECT count(*) FROM ag_catalog.ag_graph WHERE name = 'dist_graph';" "1"
+    check_scalar dist_test "age cypher return 1" "LOAD 'age'; SELECT * FROM ag_catalog.cypher('dist_graph', \$\$ RETURN 1 \$\$) AS (v ag_catalog.agtype);" "1"
+    check_scalar dist_test "age cypher return 6" "LOAD 'age'; SELECT * FROM ag_catalog.cypher('dist_graph', \$\$ RETURN 6 \$\$) AS (v ag_catalog.agtype);" "6"
   fi
   if extension_enabled pgroonga; then
-    require_true "$psql_bin" "$psql_host" "$port" dist_test "SELECT count(*) >= 2 FROM dist_docs WHERE content &@~ 'postgresql';"
+    check_true dist_test "pgroonga match count" "SELECT count(*) >= 2 FROM dist_docs WHERE content &@~ 'postgresql';"
   fi
   if extension_enabled pg_stat_monitor; then
-    require_true "$psql_bin" "$psql_host" "$port" dist_test "SELECT EXISTS (SELECT 1 FROM pg_stat_monitor WHERE query LIKE '%codex_monitor_probe%' AND calls > 0);"
+    check_true dist_test "pg_stat_monitor probe recorded" "SELECT EXISTS (SELECT 1 FROM pg_stat_monitor WHERE query LIKE '%codex_monitor_probe%' AND calls > 0);"
   fi
 
   if extension_enabled pgaudit; then
     sleep 1
-    grep -Fq "AUDIT:" "$log_file" || die "pgaudit log entry not found in ${log_file}"
-    grep -Fq "codex_audit_probe" "$log_file" || die "pgaudit probe query not found in ${log_file}"
+    grep -Fq "AUDIT:" "$log_file" || record_failure "pgaudit log entry not found in ${log_file}"
+    grep -Fq "codex_audit_probe" "$log_file" || record_failure "pgaudit probe query not found in ${log_file}"
   fi
 
-  "${pg_ctl_bin}" -D "$data_dir" -m fast stop >/dev/null
+  stop_cluster
   trap - EXIT
+
+  if [[ "${#failures[@]}" -gt 0 ]]; then
+    echo "PostgreSQL 18 dist package test completed with failures:" >&2
+    printf ' - %s\n' "${failures[@]}" >&2
+    return 1
+  fi
 }
 
 require_dir "${PACKAGE_DIR}/bin"
