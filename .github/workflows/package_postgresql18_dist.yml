@@ -189,12 +189,9 @@ jobs:
             ${{ runner.os }}-package-v8-cache-
             ${{ runner.os }}-package-groonga-cache-
             ${{ runner.os }}-package-postgresql-dependencies-cache-
-            ${{ runner.os }}-package-llvm-dependencies-cache-
-            ${{ runner.os }}-package-llvmsdk-cache-
             ${{ runner.os }}-stage-mingw64-cache-
             ${{ runner.os }}-stage-llvm-cache-
             ${{ runner.os }}-stage-python-cache-
-            ${{ runner.os }}-stage1-cache-
 
       - name: Download package inputs
         env:
