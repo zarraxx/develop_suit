@@ -30,46 +30,29 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
  check_python_module_exists(PYTHON_HAVE_MARKUPSAFE markupsafe)
  
  if (NOT CMAKE_CXX_STANDARD)
-@@ -628,18 +651,18 @@ target_link_libraries(v8_snapshot
- # Note: allow passing in v8_random_seed
- add_custom_command(
+@@ -629,4 +652,4 @@ add_custom_command(
    COMMAND
 -    mksnapshot
 +    ${V8_MKSNAPSHOT_TOOL}
      --embedded_src ${PROJECT_BINARY_DIR}/embedded.S
      --startup_src ${PROJECT_BINARY_DIR}/snapshot.cc
-     $<${is-arm64}:--target_arch=arm64>
-     $<${is-x64}:--target_arch=x64>
-     $<${is-ppc}:--target_arch=ppc>
-     $<${is-ppc64}:--target_arch=ppc64>
-     $<$<PLATFORM_ID:Darwin>:--target_os=mac>
-     $<$<PLATFORM_ID:Linux>:--target_os=linux>
-     $<$<PLATFORM_ID:Windows>:--target_os=win>
-     --turbo_instruction_scheduling
+@@ -642,3 +665,3 @@ add_custom_command(
    DEPENDS
 -    mksnapshot
 +    ${V8_MKSNAPSHOT_DEP}
    OUTPUT
-     ${PROJECT_BINARY_DIR}/embedded.S
-     ${PROJECT_BINARY_DIR}/snapshot.cc
-@@ -1008,15 +1031,15 @@ file(WRITE "${PROJECT_BINARY_DIR}/touch_torque_outputs.cmake"
- 
- add_custom_command(
+@@ -1008,4 +1031,4 @@ add_custom_command(
    COMMAND
 -    torque
 +    ${V8_TORQUE_TOOL}
      -o ${PROJECT_BINARY_DIR}/torque-generated
      -v8-root ${PROJECT_SOURCE_DIR}/v8
-     ${torque_files}
-   COMMAND
-     ${CMAKE_COMMAND} -P ${PROJECT_BINARY_DIR}/touch_torque_outputs.cmake
+@@ -1016,4 +1039,4 @@ add_custom_command(
    DEPENDS
 -    torque
 +    ${V8_TORQUE_DEP}
      ${torque_dirs}
      ${torque_files_abs}
-   OUTPUT
-     ${torque-outputs}
 diff --git a/cmake/GenerateBuiltinsList.cmake b/cmake/GenerateBuiltinsList.cmake
 --- a/cmake/GenerateBuiltinsList.cmake
 +++ b/cmake/GenerateBuiltinsList.cmake
