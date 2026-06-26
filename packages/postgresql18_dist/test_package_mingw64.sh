@@ -208,6 +208,7 @@ SHARED_PRELOAD=()
 [[ -f "${PACKAGE_DIR}/lib/pg_stat_monitor.dll" ]] && SHARED_PRELOAD+=(pg_stat_monitor)
 FAILURES=()
 CLUSTER_STARTED=0
+CURRENT_POSTGRES_OPTS=()
 
 "${PACKAGE_DIR}/bin/initdb.exe" --username=postgres --auth-local=trust --auth-host=trust --no-instructions -D "${DATA_DIR}" >/dev/null
 
@@ -217,13 +218,16 @@ POSTGRES_OPTS=(
   "-c" "listen_addresses=127.0.0.1"
   "-c" "log_destination=stderr"
   "-c" "logging_collector=off"
+)
+
+PRELOAD_POSTGRES_OPTS=("${POSTGRES_OPTS[@]}")
+PRELOAD_POSTGRES_OPTS+=(
   "-c" "compute_query_id=on"
   "-c" "pgaudit.log=read,write,ddl"
   "-c" "pgaudit.log_catalog=on"
 )
-
 if [[ "${#SHARED_PRELOAD[@]}" -gt 0 ]]; then
-  POSTGRES_OPTS+=("-c" "shared_preload_libraries=$(IFS=,; echo "${SHARED_PRELOAD[*]}")")
+  PRELOAD_POSTGRES_OPTS+=("-c" "shared_preload_libraries=$(IFS=,; echo "${SHARED_PRELOAD[*]}")")
 fi
 
 record_failure() {
@@ -240,9 +244,10 @@ stop_cluster() {
 }
 
 start_cluster() {
+  local -a start_opts=("$@")
   local postgres_opts_string=""
 
-  postgres_opts_string="$(printf '%s\n' "${POSTGRES_OPTS[*]}")"
+  postgres_opts_string="$(join_postgres_opts "${start_opts[@]}")"
   log_section "starting cluster"
   echo "pg_ctl options: ${postgres_opts_string}" >&2
   "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" -l "${LOG_FILE}" -o "${postgres_opts_string}" -w start >/dev/null || {
@@ -251,7 +256,20 @@ start_cluster() {
     return 1
   }
   CLUSTER_STARTED=1
+  CURRENT_POSTGRES_OPTS=("${start_opts[@]}")
   return 0
+}
+
+join_postgres_opts() {
+  local joined=""
+  local arg=""
+  for arg in "$@"; do
+    if [[ -n "${joined}" ]]; then
+      joined+=" "
+    fi
+    joined+="${arg}"
+  done
+  printf '%s\n' "${joined}"
 }
 
 ensure_cluster_running() {
@@ -261,7 +279,7 @@ ensure_cluster_running() {
 
   echo "postgresql is not running, attempting restart" >&2
   stop_cluster
-  if ! start_cluster; then
+  if ! start_cluster "${CURRENT_POSTGRES_OPTS[@]}"; then
     record_failure "postgresql cluster restart failed"
   fi
   return 0
@@ -346,9 +364,12 @@ cleanup() {
 trap cleanup EXIT
 
 show_runtime_context
-start_cluster || exit 1
+start_cluster "${POSTGRES_OPTS[@]}" || exit 1
 
 run_sql_step postgres "create database" "CREATE DATABASE dist_test;"
+stop_cluster
+
+start_cluster "${PRELOAD_POSTGRES_OPTS[@]}" || exit 1
 run_sql_step dist_test "create random data table" \
   "CREATE TABLE dist_random_data AS SELECT gs AS id, ((random() * 100)::integer) AS n, format('row-%s postgresql windows search', gs) AS content FROM generate_series(1, 64) AS gs;"
 
