@@ -556,6 +556,7 @@ make_host_writable "$PACKAGE_ROOT"
 
 if [[ "$TARGET_KIND" == "mingw" ]]; then
   finalize_mingw_timezone_data
+  materialize_symlinks "$OUT_DIR"
 fi
 
 normalize_package_permissions "$OUT_DIR"
