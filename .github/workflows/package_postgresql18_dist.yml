@@ -410,24 +410,35 @@ jobs:
           docker pull --platform "${{ matrix.docker_platform }}" "${{ env.PACKAGE_TEST_IMAGE }}"
           docker run --rm \
             --platform "${{ matrix.docker_platform }}" \
+            --user "$(id -u):$(id -g)" \
             -v "${GITHUB_WORKSPACE}:/work" \
             -w /work \
             -e HOME=/tmp \
             "${{ env.PACKAGE_TEST_IMAGE }}" \
             /bin/bash -lc "bash ./packages/postgresql18_dist/test_package.sh --target=${{ matrix.target }} --archive=/work/artifacts/postgresql18_dist-${{ matrix.triple }}.tar.xz"
 
+      - name: Set up MSYS2 for Windows package test
+        if: ${{ matrix.test_mode == 'mingw-native' }}
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: tar
+
       - name: Test PostgreSQL 18 distribution package on Windows
         if: ${{ matrix.test_mode == 'mingw-native' }}
-        shell: pwsh
+        shell: msys2 {0}
         run: |
-          $archivePath = Join-Path $PWD "artifacts/postgresql18_dist-${{ matrix.triple }}.tar.xz"
-          if (-not (Test-Path -LiteralPath $archivePath)) {
-            throw "missing package artifact: $archivePath"
+          set -euo pipefail
+          archive_path="artifacts/postgresql18_dist-${{ matrix.triple }}.tar.xz"
+          [[ -f "${archive_path}" ]] || {
+            echo "missing package artifact: ${archive_path}" >&2
+            exit 1
           }
 
-          ./packages/postgresql18_dist/test_package.ps1 `
-            --target=${{ matrix.target }} `
-            --archive=$archivePath
+          bash ./packages/postgresql18_dist/test_package_mingw64.sh \
+            --target="${{ matrix.target }}" \
+            --archive="${archive_path}"
 
   publish-release:
     name: publish-release

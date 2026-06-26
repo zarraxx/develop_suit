@@ -74,11 +74,7 @@ if [[ -n "$ARCHIVE" ]]; then
   rm -rf "$TEST_ROOT"
   mkdir -p "$TEST_ROOT"
   tar -xf "$ARCHIVE" -C "$TEST_ROOT"
-  PACKAGE_DIR="$(
-    find "$TEST_ROOT" -mindepth 1 -maxdepth 1 -type d -print \
-      | sort \
-      | head -n 1
-  )" || true
+  PACKAGE_DIR="$(find "$TEST_ROOT" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | sort | sed -n '1p')"
 fi
 
 [[ -n "$PACKAGE_DIR" ]] || die "--package-dir or --archive is required"
@@ -100,6 +96,17 @@ require_executable() {
   [[ -x "$path" ]] || die "missing executable: ${path}"
 }
 
+first_sorted_match() {
+  local search_root="$1"
+  shift
+  local -a matches=()
+
+  mapfile -t matches < <(find "$search_root" "$@" 2>/dev/null | sort) || true
+  if [[ "${#matches[@]}" -gt 0 ]]; then
+    printf '%s\n' "${matches[0]}"
+  fi
+}
+
 find_package_executable() {
   local exact_name="$1"
   shift
@@ -113,11 +120,7 @@ find_package_executable() {
     local pattern="$1"
     local candidate=""
     shift
-    candidate="$(
-      find "${PACKAGE_DIR}/bin" -maxdepth 1 -type f -name "${pattern}" \
-        | sort \
-        | head -n 1
-    )" || true
+    candidate="$(first_sorted_match "${PACKAGE_DIR}/bin" -maxdepth 1 -type f -name "${pattern}")"
     if [[ -n "${candidate}" && -x "${candidate}" ]]; then
       printf '%s\n' "${candidate}"
       return 0
@@ -131,11 +134,7 @@ find_first_dir() {
   local base="$1"
   local pattern="$2"
 
-  {
-    find "$base" -type d -path "$pattern" -print 2>/dev/null \
-      | sort \
-      | head -n 1
-  } || true
+  first_sorted_match "$base" -type d -path "$pattern" -print
 }
 
 extension_enabled() {
@@ -167,11 +166,7 @@ setup_runtime_env() {
     [[ -d "${python_site}" ]] && export PYTHONPATH="${PYTHONPATH}:${python_site}"
   fi
 
-  perl_config="$(
-    find "${PACKAGE_DIR}/lib" -path '*/Config_heavy.pl' -type f -print 2>/dev/null \
-      | sort \
-      | head -n 1
-  )" || true
+  perl_config="$(first_sorted_match "${PACKAGE_DIR}/lib" -path '*/Config_heavy.pl' -type f -print)"
   if [[ -n "${perl_config}" ]]; then
     perl_archlib="$(dirname "${perl_config}")"
     perl_privlib="$(dirname "${perl_archlib}")"
@@ -185,6 +180,15 @@ setup_runtime_env() {
   gdal_dir="${PACKAGE_DIR}/share/gdal"
   [[ -d "${proj_dir}" ]] && export PROJ_DATA="${proj_dir}"
   [[ -d "${gdal_dir}" ]] && export GDAL_DATA="${gdal_dir}"
+}
+
+show_postgresql_log() {
+  local log_file="$1"
+  if [[ -f "${log_file}" ]]; then
+    echo "--- postgresql log: ${log_file} ---" >&2
+    tail -n 200 "${log_file}" >&2 || true
+    echo "--- end postgresql log ---" >&2
+  fi
 }
 
 psql_scalar() {
@@ -222,10 +226,21 @@ require_true() {
   [[ "${actual}" == "t" || "${actual}" == "1" ]] || die "expected true result for [${sql}], got [${actual}]"
 }
 
-append_sql() {
-  local sql_file="$1"
-  shift
-  printf '%s\n' "$@" >> "${sql_file}"
+run_sql_step() {
+  local psql_bin="$1"
+  local host="$2"
+  local port="$3"
+  local database="$4"
+  local log_file="$5"
+  local label="$6"
+  local sql="$7"
+
+  echo "running sql step: ${label}"
+  if ! "${psql_bin}" -h "$host" -p "$port" -U postgres -d "$database" -v ON_ERROR_STOP=1 -c "$sql" >/dev/null; then
+    echo "sql step failed: ${label}" >&2
+    show_postgresql_log "${log_file}"
+    die "postgresql SQL step failed: ${label}"
+  fi
 }
 
 run_postgresql18_dist_test() {
@@ -238,7 +253,6 @@ run_postgresql18_dist_test() {
   local port="$7"
   local host_addr="$8"
   local startup_host="$9"
-  local sql_file="${10}"
   local preload_libraries=()
   local preload_setting=""
   local psql_host=""
@@ -288,7 +302,10 @@ run_postgresql18_dist_test() {
     -D "$data_dir" \
     -l "$log_file" \
     -o "$(printf "%q " "${postgres_opts[@]}")" \
-    -w start >/dev/null
+    -w start >/dev/null || {
+      show_postgresql_log "${log_file}"
+      die "postgresql cluster failed to start"
+    }
 
   if [[ -n "${socket_dir}" ]]; then
     psql_host="${socket_dir}"
@@ -296,13 +313,87 @@ run_postgresql18_dist_test() {
     psql_host="${host_addr}"
   fi
 
-  "${psql_bin}" \
-    -h "$psql_host" \
-    -p "$port" \
-    -U postgres \
-    -d postgres \
-    -v ON_ERROR_STOP=1 \
-    -f "${sql_file}" >/dev/null
+  run_sql_step "${psql_bin}" "${psql_host}" "${port}" postgres "${log_file}" "create database" "CREATE DATABASE dist_test;"
+  run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create random data table" \
+    "CREATE TABLE dist_random_data AS SELECT gs AS id, ((random() * 100)::integer) AS n, format('row-%s postgresql graph search', gs) AS content FROM generate_series(1, 64) AS gs;"
+
+  if extension_enabled plpython3u; then
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension plpython3u" "CREATE EXTENSION plpython3u;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create plpython helper codex_plpython_bucket" \
+      "CREATE OR REPLACE FUNCTION codex_plpython_bucket(v integer) RETURNS integer LANGUAGE plpython3u AS \$\$ return v * v \$\$;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create plpython helper codex_plpython_upper" \
+      "CREATE OR REPLACE FUNCTION codex_plpython_upper(v text) RETURNS text LANGUAGE plpython3u AS \$\$ return v.upper() \$\$;"
+  fi
+
+  if extension_enabled plperl; then
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension plperl" "CREATE EXTENSION plperl;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create plperl helper codex_plperl_reverse" \
+      "CREATE OR REPLACE FUNCTION codex_plperl_reverse(v text) RETURNS text LANGUAGE plperl AS \$\$ return scalar reverse \$_[0]; \$\$;"
+  fi
+
+  if extension_enabled pltcl; then
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension pltcl" "CREATE EXTENSION pltcl;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create pltcl helper codex_pltcl_repeat" \
+      "CREATE OR REPLACE FUNCTION codex_pltcl_repeat(v text, n integer) RETURNS text LANGUAGE pltcl AS \$\$ return [string repeat \$1 \$2] \$\$;"
+  fi
+
+  if extension_enabled plv8; then
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension plv8" "CREATE EXTENSION plv8;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create plv8 helper codex_plv8_sum" \
+      "CREATE OR REPLACE FUNCTION codex_plv8_sum(v text) RETURNS integer LANGUAGE plv8 AS \$\$ return JSON.parse(v).reduce((a, b) => a + b, 0); \$\$;"
+  fi
+
+  if extension_enabled postgis; then
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension postgis" "CREATE EXTENSION postgis;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create dist_points" \
+      "CREATE TABLE dist_points AS SELECT id, ST_SetSRID(ST_MakePoint(id::double precision, id::double precision), 4326) AS geom FROM generate_series(1, 8) AS id;"
+  fi
+
+  if extension_enabled pgrouting; then
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension pgrouting" "CREATE EXTENSION pgrouting;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create dist_edges" \
+      "CREATE TABLE dist_edges (id bigint, source bigint, target bigint, cost double precision, reverse_cost double precision);"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "insert dist_edges" \
+      "INSERT INTO dist_edges VALUES (1, 1, 2, 1, 1), (2, 2, 3, 1, 1), (3, 1, 3, 5, 5);"
+  fi
+
+  if extension_enabled vector; then
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension vector" "CREATE EXTENSION vector;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create dist_vectors" \
+      "CREATE TABLE dist_vectors (id integer PRIMARY KEY, embedding vector(3));"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "insert dist_vectors" \
+      "INSERT INTO dist_vectors VALUES (1, '[0,0,0]'), (2, '[1,1,1]'), (3, '[3,3,3]');"
+  fi
+
+  if extension_enabled age; then
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension age" "CREATE EXTENSION age;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create age graph" \
+      "LOAD 'age'; SET search_path = ag_catalog, \"\$user\", public; SELECT create_graph('dist_graph'); RESET search_path;"
+  fi
+
+  if extension_enabled pgroonga; then
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension pgroonga" "CREATE EXTENSION pgroonga;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create dist_docs" \
+      "CREATE TABLE dist_docs (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, content text NOT NULL);"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "insert dist_docs" \
+      "INSERT INTO dist_docs(content) VALUES ('postgresql extension testing with pgroonga'), ('graph search with postgresql and groonga'), ('plain text row');"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create pgroonga index" \
+      "CREATE INDEX dist_docs_content_idx ON dist_docs USING pgroonga (content);"
+  fi
+
+  if extension_enabled pgaudit; then
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension pgaudit" "CREATE EXTENSION pgaudit;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "run pgaudit probe" \
+      "SELECT /* codex_audit_probe */ count(*) FROM dist_random_data;"
+  fi
+
+  if extension_enabled pg_stat_monitor; then
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "create extension pg_stat_monitor" "CREATE EXTENSION pg_stat_monitor;"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "reset pg_stat_monitor" \
+      "SELECT pg_stat_monitor_reset();"
+    run_sql_step "${psql_bin}" "${psql_host}" "${port}" dist_test "${log_file}" "run pg_stat_monitor probe" \
+      "SELECT /* codex_monitor_probe */ count(*) FROM dist_random_data WHERE n >= 0;"
+  fi
 
   require_scalar "$psql_bin" "$psql_host" "$port" dist_test "SELECT count(*) FROM dist_random_data;" "64"
   require_true "$psql_bin" "$psql_host" "$port" dist_test "SELECT avg(n) >= 0 FROM dist_random_data;"
@@ -401,96 +492,8 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/postgresql18-dist-test.XXXXXX")"
 DATA_DIR="${TEST_ROOT}/data"
 SOCKET_DIR="${TEST_ROOT}/socket"
 LOG_FILE="${TEST_ROOT}/postgresql.log"
-SQL_FILE="${TEST_ROOT}/test.sql"
 PORT=$((55432 + (RANDOM % 1000)))
 HOST_ADDR="127.0.0.1"
-
-cat > "${SQL_FILE}" <<'SQL'
-CREATE DATABASE dist_test;
-\connect dist_test
-
-CREATE TABLE dist_random_data AS
-SELECT
-  gs AS id,
-  ((random() * 100)::integer) AS n,
-  format('row-%s postgresql graph search', gs) AS content
-FROM generate_series(1, 64) AS gs;
-SQL
-
-if extension_enabled plpython3u; then
-  append_sql "${SQL_FILE}" \
-    "CREATE EXTENSION plpython3u;" \
-    "CREATE OR REPLACE FUNCTION codex_plpython_bucket(v integer) RETURNS integer LANGUAGE plpython3u AS \$\$ return v * v \$\$;" \
-    "CREATE OR REPLACE FUNCTION codex_plpython_upper(v text) RETURNS text LANGUAGE plpython3u AS \$\$ return v.upper() \$\$;"
-fi
-
-if extension_enabled plperl; then
-  append_sql "${SQL_FILE}" \
-    "CREATE EXTENSION plperl;" \
-    "CREATE OR REPLACE FUNCTION codex_plperl_reverse(v text) RETURNS text LANGUAGE plperl AS \$\$ return scalar reverse \$_[0]; \$\$;"
-fi
-
-if extension_enabled pltcl; then
-  append_sql "${SQL_FILE}" \
-    "CREATE EXTENSION pltcl;" \
-    "CREATE OR REPLACE FUNCTION codex_pltcl_repeat(v text, n integer) RETURNS text LANGUAGE pltcl AS \$\$ return [string repeat \$1 \$2] \$\$;"
-fi
-
-if extension_enabled plv8; then
-  append_sql "${SQL_FILE}" \
-    "CREATE EXTENSION plv8;" \
-    "CREATE OR REPLACE FUNCTION codex_plv8_sum(v text) RETURNS integer LANGUAGE plv8 AS \$\$ return JSON.parse(v).reduce((a, b) => a + b, 0); \$\$;"
-fi
-
-if extension_enabled postgis; then
-  append_sql "${SQL_FILE}" \
-    "CREATE EXTENSION postgis;" \
-    "CREATE TABLE dist_points AS SELECT id, ST_SetSRID(ST_MakePoint(id::double precision, id::double precision), 4326) AS geom FROM generate_series(1, 8) AS id;"
-fi
-
-if extension_enabled pgrouting; then
-  append_sql "${SQL_FILE}" \
-    "CREATE EXTENSION pgrouting;" \
-    "CREATE TABLE dist_edges (id bigint, source bigint, target bigint, cost double precision, reverse_cost double precision);" \
-    "INSERT INTO dist_edges VALUES (1, 1, 2, 1, 1), (2, 2, 3, 1, 1), (3, 1, 3, 5, 5);"
-fi
-
-if extension_enabled vector; then
-  append_sql "${SQL_FILE}" \
-    "CREATE EXTENSION vector;" \
-    "CREATE TABLE dist_vectors (id integer PRIMARY KEY, embedding vector(3));" \
-    "INSERT INTO dist_vectors VALUES (1, '[0,0,0]'), (2, '[1,1,1]'), (3, '[3,3,3]');"
-fi
-
-if extension_enabled age; then
-  append_sql "${SQL_FILE}" \
-    "CREATE EXTENSION age;" \
-    "LOAD 'age';" \
-    "SET search_path = ag_catalog, \"\$user\", public;" \
-    "SELECT create_graph('dist_graph');" \
-    "RESET search_path;"
-fi
-
-if extension_enabled pgroonga; then
-  append_sql "${SQL_FILE}" \
-    "CREATE EXTENSION pgroonga;" \
-    "CREATE TABLE dist_docs (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, content text NOT NULL);" \
-    "INSERT INTO dist_docs(content) VALUES ('postgresql extension testing with pgroonga'), ('graph search with postgresql and groonga'), ('plain text row');" \
-    "CREATE INDEX dist_docs_content_idx ON dist_docs USING pgroonga (content);"
-fi
-
-if extension_enabled pgaudit; then
-  append_sql "${SQL_FILE}" \
-    "CREATE EXTENSION pgaudit;" \
-    "SELECT /* codex_audit_probe */ count(*) FROM dist_random_data;"
-fi
-
-if extension_enabled pg_stat_monitor; then
-  append_sql "${SQL_FILE}" \
-    "CREATE EXTENSION pg_stat_monitor;" \
-    "SELECT pg_stat_monitor_reset();" \
-    "SELECT /* codex_monitor_probe */ count(*) FROM dist_random_data WHERE n >= 0;"
-fi
 
 run_postgresql18_dist_test \
   "${INITDB_BIN}" \
@@ -501,7 +504,6 @@ run_postgresql18_dist_test \
   "${LOG_FILE}" \
   "${PORT}" \
   "${HOST_ADDR}" \
-  "" \
-  "${SQL_FILE}"
+  ""
 
 echo "PostgreSQL 18 dist package test passed: ${PACKAGE_TRIPLE}"
