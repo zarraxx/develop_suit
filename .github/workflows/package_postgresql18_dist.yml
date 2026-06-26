@@ -410,12 +410,28 @@ jobs:
           docker pull --platform "${{ matrix.docker_platform }}" "${{ env.PACKAGE_TEST_IMAGE }}"
           docker run --rm \
             --platform "${{ matrix.docker_platform }}" \
-            --user "$(id -u):$(id -g)" \
             -v "${GITHUB_WORKSPACE}:/work" \
             -w /work \
             -e HOME=/tmp \
             "${{ env.PACKAGE_TEST_IMAGE }}" \
-            /bin/bash -lc "bash ./packages/postgresql18_dist/test_package.sh --target=${{ matrix.target }} --archive=/work/artifacts/postgresql18_dist-${{ matrix.triple }}.tar.xz"
+            /bin/bash -lc "
+              set -euo pipefail
+              mkdir -p /etc /tmp/pgtester-home
+              if [[ ! -f /etc/passwd ]]; then
+                printf 'root:x:0:0:root:/root:/bin/sh\n' > /etc/passwd
+              fi
+              if ! grep -q '^pgtester:' /etc/passwd; then
+                printf 'pgtester:x:1001:1001:pg tester:/tmp/pgtester-home:/bin/bash\n' >> /etc/passwd
+              fi
+              if [[ ! -f /etc/group ]]; then
+                printf 'root:x:0:\n' > /etc/group
+              fi
+              if ! grep -q '^pgtester:' /etc/group; then
+                printf 'pgtester:x:1001:\n' >> /etc/group
+              fi
+              chown -R 1001:1001 /tmp/pgtester-home
+              exec su -s /bin/bash pgtester -c 'HOME=/tmp/pgtester-home TMPDIR=/tmp bash ./packages/postgresql18_dist/test_package.sh --target=${{ matrix.target }} --archive=/work/artifacts/postgresql18_dist-${{ matrix.triple }}.tar.xz'
+            "
 
       - name: Set up MSYS2 for Windows package test
         if: ${{ matrix.test_mode == 'mingw-native' }}

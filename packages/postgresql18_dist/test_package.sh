@@ -70,9 +70,7 @@ fi
 
 if [[ -n "$ARCHIVE" ]]; then
   [[ -f "$ARCHIVE" ]] || die "archive not found: ${ARCHIVE}"
-  TEST_ROOT="${ROOT_DIR}/build/test/${PACKAGE_TRIPLE}"
-  rm -rf "$TEST_ROOT"
-  mkdir -p "$TEST_ROOT"
+  TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/postgresql18-dist-archive.${PACKAGE_TRIPLE}.XXXXXX")"
   tar -xf "$ARCHIVE" -C "$TEST_ROOT"
   PACKAGE_DIR="$(find "$TEST_ROOT" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | sort | sed -n '1p')"
 fi
