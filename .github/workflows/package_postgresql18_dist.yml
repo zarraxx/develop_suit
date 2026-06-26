@@ -346,11 +346,13 @@ jobs:
           - target: x86_64
             triple: x86_64-unknown-linux-gnu
             runs_on: ubuntu-24.04
-            test_mode: linux-native
+            test_mode: linux-docker
+            docker_platform: linux/amd64
           - target: aarch64
             triple: aarch64-unknown-linux-gnu
             runs_on: ubuntu-24.04-arm
-            test_mode: linux-native
+            test_mode: linux-docker
+            docker_platform: linux/arm64
           - target: riscv64
             triple: riscv64-unknown-linux-gnu
             runs_on: ubuntu-24.04
@@ -381,22 +383,7 @@ jobs:
         if: ${{ matrix.test_mode == 'linux-docker' }}
         uses: docker/setup-qemu-action@v3
 
-      - name: Test PostgreSQL 18 distribution package on Linux
-        if: ${{ matrix.test_mode == 'linux-native' }}
-        run: |
-          set -euo pipefail
-
-          archive_path="artifacts/postgresql18_dist-${{ matrix.triple }}.tar.xz"
-          [[ -f "${archive_path}" ]] || {
-            echo "missing package artifact: ${archive_path}" >&2
-            exit 1
-          }
-
-          bash ./packages/postgresql18_dist/test_package.sh \
-            --target="${{ matrix.target }}" \
-            --archive="${archive_path}"
-
-      - name: Test PostgreSQL 18 distribution package under Docker CPU emulation
+      - name: Test PostgreSQL 18 distribution package in Docker
         if: ${{ matrix.test_mode == 'linux-docker' }}
         run: |
           set -euo pipefail
