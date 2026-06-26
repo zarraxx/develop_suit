@@ -49,17 +49,30 @@ apply_v8_patches() {
   local patch_files=()
 
   case "${TARGET_KIND}:${ARCH}" in
+    linux:x86_64)
+      patch_files=(v8-cmake-cross-host-tools.patch)
+      ;;
     linux:aarch64)
-      patch_files=(v8-cmake-aarch64.patch)
+      patch_files=(
+        v8-cmake-cross-host-tools.patch
+        v8-cmake-aarch64.patch
+      )
       ;;
     linux:loongarch64)
-      patch_files=(v8-cmake-loong64.patch)
+      patch_files=(
+        v8-cmake-cross-host-tools.patch
+        v8-cmake-loong64.patch
+      )
       ;;
     linux:riscv64)
-      patch_files=(v8-cmake-riscv64.patch)
+      patch_files=(
+        v8-cmake-cross-host-tools.patch
+        v8-cmake-riscv64.patch
+      )
       ;;
     mingw:x86_64)
       patch_files=(
+        v8-cmake-cross-host-tools.patch
         v8-mingw-export-template.patch
         v8-mingw-platform-guards.patch
         v8-mingw-disable-etw.patch
@@ -104,6 +117,10 @@ build_host_tools() {
   cmake --build "$V8_HOST_BUILD_DIR" --target bytecode_builtins_list_generator --parallel "$JOBS"
   cmake --build "$V8_HOST_BUILD_DIR" --target torque --parallel "$JOBS"
   cmake --build "$V8_HOST_BUILD_DIR" --target mksnapshot --parallel "$JOBS"
+
+  [[ -x "${V8_HOST_BUILD_DIR}/bytecode_builtins_list_generator" ]] || die "missing host bytecode_builtins_list_generator"
+  [[ -x "${V8_HOST_BUILD_DIR}/torque" ]] || die "missing host torque"
+  [[ -x "${V8_HOST_BUILD_DIR}/mksnapshot" ]] || die "missing host mksnapshot"
 }
 
 write_clang_wrapper() {
@@ -335,6 +352,13 @@ build_host_tools
 target_cmake_args=()
 if [[ "$TARGET_KIND" == "mingw" ]]; then
   target_cmake_args+=("-DV8_ENABLE_SYSTEM_INSTRUMENTATION=OFF")
+fi
+if [[ "$TARGET_KIND" == "mingw" || "$ARCH" == "aarch64" || "$ARCH" == "loongarch64" || "$ARCH" == "riscv64" ]]; then
+  target_cmake_args+=(
+    "-DV8_HOST_BYTECODE_BUILTINS_LIST_GENERATOR=${V8_HOST_BUILD_DIR}/bytecode_builtins_list_generator"
+    "-DV8_HOST_TORQUE=${V8_HOST_BUILD_DIR}/torque"
+    "-DV8_HOST_MKSNAPSHOT=${V8_HOST_BUILD_DIR}/mksnapshot"
+  )
 fi
 
 log "Configuring v8-cmake ${V8_VERSION}"

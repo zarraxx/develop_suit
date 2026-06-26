@@ -86,6 +86,16 @@ fi
 export PATH="${PACKAGE_DIR}/bin:${PATH}"
 export LD_LIBRARY_PATH="${PACKAGE_DIR}/lib:/opt/llvm-18.1.8/lib:/opt/llvm-18.1.8/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
+if command -v file >/dev/null 2>&1; then
+  file "${PACKAGE_DIR}/bin/d8"
+fi
+if command -v readelf >/dev/null 2>&1; then
+  readelf -h "${PACKAGE_DIR}/bin/d8" | sed -n '1,20p'
+fi
+if command -v ldd >/dev/null 2>&1; then
+  ldd "${PACKAGE_DIR}/bin/d8" || true
+fi
+
 "${PACKAGE_DIR}/bin/d8" -e "print(version())"
 "${PACKAGE_DIR}/bin/d8" -e "if (6 * 7 !== 42) throw new Error('bad arithmetic');"
 "${PACKAGE_DIR}/bin/d8" -e "const xs=[1,2,3,4]; if (xs.reduce((a,b)=>a+b,0)!==10) throw new Error('bad reduce');"

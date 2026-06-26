@@ -1,0 +1,80 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -39,6 +39,23 @@
+ include(CheckPythonModuleExists)
+ include(GenerateBuiltinsList)
+ 
++set(V8_HOST_BYTECODE_BUILTINS_LIST_GENERATOR "" CACHE FILEPATH "Path to host bytecode_builtins_list_generator")
++set(V8_HOST_TORQUE "" CACHE FILEPATH "Path to host torque executable")
++set(V8_HOST_MKSNAPSHOT "" CACHE FILEPATH "Path to host mksnapshot executable")
++
++set(V8_BYTECODE_BUILTINS_LIST_GENERATOR_TOOL "bytecode_builtins_list_generator")
++set(V8_BYTECODE_BUILTINS_LIST_GENERATOR_DEP "bytecode_builtins_list_generator")
++if(V8_HOST_BYTECODE_BUILTINS_LIST_GENERATOR)
++  set(V8_BYTECODE_BUILTINS_LIST_GENERATOR_TOOL "${V8_HOST_BYTECODE_BUILTINS_LIST_GENERATOR}")
++  set(V8_BYTECODE_BUILTINS_LIST_GENERATOR_DEP "${V8_HOST_BYTECODE_BUILTINS_LIST_GENERATOR}")
++endif()
++set(V8_TORQUE_TOOL "torque")
++set(V8_TORQUE_DEP "torque")
++if(V8_HOST_TORQUE)
++  set(V8_TORQUE_TOOL "${V8_HOST_TORQUE}")
++  set(V8_TORQUE_DEP "${V8_HOST_TORQUE}")
++endif()
++set(V8_MKSNAPSHOT_TOOL "mksnapshot")
++set(V8_MKSNAPSHOT_DEP "mksnapshot")
++if(V8_HOST_MKSNAPSHOT)
++  set(V8_MKSNAPSHOT_TOOL "${V8_HOST_MKSNAPSHOT}")
++  set(V8_MKSNAPSHOT_DEP "${V8_HOST_MKSNAPSHOT}")
++endif()
++
+ check_python_module_exists(PYTHON_HAVE_MARKUPSAFE markupsafe)
+ 
+ if (NOT CMAKE_CXX_STANDARD)
+@@ -629,7 +646,7 @@
+ # Note: allow passing in v8_random_seed
+ add_custom_command(
+   COMMAND
+-    mksnapshot
++    ${V8_MKSNAPSHOT_TOOL}
+     --embedded_src ${PROJECT_BINARY_DIR}/embedded.S
+     --startup_src ${PROJECT_BINARY_DIR}/snapshot.cc
+     $<${is-arm64}:--target_arch=arm64>
+@@ -640,7 +657,7 @@
+     $<$<PLATFORM_ID:Windows>:--target_os=win>
+     --turbo_instruction_scheduling
+   DEPENDS
+-    mksnapshot
++    ${V8_MKSNAPSHOT_DEP}
+   OUTPUT
+     ${PROJECT_BINARY_DIR}/embedded.S
+     ${PROJECT_BINARY_DIR}/snapshot.cc
+@@ -1004,13 +1021,13 @@
+ 
+ add_custom_command(
+   COMMAND
+-    torque
++    ${V8_TORQUE_TOOL}
+     -o ${PROJECT_BINARY_DIR}/torque-generated
+     -v8-root ${PROJECT_SOURCE_DIR}/v8
+     ${torque_files}
+   COMMAND
+     ${CMAKE_COMMAND} -P ${PROJECT_BINARY_DIR}/touch_torque_outputs.cmake
+   DEPENDS
+-    torque
++    ${V8_TORQUE_DEP}
+     ${torque_dirs}
+     ${torque_files_abs}
+   OUTPUT
+--- a/cmake/GenerateBuiltinsList.cmake
++++ b/cmake/GenerateBuiltinsList.cmake
+@@ -7,8 +7,8 @@
+     COMMENT "Generating ${directory}"
+     VERBATIM)
+   add_custom_command(
+-    COMMAND bytecode_builtins_list_generator ${output}
+-    DEPENDS ${directory}
++    COMMAND ${V8_BYTECODE_BUILTINS_LIST_GENERATOR_TOOL} ${output}
++    DEPENDS ${directory} ${V8_BYTECODE_BUILTINS_LIST_GENERATOR_DEP}
+     OUTPUT ${output}
+     COMMENT "Generating ${output}"
+     VERBATIM)
