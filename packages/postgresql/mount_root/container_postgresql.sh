@@ -144,6 +144,124 @@ EOF
   chmod +x "$wrapper_path"
 }
 
+write_mingw_perl_config_wrapper() {
+  local wrapper_path="$1"
+
+  cat >"$wrapper_path" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+sdk_prefix="${SDK_PREFIX}"
+
+case "\${1:-}" in
+  -v)
+    printf '%s\n' 'This is perl 5, version 42, subversion 2 (v5.42.2) built for MSWin32-x64-multi-thread'
+    exit 0
+    ;;
+esac
+
+if [[ "\${1:-}" == "-MConfig" && "\${2:-}" == "-e" ]]; then
+  case "\${3:-}" in
+    *'Config{archlibexp}'*)
+      printf '%s' "\${sdk_prefix}/lib"
+      exit 0
+      ;;
+    *'Config{privlibexp}'*)
+      printf '%s' "\${sdk_prefix}/lib"
+      exit 0
+      ;;
+    *'Config{useshrplib}'*)
+      printf '%s' "true"
+      exit 0
+      ;;
+    *'Config{ccflags}'*'foreach'*)
+      printf '%s ' "-DWIN32" "-DWIN64" "-DPERL_TEXTMODE_SCRIPTS" "-DMULTIPLICITY" "-DPERL_IMPLICIT_SYS" "-DUSE_PERLIO"
+      exit 0
+      ;;
+    *'Config{ccflags}'*)
+      printf '%s' "-std=c99 -DWIN32 -DWIN64 -DPERL_TEXTMODE_SCRIPTS -DMULTIPLICITY -DPERL_IMPLICIT_SYS -DUSE_PERLIO -D__USE_MINGW_ANSI_STDIO -fwrapv -fno-strict-aliasing -mms-bitfields"
+      exit 0
+      ;;
+    *'Config{ccdlflags}'*|*'Config{ldflags}'*)
+      exit 0
+      ;;
+  esac
+fi
+
+if [[ "\${1:-}" == "-MExtUtils::Embed" && "\${2:-}" == "-e" && "\${3:-}" == "ldopts" ]]; then
+  printf '%s' "-L\${sdk_prefix}/lib/CORE -lperl542"
+  exit 0
+fi
+
+# PostgreSQL also uses PERL to run build-time generator scripts.  Those
+# scripts are architecture-neutral, so run them with the container Perl after
+# answering the target Config queries above.
+exec /usr/bin/perl "\$@"
+EOF
+  chmod +x "$wrapper_path"
+}
+
+write_mingw_python_config_wrapper() {
+  local wrapper_path="$1"
+
+  cat >"$wrapper_path" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+sdk_prefix="${SDK_PREFIX}"
+
+if [[ "\${1:-}" == "-c" ]]; then
+  code="\${2:-}"
+  case "\$code" in
+    *'import sys; print(sys.version)'*)
+      printf '%s\n' "3.14.5 (main, Jan 01 2026, 00:00:00) [Clang 18.1.8]"
+      exit 0
+      ;;
+    *'import sysconfig'*'get_config_vars('*"'LIBPL'"*|*'import sysconfig'*"get_config_vars('LIBPL')"*)
+      printf '%s\n' "\${sdk_prefix}/lib/python3.14/config-3.14"
+      exit 0
+      ;;
+    *"print('-I' + sysconfig.get_config_var('INCLUDEPY'))"*)
+      printf '%s\n' "-I\${sdk_prefix}/include/python3.14"
+      exit 0
+      ;;
+    *'get_config_var('*"'INCLUDEPY'"*|*"get_config_var('INCLUDEPY')"*)
+      printf '%s\n' "\${sdk_prefix}/include/python3.14"
+      exit 0
+      ;;
+    *'get_config_vars('*"'LIBDIR'"*|*"get_config_vars('LIBDIR')"*)
+      printf '%s\n' "\${sdk_prefix}/bin"
+      exit 0
+      ;;
+    *'get_config_vars('*"'LDLIBRARY'"*|*"get_config_vars('LDLIBRARY')"*)
+      printf '%s\n' "libpython3.14.dll"
+      exit 0
+      ;;
+    *'get_config_vars('*"'LDVERSION'"*|*"get_config_vars('LDVERSION')"*)
+      printf '%s\n' "3.14"
+      exit 0
+      ;;
+    *'get_config_vars('*"'VERSION'"*|*"get_config_vars('VERSION')"*)
+      printf '%s\n' "3.14"
+      exit 0
+      ;;
+    *'get_config_vars('*"'LIBS','LIBC','LIBM','BASEMODLIBS'"*|*"get_config_vars('LIBS','LIBC','LIBM','BASEMODLIBS')"*)
+      printf '%s\n' "-lversion -lshlwapi -lpathcch -lbcrypt"
+      exit 0
+      ;;
+    'import sysconfig')
+      exit 0
+      ;;
+  esac
+fi
+
+# Non-config invocations are build-time Python scripts.  Use host Python for
+# those while keeping target sysconfig answers above.
+exec /usr/bin/python3 "\$@"
+EOF
+  chmod +x "$wrapper_path"
+}
+
 rewrite_dependency_prefixes() {
   local installed_file=""
 
@@ -273,6 +391,19 @@ detect_optional_language_support() {
   PYTHON_CONFIG_QUERY_BIN="$PYTHON_BIN"
   TCL_CONFIG_QUERY_BIN="$TCLSH_BIN"
 
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    if [[ "$ENABLE_PERL" -eq 1 ]]; then
+      PERL_CONFIG_QUERY_BIN="${BUILD_TOOLS}/mingw-perl-config"
+      write_mingw_perl_config_wrapper "$PERL_CONFIG_QUERY_BIN"
+      PERL_PREFIX_DIR="$SDK_PREFIX"
+    fi
+    if [[ "$ENABLE_PYTHON" -eq 1 ]]; then
+      PYTHON_CONFIG_QUERY_BIN="${BUILD_TOOLS}/mingw-python-config"
+      write_mingw_python_config_wrapper "$PYTHON_CONFIG_QUERY_BIN"
+      PYTHON_PREFIX_DIR="$SDK_PREFIX"
+    fi
+  fi
+
   if [[ -n "$POSTGRESQL_TARGET_RUNNER" ]]; then
     if [[ "$ENABLE_PERL" -eq 1 ]]; then
       PERL_CONFIG_QUERY_BIN="${BUILD_TOOLS}/target-perl-config"
@@ -331,19 +462,12 @@ detect_optional_language_support() {
   fi
 
   if [[ "$TARGET_KIND" == "mingw" ]]; then
-    ENABLE_PERL=0
-    ENABLE_PYTHON=0
-    PERL_PRIVLIB_DIR=""
-    PERL_ARCHLIB_DIR=""
-    PERL_CORE_DIR=""
-    PERL_PREFIX_DIR=""
-    PERL_BIN=""
-    PERL_CONFIG_QUERY_BIN=""
-    PYTHON_PREFIX_DIR=""
-    PYTHON_INCLUDE_DIR=""
-    PYTHON_BIN=""
-    PYTHON_CONFIG_QUERY_BIN=""
-    log "Disabling PL/Perl and PL/Python for mingw64 builds"
+    if [[ "$ENABLE_PERL" -eq 1 ]]; then
+      log "Enabling PL/Perl for mingw64 builds with a config-query wrapper"
+    fi
+    if [[ "$ENABLE_PYTHON" -eq 1 ]]; then
+      log "Enabling PL/Python for mingw64 builds with a config-query wrapper"
+    fi
   fi
 }
 
@@ -654,13 +778,6 @@ build_postgresql_configure() {
     export LD_LIBRARY_PATH="${SDK_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 
     configure_cppflags="$COMMON_CPPFLAGS ${CPPFLAGS:-}"
-    if [[ "$ENABLE_PERL" -eq 1 && -n "$PERL_CORE_DIR" ]]; then
-      configure_cppflags="-I${PERL_CORE_DIR} ${configure_cppflags}"
-    fi
-    if [[ "$ENABLE_PYTHON" -eq 1 && -n "$PYTHON_INCLUDE_DIR" ]]; then
-      configure_cppflags="-I${PYTHON_INCLUDE_DIR} ${configure_cppflags}"
-    fi
-
     configure_env=(
       CC="$CC"
       CXX="$CXX"
@@ -886,6 +1003,9 @@ extract_archive_source "$POSTGRESQL_SOURCE_DIR" "$POSTGRESQL_ARCHIVE" "configure
 if [[ "$TARGET_KIND" == "mingw" ]]; then
   apply_source_patch_once "${POSTGRESQL_SOURCE_DIR}" "${PATCH_DIR}/postgresql-mingw64-pgevent-exports.patch"
   apply_source_patch_once "${POSTGRESQL_SOURCE_DIR}" "${PATCH_DIR}/postgresql-mingw64-pltcl-importlib.patch"
+  apply_source_patch_once "${POSTGRESQL_SOURCE_DIR}" "${PATCH_DIR}/postgresql-mingw64-posix-c-source-value.patch"
+  apply_source_patch_once "${POSTGRESQL_SOURCE_DIR}" "${PATCH_DIR}/postgresql-mingw64-plpython-plperl-importlibs.patch"
+  apply_source_patch_once "${POSTGRESQL_SOURCE_DIR}" "${PATCH_DIR}/postgresql-mingw64-pl-transform-importlibs.patch"
 fi
 if [[ "$TARGET_KIND" == "linux" ]]; then
   build_postgresql_meson

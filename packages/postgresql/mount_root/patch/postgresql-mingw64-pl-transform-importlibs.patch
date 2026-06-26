@@ -1,0 +1,66 @@
+--- a/contrib/bool_plperl/Makefile
++++ b/contrib/bool_plperl/Makefile
+@@ -30,7 +30,7 @@ ifeq ($(PORTNAME), win32)
+ # these settings are the same as for plperl
+ override CPPFLAGS += -DPLPERL_HAVE_UID_GID -Wno-comment
+ # ... see silliness in plperl Makefile ...
+-SHLIB_LINK_INTERNAL += $(sort $(wildcard ../../src/pl/plperl/libperl*.a))
++SHLIB_LINK += $(perl_embed_ldflags)
+ else
+ rpathdir = $(perl_archlibexp)/CORE
+ SHLIB_LINK += $(perl_embed_ldflags)
+--- a/contrib/hstore_plperl/Makefile
++++ b/contrib/hstore_plperl/Makefile
+@@ -32,7 +32,7 @@ ifeq ($(PORTNAME), win32)
+ # these settings are the same as for plperl
+ override CPPFLAGS += -DPLPERL_HAVE_UID_GID -Wno-comment
+ # ... see silliness in plperl Makefile ...
+-SHLIB_LINK_INTERNAL += $(sort $(wildcard ../../src/pl/plperl/libperl*.a))
++SHLIB_LINK += $(perl_embed_ldflags)
+ else
+ rpathdir = $(perl_archlibexp)/CORE
+ SHLIB_LINK += $(perl_embed_ldflags)
+--- a/contrib/jsonb_plperl/Makefile
++++ b/contrib/jsonb_plperl/Makefile
+@@ -34,7 +34,7 @@ ifeq ($(PORTNAME), win32)
+ # these settings are the same as for plperl
+ override CPPFLAGS += -DPLPERL_HAVE_UID_GID -Wno-comment
+ # ... see silliness in plperl Makefile ...
+-SHLIB_LINK_INTERNAL += $(sort $(wildcard ../../src/pl/plperl/libperl*.a))
++SHLIB_LINK += $(perl_embed_ldflags)
+ else
+ rpathdir = $(perl_archlibexp)/CORE
+ SHLIB_LINK += $(perl_embed_ldflags)
+--- a/contrib/hstore_plpython/Makefile
++++ b/contrib/hstore_plpython/Makefile
+@@ -29,7 +29,7 @@ endif
+ # We must link libpython explicitly
+ ifeq ($(PORTNAME), win32)
+ # ... see silliness in plpython Makefile ...
+-SHLIB_LINK_INTERNAL += $(sort $(wildcard ../../src/pl/plpython/libpython*.a))
++SHLIB_LINK += $(python_libspec) $(python_additional_libs)
+ else
+ rpathdir = $(python_libdir)
+ SHLIB_LINK += $(python_libspec) $(python_additional_libs)
+--- a/contrib/jsonb_plpython/Makefile
++++ b/contrib/jsonb_plpython/Makefile
+@@ -27,7 +27,7 @@ endif
+ # We must link libpython explicitly
+ ifeq ($(PORTNAME), win32)
+ # ... see silliness in plpython Makefile ...
+-SHLIB_LINK_INTERNAL += $(sort $(wildcard ../../src/pl/plpython/libpython*.a))
++SHLIB_LINK += $(python_libspec) $(python_additional_libs)
+ else
+ rpathdir = $(python_libdir)
+ SHLIB_LINK += $(python_libspec) $(python_additional_libs)
+--- a/contrib/ltree_plpython/Makefile
++++ b/contrib/ltree_plpython/Makefile
+@@ -29,7 +29,7 @@ endif
+ # We must link libpython explicitly
+ ifeq ($(PORTNAME), win32)
+ # ... see silliness in plpython Makefile ...
+-SHLIB_LINK_INTERNAL += $(sort $(wildcard ../../src/pl/plpython/libpython*.a))
++SHLIB_LINK += $(python_libspec) $(python_additional_libs)
+ else
+ rpathdir = $(python_libdir)
+ SHLIB_LINK += $(python_libspec) $(python_additional_libs)
