@@ -114,6 +114,7 @@ extract_prefix_archive() {
 validate_base_postgresql() {
   local dir="$1"
   local exeext=""
+  local required_path=""
 
   if [[ "${TARGET_KIND:-linux}" == "mingw" ]]; then
     exeext=".exe"
@@ -123,6 +124,18 @@ validate_base_postgresql() {
   [[ -x "${dir}/bin/postgres${exeext}" ]] || die "missing postgres in base PostgreSQL package"
   [[ -d "${dir}/include/server" ]] || die "missing PostgreSQL server headers"
   [[ -d "${dir}/lib" ]] || die "missing PostgreSQL lib directory"
+
+  if [[ "${TARGET_KIND:-linux}" == "mingw" ]]; then
+    for required_path in \
+      "${dir}/lib/plperl.dll" \
+      "${dir}/lib/plpython3.dll" \
+      "${dir}/share/extension/plperl.control" \
+      "${dir}/share/extension/plpython3u.control" \
+      "${dir}/bin/perl542.dll" \
+      "${dir}/bin/libpython3.14.dll"; do
+      [[ -e "$required_path" ]] || die "MinGW base PostgreSQL package is missing PL runtime path: ${required_path}"
+    done
+  fi
 }
 
 rewrite_overlay_prefixes() {

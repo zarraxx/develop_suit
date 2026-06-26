@@ -403,6 +403,18 @@ if extension_enabled pgaudit; then
     "SELECT /* codex_audit_probe */ count(*) FROM dist_random_data;"
 fi
 
+if extension_enabled plperl; then
+  run_sql_step dist_test "create extension plperl" "CREATE EXTENSION plperl;"
+  run_sql_step dist_test "create plperl function" \
+    "CREATE FUNCTION codex_plperl_probe(x integer) RETURNS integer LANGUAGE plperl AS \$\$ return \$_[0] + 7; \$\$;"
+fi
+
+if extension_enabled plpython3u; then
+  run_sql_step dist_test "create extension plpython3u" "CREATE EXTENSION plpython3u;"
+  run_sql_step dist_test "create plpython function" \
+    "CREATE FUNCTION codex_plpython_probe(x integer) RETURNS integer LANGUAGE plpython3u AS \$\$ return x + 11 \$\$;"
+fi
+
 if extension_enabled pg_stat_monitor; then
   run_sql_step dist_test "create extension pg_stat_monitor" "CREATE EXTENSION pg_stat_monitor;"
   run_sql_step dist_test "reset pg_stat_monitor" "SELECT pg_stat_monitor_reset();"
@@ -422,6 +434,14 @@ fi
 
 if extension_enabled pgroonga; then
   check_true dist_test "pgroonga match count" "SELECT count(*) >= 2 FROM dist_docs WHERE content &@~ 'postgresql';"
+fi
+
+if extension_enabled plperl; then
+  check_scalar dist_test "plperl function result" "SELECT codex_plperl_probe(35);" "42"
+fi
+
+if extension_enabled plpython3u; then
+  check_scalar dist_test "plpython function result" "SELECT codex_plpython_probe(31);" "42"
 fi
 
 if extension_enabled pg_stat_monitor; then

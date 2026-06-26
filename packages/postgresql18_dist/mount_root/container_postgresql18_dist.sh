@@ -657,6 +657,22 @@ copy_mingw_dlls_to_bin() {
     -o -type f -name '*.dll' -exec cp -f {} "${SDK_PREFIX}/bin/" \; 2>/dev/null || true
 }
 
+validate_mingw_pl_languages() {
+  local required_path=""
+
+  [[ "$TARGET_KIND" == "mingw" ]] || return 0
+
+  for required_path in \
+    "${SDK_PREFIX}/lib/plperl.dll" \
+    "${SDK_PREFIX}/lib/plpython3.dll" \
+    "${SDK_PREFIX}/share/extension/plperl.control" \
+    "${SDK_PREFIX}/share/extension/plpython3u.control" \
+    "${SDK_PREFIX}/bin/perl542.dll" \
+    "${SDK_PREFIX}/bin/libpython3.14.dll"; do
+    [[ -e "$required_path" ]] || die "MinGW distribution package is missing PL runtime path: ${required_path}"
+  done
+}
+
 write_distribution_readme() {
   local extension_lines=""
   local skipped_lines=""
@@ -1170,6 +1186,7 @@ fi
 
 remove_static_libraries
 copy_mingw_dlls_to_bin
+validate_mingw_pl_languages
 patch_linux_elf_rpaths "$SDK_PREFIX" "$TARGET_KIND"
 write_distribution_readme
 write_systemd_templates
