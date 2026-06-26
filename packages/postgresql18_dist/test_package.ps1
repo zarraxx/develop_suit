@@ -50,7 +50,10 @@ if (-not [string]::IsNullOrWhiteSpace($archive)) {
     Remove-Item -LiteralPath $testRoot -Recurse -Force
   }
   New-Item -ItemType Directory -Path $testRoot | Out-Null
-  tar -xf $archive -C $testRoot
+  tar -xf $archive `
+    --exclude '*/share/terminfo' `
+    --exclude '*/share/terminfo/*' `
+    -C $testRoot
   $packageDir = Get-ChildItem -LiteralPath $testRoot -Directory | Select-Object -First 1 | ForEach-Object { $_.FullName }
 }
 
