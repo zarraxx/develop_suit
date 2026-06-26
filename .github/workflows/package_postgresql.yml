@@ -3,6 +3,7 @@ name: package_postgresql
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   POSTGRESQL_PACKAGE_VERSION: ${{ inputs.postgresql_version || '18.4' }}
+  LLVM_SDK_VERSION: ${{ inputs.llvm_version || '18.1.8' }}
 
 on:
   workflow_dispatch:
@@ -12,6 +13,11 @@ on:
         required: false
         type: string
         default: "18.4"
+      llvm_version:
+        description: "LLVM SDK version used to enable PostgreSQL LLVM/JIT"
+        required: false
+        type: string
+        default: "18.1.8"
       python_version:
         description: "Python package version used to enable PL/Python"
         required: false
@@ -299,21 +305,61 @@ jobs:
           echo "timed out waiting for dependency asset: ${DEPENDENCY_RELEASE_TAG}/${dependency_asset}" >&2
           exit 1
 
+      - name: Download LLVM SDK archive
+        if: ${{ matrix.build_kind != 'mingw64' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          LLVM_SDK_VERSION: ${{ env.LLVM_SDK_VERSION }}
+          DEPENDENCY_TRIPLE: ${{ matrix.triple }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p packages/postgresql/build/inputs
+          release_tag="llvmsdk-${LLVM_SDK_VERSION}"
+          dependency_asset="llvmsdk-${LLVM_SDK_VERSION}-${DEPENDENCY_TRIPLE}.tar.xz"
+
+          for attempt in $(seq 1 72); do
+            if gh release download "${release_tag}" \
+              --repo "${GH_REPO}" \
+              --pattern "${dependency_asset}" \
+              --dir packages/postgresql/build/inputs; then
+              exit 0
+            fi
+
+            echo "dependency asset not ready yet: ${release_tag}/${dependency_asset} (attempt ${attempt}/72)"
+            sleep 300
+          done
+
+          echo "timed out waiting for dependency asset: ${release_tag}/${dependency_asset}" >&2
+          exit 1
+
       - name: Build PostgreSQL package
         run: |
           set -euo pipefail
 
           package_name="postgresql-${{ env.POSTGRESQL_PACKAGE_VERSION }}-${{ matrix.triple }}"
           dependency_archive="packages/postgresql/build/inputs/${{ needs.resolve-meta.outputs.postgresql_dependencies_asset_prefix }}-${{ matrix.triple }}.tar.xz"
+          llvmsdk_archive="packages/postgresql/build/inputs/llvmsdk-${{ env.LLVM_SDK_VERSION }}-${{ matrix.triple }}.tar.xz"
           [[ -f "${dependency_archive}" ]] || {
             echo "missing downloaded postgresql dependency archive: ${dependency_archive}" >&2
             exit 1
           }
+          llvmsdk_args=()
+          if [[ "${{ matrix.build_kind }}" != "mingw64" ]]; then
+            [[ -f "${llvmsdk_archive}" ]] || {
+              echo "missing downloaded LLVM SDK archive: ${llvmsdk_archive}" >&2
+              exit 1
+            }
+            llvmsdk_args+=(--llvmsdk-archive="${llvmsdk_archive}")
+          fi
 
           bash ./packages/postgresql/build.sh \
             --target="${{ matrix.target }}" \
             --postgresql-version="${{ env.POSTGRESQL_PACKAGE_VERSION }}" \
+            --llvm-version="${{ env.LLVM_SDK_VERSION }}" \
             --postgresql-deps-archive="${dependency_archive}" \
+            "${llvmsdk_args[@]}" \
             --package-name="${package_name}" \
             --clean \
             --pull \

@@ -25,6 +25,8 @@ Options:
   --arch=<target>                     Alias for --target
   --postgresql-version=<ver>          PostgreSQL version (default: 18.4)
   --llvm-version=<ver>                Bootstrap LLVM toolchain version (default: 18.1.8)
+  --llvmsdk-archive=<tar>             Target LLVM SDK archive used for PostgreSQL LLVM/JIT
+  --llvmsdk-dir=<dir>                 Already extracted target LLVM SDK prefix
   --postgresql-deps-archive=<tar>     postgresql_dependencies archive to use as base prefix
   --postgresql-deps-dir=<dir>         Already extracted postgresql_dependencies prefix
   --postgresql-archive=<tar>          Use a local PostgreSQL source archive
@@ -150,6 +152,65 @@ find_local_postgresql_deps_archive() {
   done
 
   return 1
+}
+
+find_local_llvmsdk_archive() {
+  local archive_path=""
+  local search_dir=""
+
+  for search_dir in "${PROJECT_ROOT}/packages/llvm/build/dist" "$INPUT_DIR" "${PROJECT_ROOT}/cache"; do
+    [[ -d "$search_dir" ]] || continue
+    archive_path="$(
+      find "$search_dir" \
+        -type f \
+        -name "llvmsdk-${LLVM_VERSION}-${PACKAGE_TRIPLE}.tar.xz" \
+        2>/dev/null \
+        | sort -rV \
+        | head -n 1
+    )"
+    if [[ -n "$archive_path" && -f "$archive_path" ]]; then
+      printf '%s\n' "$archive_path"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+prepare_llvmsdk_prefix() {
+  local output_dir="$1"
+  local archive_path="$2"
+  local dir_path="$3"
+  local tmp_extract="${output_dir}.extract"
+  local extracted_dir=""
+
+  rm -rf "$output_dir" "$tmp_extract"
+
+  if [[ -n "$dir_path" ]]; then
+    [[ -d "$dir_path" ]] || die "llvmsdk directory not found: ${dir_path}"
+    mkdir -p "$output_dir"
+    cp -a "${dir_path}/." "$output_dir/"
+  elif [[ -n "$archive_path" ]]; then
+    [[ -f "$archive_path" ]] || die "llvmsdk archive not found: ${archive_path}"
+    mkdir -p "$tmp_extract"
+    tar -xf "$archive_path" -C "$tmp_extract"
+    extracted_dir="$(
+      find "$tmp_extract" -mindepth 1 -maxdepth 1 -type d -print \
+        | sort \
+        | head -n 1
+    )"
+    [[ -n "$extracted_dir" && -d "$extracted_dir" ]] \
+      || die "could not find llvmsdk prefix in archive: ${archive_path}"
+    mkdir -p "$output_dir"
+    cp -a "${extracted_dir}/." "$output_dir/"
+    rm -rf "$tmp_extract"
+  else
+    return 0
+  fi
+
+  [[ -d "${output_dir}/include/llvm" ]] || die "llvmsdk missing LLVM headers: ${output_dir}/include/llvm"
+  find "${output_dir}/lib" -maxdepth 1 -name 'libLLVM.so*' -print -quit | grep -q . \
+    || die "llvmsdk missing libLLVM shared library: ${output_dir}/lib"
 }
 
 copy_or_extract_base_prefix() {
@@ -302,6 +363,8 @@ LLVM_VERSION="18.1.8"
 BUILD_IMAGE="$PACKAGES_DEFAULT_BUILD_IMAGE"
 JOBS="$PACKAGES_DEFAULT_JOBS"
 PACKAGE_NAME=""
+LLVMSDK_ARCHIVE=""
+LLVMSDK_DIR=""
 POSTGRESQL_DEPS_ARCHIVE=""
 POSTGRESQL_DEPS_DIR=""
 POSTGRESQL_ARCHIVE=""
@@ -332,6 +395,18 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || die "--llvm-version requires a value"
       LLVM_VERSION="$1"
+      ;;
+    --llvmsdk-archive=*) LLVMSDK_ARCHIVE="${1#*=}" ;;
+    --llvmsdk-archive)
+      shift
+      [[ $# -gt 0 ]] || die "--llvmsdk-archive requires a value"
+      LLVMSDK_ARCHIVE="$1"
+      ;;
+    --llvmsdk-dir=*) LLVMSDK_DIR="${1#*=}" ;;
+    --llvmsdk-dir)
+      shift
+      [[ $# -gt 0 ]] || die "--llvmsdk-dir requires a value"
+      LLVMSDK_DIR="$1"
       ;;
     --postgresql-deps-archive=*|--dependency-archive=*) POSTGRESQL_DEPS_ARCHIVE="${1#*=}" ;;
     --postgresql-deps-archive|--dependency-archive)
@@ -408,6 +483,10 @@ if [[ -n "$POSTGRESQL_DEPS_ARCHIVE" && -n "$POSTGRESQL_DEPS_DIR" ]]; then
   die "--postgresql-deps-archive and --postgresql-deps-dir are mutually exclusive"
 fi
 
+if [[ -n "$LLVMSDK_ARCHIVE" && -n "$LLVMSDK_DIR" ]]; then
+  die "--llvmsdk-archive and --llvmsdk-dir are mutually exclusive"
+fi
+
 if [[ -n "$QEMU_BINARY" && -n "$POSTGRESQL_TARGET_RUNNER" ]]; then
   die "--qemu-binary and --postgresql-target-runner are mutually exclusive"
 fi
@@ -424,6 +503,16 @@ fi
 if [[ -n "$POSTGRESQL_ARCHIVE" ]]; then
   [[ -f "$POSTGRESQL_ARCHIVE" ]] || die "PostgreSQL source archive not found: ${POSTGRESQL_ARCHIVE}"
   POSTGRESQL_ARCHIVE="$(cd "$(dirname "$POSTGRESQL_ARCHIVE")" && pwd)/$(basename "$POSTGRESQL_ARCHIVE")"
+fi
+
+if [[ -n "$LLVMSDK_ARCHIVE" ]]; then
+  [[ -f "$LLVMSDK_ARCHIVE" ]] || die "LLVM SDK archive not found: ${LLVMSDK_ARCHIVE}"
+  LLVMSDK_ARCHIVE="$(cd "$(dirname "$LLVMSDK_ARCHIVE")" && pwd)/$(basename "$LLVMSDK_ARCHIVE")"
+fi
+
+if [[ -n "$LLVMSDK_DIR" ]]; then
+  [[ -d "$LLVMSDK_DIR" ]] || die "LLVM SDK directory not found: ${LLVMSDK_DIR}"
+  LLVMSDK_DIR="$(cd "$LLVMSDK_DIR" && pwd)"
 fi
 
 QEMU_BINARY_CONTAINER_PATH=""
@@ -454,6 +543,7 @@ MOUNT_ROOT="${ROOT_DIR}/mount_root"
 CACHE_DIR="${PROJECT_ROOT}/cache"
 PACKAGE_ROOT="${ROOT_DIR}/build"
 BUILD_DIR="${PACKAGE_ROOT}/work/${TARGET_TRIPLE}"
+LLVMSDK_EXTRACT_DIR="${BUILD_DIR}/llvmsdk"
 OUT_BASE="${PACKAGE_ROOT}/out"
 OUT_DIR="${OUT_BASE}/${PACKAGE_NAME}"
 DIST_DIR="${PACKAGE_ROOT}/dist"
@@ -488,6 +578,14 @@ fi
 copy_or_extract_base_prefix "$OUT_DIR" "$POSTGRESQL_DEPS_ARCHIVE" "$POSTGRESQL_DEPS_DIR"
 overlay_optional_runtime_archives
 validate_base_prefix "$OUT_DIR"
+
+if [[ "$TARGET_KIND" == "linux" && -z "$LLVMSDK_ARCHIVE" && -z "$LLVMSDK_DIR" ]]; then
+  LLVMSDK_ARCHIVE="$(find_local_llvmsdk_archive || true)"
+fi
+if [[ "$TARGET_KIND" == "linux" ]] && [[ -n "$LLVMSDK_ARCHIVE" || -n "$LLVMSDK_DIR" ]]; then
+  echo "-- preparing LLVM SDK for PostgreSQL JIT"
+  prepare_llvmsdk_prefix "$LLVMSDK_EXTRACT_DIR" "$LLVMSDK_ARCHIVE" "$LLVMSDK_DIR"
+fi
 
 if [[ "$PULL" -eq 1 ]]; then
   echo "-- pulling build image: ${BUILD_IMAGE}"
@@ -536,6 +634,7 @@ container_args=(
   -e "POSTGRESQL_VERSION=${POSTGRESQL_VERSION}"
   -e "POSTGRESQL_ARCHIVE=${CONTAINER_POSTGRESQL_ARCHIVE}"
   -e "POSTGRESQL_TARGET_RUNNER=${POSTGRESQL_TARGET_RUNNER}"
+  -e "POSTGRESQL_LLVM_ROOT=$([[ "$TARGET_KIND" == "linux" && -d "$LLVMSDK_EXTRACT_DIR" ]] && printf /work/build/llvmsdk || true)"
   -e "JOBS=${JOBS}"
   -e "SDK_PREFIX=/opt/${PACKAGE_NAME}"
 )

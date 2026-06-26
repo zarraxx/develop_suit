@@ -79,6 +79,125 @@ EOF
   chmod +x "$wrapper_path"
 }
 
+write_llvm_config_wrapper() {
+  local wrapper_path="$1"
+  local real_tool="$2"
+
+  cat >"$wrapper_path" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+llvm_runtime_root="${POSTGRESQL_LLVM_ROOT}"
+llvm_tool_root="${LLVM_ROOT}"
+llvm_version="${LLVM_VERSION}"
+target_triple="${TARGET_TRIPLE}"
+real_tool="${real_tool}"
+
+components="engine debuginfodwarf orcjit passes native perfjitevents"
+libs="-lLLVM"
+system_libs=""
+cppflags="-I\${llvm_runtime_root}/include"
+ldflags="-L\${llvm_runtime_root}/lib"
+cxxflags="-std=c++17"
+
+if [[ "\$#" -eq 0 ]]; then
+  printf '%s\n' "\${llvm_runtime_root}"
+  exit 0
+fi
+
+want_libs=0
+want_system_libs=0
+for arg in "\$@"; do
+  case "\$arg" in
+    --version)
+      printf '%s\n' "\${llvm_version}"
+      exit 0
+      ;;
+    --prefix)
+      printf '%s\n' "\${llvm_runtime_root}"
+      exit 0
+      ;;
+    --bindir)
+      printf '%s\n' "\${llvm_tool_root}/bin"
+      exit 0
+      ;;
+    --includedir)
+      printf '%s\n' "\${llvm_runtime_root}/include"
+      exit 0
+      ;;
+    --libdir)
+      printf '%s\n' "\${llvm_runtime_root}/lib"
+      exit 0
+      ;;
+    --cppflags)
+      printf '%s\n' "\${cppflags}"
+      exit 0
+      ;;
+    --ldflags)
+      printf '%s\n' "\${ldflags}"
+      exit 0
+      ;;
+    --cxxflags)
+      printf '%s\n' "\${cxxflags}"
+      exit 0
+      ;;
+    --components)
+      printf '%s\n' "\${components}"
+      exit 0
+      ;;
+    --targets-built)
+      printf '%s\n' "all"
+      exit 0
+      ;;
+    --host-target|--default-target-triple)
+      printf '%s\n' "\${target_triple}"
+      exit 0
+      ;;
+    --shared-mode)
+      printf '%s\n' "shared"
+      exit 0
+      ;;
+    --has-rtti)
+      printf '%s\n' "YES"
+      exit 0
+      ;;
+    --link-shared|--link-static)
+      ;;
+    --libs)
+      want_libs=1
+      ;;
+    --system-libs)
+      want_system_libs=1
+      ;;
+  esac
+done
+
+if [[ "\$want_libs" -eq 1 ]]; then
+  printf '%s' "\${libs}"
+  if [[ "\$want_system_libs" -eq 1 && -n "\${system_libs}" ]]; then
+    printf ' %s' "\${system_libs}"
+  fi
+  printf '\n'
+  exit 0
+fi
+
+if [[ "\$want_system_libs" -eq 1 ]]; then
+  printf '%s\n' "\${system_libs}"
+  exit 0
+fi
+
+if [[ -x "\${real_tool}" && "${ARCH}" == "x86_64" ]]; then
+  exec "\${real_tool}" "\$@"
+fi
+
+printf 'unsupported llvm-config wrapper arguments:' >&2
+printf ' %s' "\$@" >&2
+printf '\n' >&2
+exit 1
+EOF
+  chmod +x "$wrapper_path"
+}
+
 write_target_runner_wrapper() {
   local wrapper_path="$1"
   local real_tool="$2"
@@ -90,6 +209,14 @@ set -euo pipefail
 exec ${POSTGRESQL_TARGET_RUNNER} "${real_tool}" "\$@"
 EOF
   chmod +x "$wrapper_path"
+}
+
+llvm_sdk_has_runtime() {
+  [[ "$TARGET_KIND" == "linux" ]] || return 1
+  [[ -n "${POSTGRESQL_LLVM_ROOT:-}" ]] || return 1
+  [[ -x "${LLVM_ROOT}/bin/clang" ]] || return 1
+  [[ -d "${POSTGRESQL_LLVM_ROOT}/include/llvm" ]] || return 1
+  compgen -G "${POSTGRESQL_LLVM_ROOT}/lib/libLLVM.so*" >/dev/null
 }
 
 write_windres_wrapper() {
@@ -286,6 +413,21 @@ rewrite_dependency_prefixes() {
 
 remove_static_libraries() {
   find "${SDK_PREFIX}/lib" -type f -name '*.la' -delete
+}
+
+copy_llvm_runtime_libraries() {
+  llvm_sdk_has_runtime || return 0
+
+  local library_name=""
+  local library_path=""
+
+  mkdir -p "${SDK_PREFIX}/lib"
+  for library_name in libLLVM.so* libc++.so* libc++abi.so* libunwind.so*; do
+    while IFS= read -r library_path; do
+      [[ -e "$library_path" ]] || continue
+      cp -a "$library_path" "${SDK_PREFIX}/lib/"
+    done < <(find "${POSTGRESQL_LLVM_ROOT}/lib" -maxdepth 1 -name "$library_name" -print 2>/dev/null | sort)
+  done
 }
 
 install_mingw_pgxs_archives() {
@@ -601,10 +743,13 @@ build_postgresql_meson() {
       ;;
   esac
 
-  if [[ "$TARGET_KIND" == "linux" && "$ARCH" == "x86_64" && -x "${LLVM_ROOT}/bin/llvm-config" ]]; then
+  if llvm_sdk_has_runtime; then
     meson_args+=(-Dllvm=enabled)
   else
     meson_args+=(-Dllvm=disabled)
+    if [[ "$TARGET_KIND" == "linux" ]]; then
+      log "Target LLVM runtime not available for ${TARGET_TRIPLE}; building without JIT"
+    fi
   fi
 
   if [[ "$ENABLE_PERL" -eq 1 ]]; then
@@ -636,7 +781,7 @@ build_postgresql_meson() {
     export PKG_CONFIG_PATH="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig"
     export PKG_CONFIG_LIBDIR="${SDK_PREFIX}/lib/pkgconfig:${SDK_PREFIX}/share/pkgconfig"
     export PKG_CONFIG_SYSROOT_DIR=
-    export LLVM_CONFIG="${LLVM_ROOT}/bin/llvm-config"
+    export LLVM_CONFIG="$LLVM_CONFIG_QUERY_BIN"
 
     meson setup "$POSTGRESQL_BUILD_DIR" "$POSTGRESQL_SOURCE_DIR" "${meson_args[@]}"
     meson compile -C "$POSTGRESQL_BUILD_DIR" -j "$JOBS"
@@ -744,7 +889,7 @@ build_postgresql_configure() {
       ;;
   esac
 
-  if [[ "$TARGET_KIND" == "linux" && "$ARCH" == "x86_64" && -x "${LLVM_ROOT}/bin/llvm-config" ]]; then
+  if llvm_sdk_has_runtime; then
     configure_args+=(--with-llvm)
   elif [[ "$TARGET_KIND" == "linux" ]]; then
     log "Target LLVM runtime not available for ${TARGET_TRIPLE}; building without JIT"
@@ -786,7 +931,7 @@ build_postgresql_configure() {
       RANLIB="$RANLIB"
       STRIP="$STRIP"
       NM="$NM"
-      LLVM_CONFIG="${LLVM_ROOT}/bin/llvm-config"
+      LLVM_CONFIG="$LLVM_CONFIG_QUERY_BIN"
       CLANG="${LLVM_ROOT}/bin/clang"
       WINDRES="${WINDRES:-}"
       PKG_CONFIG="${PKG_CONFIG:-pkg-config}"
@@ -872,6 +1017,7 @@ TARGET_TRIPLE="${TARGET_TRIPLE:-}"
 LLVM_VERSION="${LLVM_VERSION:-18.1.8}"
 POSTGRESQL_VERSION="${POSTGRESQL_VERSION:-18.4}"
 POSTGRESQL_TARGET_RUNNER="${POSTGRESQL_TARGET_RUNNER:-}"
+POSTGRESQL_LLVM_ROOT="${POSTGRESQL_LLVM_ROOT:-}"
 JOBS="${JOBS:-4}"
 SDK_PREFIX="${SDK_PREFIX:-/opt/postgresql-${POSTGRESQL_VERSION}-${TARGET_TRIPLE}}"
 CACHE_DIR="${CACHE_DIR:-/work/cache}"
@@ -951,10 +1097,20 @@ fi
 POSTGRESQL_SOURCE_DIR="${BUILD_DIR}/postgresql-source"
 POSTGRESQL_BUILD_DIR="${BUILD_DIR}/postgresql-build"
 BUILD_TOOLS="${BUILD_DIR}/tools"
+LLVM_CONFIG_QUERY_BIN="${BUILD_TOOLS}/llvm-config"
 TEMPLATE_DIR="${TEMPLATE_DIR:-/work/mount_root/templates}"
 PATCH_DIR="${PATCH_DIR:-/work/mount_root/patch}"
 
 mkdir -p "$POSTGRESQL_SOURCE_DIR" "$POSTGRESQL_BUILD_DIR" "$BUILD_TOOLS"
+
+if [[ "$TARGET_KIND" == "linux" && -z "$POSTGRESQL_LLVM_ROOT" && "$ARCH" == "x86_64" ]]; then
+  POSTGRESQL_LLVM_ROOT="$LLVM_ROOT"
+fi
+
+if [[ "$TARGET_KIND" == "linux" && -n "$POSTGRESQL_LLVM_ROOT" ]]; then
+  [[ -d "$POSTGRESQL_LLVM_ROOT" ]] || die "missing PostgreSQL LLVM root: ${POSTGRESQL_LLVM_ROOT}"
+  write_llvm_config_wrapper "$LLVM_CONFIG_QUERY_BIN" "${LLVM_ROOT}/bin/llvm-config"
+fi
 
 if [[ ! -x "$CC" ]]; then
   write_clang_wrapper "${BUILD_TOOLS}/${TARGET_TRIPLE}-cc" "${LLVM_ROOT}/bin/clang"
@@ -1014,6 +1170,7 @@ else
 fi
 install_mingw_pgxs_archives
 copy_system_tzdata_into_prefix
+copy_llvm_runtime_libraries
 remove_static_libraries
 remove_postgresql_docs
 rewrite_dependency_prefixes
