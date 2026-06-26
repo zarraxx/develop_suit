@@ -378,8 +378,14 @@ build_set_user() {
 
 build_pg_stat_monitor() {
   if [[ "$TARGET_KIND" == "mingw" ]]; then
-    apply_source_patch "${EXT_SOURCE_DIR}/pg_stat_monitor" "/work/mount_root/patch/pg_stat_monitor-2.3.2-mingw-no-win32-resource-and-uint.patch"
+    log "Skipping pg_stat_monitor: upstream supported platforms are Linux distributions; MinGW crashes under PostgreSQL EXEC_BACKEND"
+    SKIPPED_EXTENSIONS+=("pg_stat_monitor: disabled on MinGW because upstream supports Linux platforms and the extension crashes under PostgreSQL EXEC_BACKEND")
+    return 0
   fi
+
+  apply_source_patch "${EXT_SOURCE_DIR}/pg_stat_monitor" "/work/mount_root/patch/pg_stat_monitor-2.3.2-pg18-procnumber.patch"
+  grep -q "pgstat_get_beentry_by_proc_number(MyProcNumber)" "${EXT_SOURCE_DIR}/pg_stat_monitor/pg_stat_monitor.c" \
+    || die "pg_stat_monitor PG18 procnumber patch did not apply correctly"
 
   make_pgxs_install pg_stat_monitor "${EXT_SOURCE_DIR}/pg_stat_monitor"
 }

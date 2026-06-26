@@ -43,6 +43,8 @@ https://github.com/pgaudit/pgaudit/archive/refs/tags/18.0.tar.gz
 
 pg_stat_monitor
 https://github.com/percona/pg_stat_monitor/archive/refs/tags/2.3.2.tar.gz
+MinGW64 skips pg_stat_monitor because upstream documents Linux distribution
+support and the extension crashes under PostgreSQL EXEC_BACKEND on Windows.
 
 <!-- tde
 https://github.com/percona/pg_tde/archive/refs/tags/2.2.0.tar.gz -->

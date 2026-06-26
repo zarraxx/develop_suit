@@ -1,0 +1,11 @@
+--- orig/pg_stat_monitor.c
++++ new/pg_stat_monitor.c
+@@ -1293,7 +1293,7 @@
+ {
+ 
+ #if PG_VERSION_NUM >= 170000
+-	return pgstat_get_beentry_by_proc_number(MyProcPid);
++	return pgstat_get_beentry_by_proc_number(MyProcNumber);
+ #elif PG_VERSION_NUM >= 160000
+ 	return &(pgstat_get_local_beentry_by_backend_id(MyBackendId)->backendStatus);
+ #else
