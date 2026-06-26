@@ -390,6 +390,10 @@ echo "-- output: ${OUT_DIR}"
 
 make_host_writable "$OUT_DIR"
 normalize_package_permissions "$OUT_DIR"
+if [[ "${TARGET_KIND}" == "mingw" ]]; then
+  materialize_symlinks "$OUT_DIR"
+  normalize_package_permissions "$OUT_DIR"
+fi
 
 rm -f "$ARCHIVE_PATH"
 tar -C "$OUT_BASE" -cJf "$ARCHIVE_PATH" "$PACKAGE_NAME"

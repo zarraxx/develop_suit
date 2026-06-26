@@ -148,6 +148,28 @@ normalize_package_permissions() {
   fi
 }
 
+materialize_symlinks() {
+  local root="$1"
+  local link_path=""
+  local target_path=""
+  local tmp_path=""
+
+  [[ -d "$root" ]] || return 0
+  require_command readlink
+
+  while IFS= read -r link_path; do
+    [[ -L "$link_path" ]] || continue
+    target_path="$(readlink -f "$link_path" 2>/dev/null || true)"
+    [[ -n "$target_path" && -e "$target_path" ]] || die "broken symlink in package tree: ${link_path}"
+
+    tmp_path="${link_path}.materialize.$$"
+    rm -rf "$tmp_path"
+    cp -a "$target_path" "$tmp_path"
+    rm -f "$link_path"
+    mv "$tmp_path" "$link_path"
+  done < <(find "$root" -type l -print | LC_ALL=C sort)
+}
+
 write_noop_ldconfig_wrapper() {
   local tools_dir="$1"
   local wrapper_path="${tools_dir}/ldconfig"
