@@ -164,6 +164,19 @@ install_v8_libraries() {
   done
 }
 
+install_v8_tools() {
+  local d8_name="d8"
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    d8_name="d8.exe"
+  fi
+
+  log "Installing V8 d8 shell"
+  mkdir -p "${SDK_PREFIX}/bin"
+  [[ -f "${V8_BUILD_DIR}/${d8_name}" ]] || die "missing V8 shell binary: ${d8_name}"
+  cp -f "${V8_BUILD_DIR}/${d8_name}" "${SDK_PREFIX}/bin/"
+}
+
 install_v8_metadata() {
   local system_libs="-ldl -pthread"
   local libs=""
@@ -192,6 +205,11 @@ validate_v8() {
   [[ -f "${SDK_PREFIX}/lib/libv8_snapshot.a" ]] || die "missing V8 snapshot library"
   [[ -f "${SDK_PREFIX}/lib/pkgconfig/v8.pc" ]] || die "missing V8 pkg-config file"
   [[ -f "${SDK_PREFIX}/lib/cmake/V8/V8Config.cmake" ]] || die "missing V8 CMake config"
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    [[ -f "${SDK_PREFIX}/bin/d8.exe" ]] || die "missing V8 d8 shell"
+  else
+    [[ -f "${SDK_PREFIX}/bin/d8" ]] || die "missing V8 d8 shell"
+  fi
 }
 
 ARCH="${ARCH:-}"
@@ -345,6 +363,7 @@ fi
 
 install_v8_headers
 install_v8_libraries
+install_v8_tools
 install_v8_metadata
 validate_v8
 

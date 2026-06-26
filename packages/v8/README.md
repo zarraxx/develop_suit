@@ -6,8 +6,9 @@ intended for PostgreSQL PL/V8 builds.
 
 ## Responsibility Boundary
 
-This package owns the V8 JavaScript engine headers, static V8 libraries, and
-basic discovery metadata. It does not build PL/V8 or PostgreSQL.
+This package owns the V8 JavaScript engine headers, static V8 libraries, the
+`d8` shell binary, and basic discovery metadata. It does not build PL/V8 or
+PostgreSQL.
 
 The current implementation supports Linux x86_64, Linux aarch64, Linux riscv64,
 Linux loongarch64, and x86_64 MinGW targets. For aarch64, riscv64, loongarch64,
@@ -104,23 +105,27 @@ manually:
 
 - Copies `v8/include/*` to `include/`.
 - Copies v8-cmake static libraries to `lib/`.
+- Copies `d8`/`d8.exe` to `bin/`.
 - Writes `lib/pkgconfig/v8.pc`.
 - Writes `lib/cmake/V8/V8Config.cmake`.
-- Runs `d8 -e "if (6 * 7 !== 42) throw new Error('bad arithmetic')"` for the
-  x86_64 package.
-- Validates public headers, static libraries, pkg-config metadata, and CMake
-  metadata.
+- Validates public headers, static libraries, `d8`, pkg-config metadata, and
+  CMake metadata.
 
 The package intentionally keeps the V8 static libraries. This differs from the
 repository's normal preference for dynamic distributable libraries, but
 v8-cmake produces split static V8 libraries and PL/V8 can consume static V8
-inputs.
+inputs. The package does not ship V8 shared libraries (`.so`/`.dll`) because
+the current v8-cmake flow in this repository produces and packages static V8
+archives. The added `d8` binary is included for smoke testing and embedding
+validation, not as proof of a dynamic V8 SDK.
 
 ## Output Layout
 
 ```text
 v8-<version>-<triple>/
   README.v8
+  bin/
+    d8 | d8.exe
   include/
   lib/
     libv8_*.a
