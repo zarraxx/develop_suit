@@ -9,6 +9,20 @@ log() {
   echo "==> $*" >&2
 }
 
+v8_package_libraries() {
+  cat <<'EOF'
+libv8_base_without_compiler.a
+libv8_compiler.a
+libv8_initializers.a
+libv8_inspector.a
+libv8_libbase.a
+libv8_libplatform.a
+libv8_libsampler.a
+libv8_snapshot.a
+libv8_torque_generated.a
+EOF
+}
+
 download_archive() {
   local url="$1"
   local archive_name="$2"
@@ -166,19 +180,10 @@ install_v8_libraries() {
 
   log "Installing V8 static libraries"
   mkdir -p "${SDK_PREFIX}/lib"
-  for library in \
-      libv8_base_without_compiler.a \
-      libv8_compiler.a \
-      libv8_initializers.a \
-      libv8_inspector.a \
-      libv8_libbase.a \
-      libv8_libplatform.a \
-      libv8_libsampler.a \
-      libv8_snapshot.a \
-      libv8_torque_generated.a; do
+  while IFS= read -r library; do
     [[ -f "${V8_BUILD_DIR}/${library}" ]] || die "missing V8 library: ${library}"
     cp -f "${V8_BUILD_DIR}/${library}" "${SDK_PREFIX}/lib/"
-  done
+  done < <(v8_package_libraries)
 }
 
 install_v8_tools() {
@@ -377,8 +382,14 @@ cmake -S "$V8_SOURCE_DIR" -B "$V8_BUILD_DIR" -G Ninja \
   "-DPYTHON_EXECUTABLE=$(command -v python3)"
 
 log "Building V8 libraries and d8 smoke binary"
-cmake --build "$V8_BUILD_DIR" --target v8_snapshot --parallel "$JOBS"
-cmake --build "$V8_BUILD_DIR" --target d8 --parallel "$JOBS"
+mapfile -t v8_archive_targets < <(v8_package_libraries)
+for i in "${!v8_archive_targets[@]}"; do
+  v8_archive_targets[$i]="${v8_archive_targets[$i]#lib}"
+  v8_archive_targets[$i]="${v8_archive_targets[$i]%.a}"
+done
+cmake --build "$V8_BUILD_DIR" \
+  --target "${v8_archive_targets[@]}" d8 \
+  --parallel "$JOBS"
 if [[ "$TARGET_KIND" == "linux" && "$ARCH" == "x86_64" ]]; then
   "${V8_BUILD_DIR}/d8" -e "if (6 * 7 !== 42) throw new Error('bad arithmetic')"
 else
