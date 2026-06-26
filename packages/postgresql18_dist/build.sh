@@ -104,6 +104,9 @@ extract_prefix_archive() {
       | head -n 1
   )"
   [[ -n "$extracted_dir" && -d "$extracted_dir" ]] || die "could not find prefix directory in archive: ${archive_path}"
+  if [[ "${TARGET_KIND:-linux}" == "mingw" ]]; then
+    materialize_symlinks "$extracted_dir"
+  fi
   cp -a "${extracted_dir}/." "$output_dir/"
   rm -rf "$tmp_extract"
 }
