@@ -56,6 +56,13 @@ case "${TARGET}" in
     ;;
 esac
 
+case "${TARGET}" in
+  x86_64|x86_64-unknown-linux-gnu) TARGET_TRIPLE="x86_64-unknown-linux-gnu" ;;
+  aarch64|aarch64-unknown-linux-gnu|arm64) TARGET_TRIPLE="aarch64-unknown-linux-gnu" ;;
+  riscv64|riscv64-unknown-linux-gnu) TARGET_TRIPLE="riscv64-unknown-linux-gnu" ;;
+  loongarch64|loongarch64-unknown-linux-gnu) TARGET_TRIPLE="loongarch64-unknown-linux-gnu" ;;
+esac
+
 if [[ -n "${PACKAGE_DIR}" && -n "${ARCHIVE}" ]]; then
   echo "--package-dir and --archive are mutually exclusive" >&2
   exit 1
@@ -73,18 +80,15 @@ fi
 PACKAGE_DIR="$(cd "${PACKAGE_DIR}" && pwd)"
 
 [[ -f "${PACKAGE_DIR}/include/v8.h" ]] || { echo "missing header: ${PACKAGE_DIR}/include/v8.h" >&2; exit 1; }
-[[ -f "${PACKAGE_DIR}/lib/libv8_snapshot.a" ]] || { echo "missing static library: ${PACKAGE_DIR}/lib/libv8_snapshot.a" >&2; exit 1; }
+if ! find "${PACKAGE_DIR}/lib" -maxdepth 1 \( -name 'libv8*.so' -o -name 'libv8*.so.*' \) | grep -q .; then
+  echo "missing V8 shared libraries" >&2
+  exit 1
+fi
 [[ -f "${PACKAGE_DIR}/lib/pkgconfig/v8.pc" ]] || { echo "missing pkg-config metadata" >&2; exit 1; }
 [[ -x "${PACKAGE_DIR}/bin/d8" ]] || { echo "missing d8 shell binary" >&2; exit 1; }
 
-if find "${PACKAGE_DIR}/lib" -maxdepth 1 \( -name 'libv8*.so' -o -name 'libv8*.so.*' -o -name 'libv8*.dll' \) | grep -q .; then
-  echo "unexpected shared V8 libraries found in package" >&2
-  find "${PACKAGE_DIR}/lib" -maxdepth 1 \( -name 'libv8*.so' -o -name 'libv8*.so.*' -o -name 'libv8*.dll' \) >&2
-  exit 1
-fi
-
 export PATH="${PACKAGE_DIR}/bin:${PATH}"
-export LD_LIBRARY_PATH="${PACKAGE_DIR}/lib:/opt/llvm-18.1.8/lib:/opt/llvm-18.1.8/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+export LD_LIBRARY_PATH="${PACKAGE_DIR}/lib:/opt/llvm-18.1.8/lib/${TARGET_TRIPLE}:/opt/llvm-18.1.8/lib/clang/18/lib/${TARGET_TRIPLE}:/opt/llvm-18.1.8/lib:/opt/llvm-18.1.8/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
 if command -v file >/dev/null 2>&1; then
   file "${PACKAGE_DIR}/bin/d8"

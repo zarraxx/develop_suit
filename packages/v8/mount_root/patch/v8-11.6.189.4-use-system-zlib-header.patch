@@ -1,0 +1,16 @@
+diff --git a/src/snapshot/snapshot-utils.cc b/src/snapshot/snapshot-utils.cc
+index 6235062..5780b0f 100644
+--- a/src/snapshot/snapshot-utils.cc
++++ b/src/snapshot/snapshot-utils.cc
+@@ -7,7 +7,11 @@
+ #include "src/base/sanitizer/msan.h"
+ 
+ #ifdef V8_USE_ZLIB
++#ifdef USE_SYSTEM_ZLIB
++#include <zlib.h>
++#else
+ #include "third_party/zlib/zlib.h"
++#endif
+ #endif
+ 
+ namespace v8 {

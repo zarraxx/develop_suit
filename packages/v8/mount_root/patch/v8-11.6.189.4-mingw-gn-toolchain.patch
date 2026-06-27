@@ -1,0 +1,345 @@
+diff --git a/build/config/BUILD.gn b/build/config/BUILD.gn
+index 53511ac..2a54dcf 100644
+--- a/build/config/BUILD.gn
++++ b/build/config/BUILD.gn
+@@ -258,7 +258,7 @@ group("common_deps") {
+     }
+   }
+ 
+-  if (is_win) {
++  if (is_msvc) {
+     # The CRT runtime is dynamically linked in component builds and needs to
+     # be present on bots that run exes or load DLLs. This also includes
+     # debugging DLLs in all builds.
+@@ -376,7 +376,7 @@ config("shared_library_config") {
+ # Recommend precompiled headers for targets with more than 50 .cc files.
+ config("precompiled_headers") {
+   if (enable_precompiled_headers) {
+-    if (is_win) {
++    if (is_msvc) {
+       # This is a string rather than a file GN knows about. It has to match
+       # exactly what's in the /FI flag below, and what might appear in the
+       # source code in quotes for an #include directive.
+diff --git a/build/config/BUILDCONFIG.gn b/build/config/BUILDCONFIG.gn
+index 6ee83a4..2302ff4 100644
+--- a/build/config/BUILDCONFIG.gn
++++ b/build/config/BUILDCONFIG.gn
+@@ -146,6 +146,9 @@ declare_args() {
+   # argument, and set as the default toolchain.
+   custom_toolchain = ""
+ 
++  # develop-suit: build Windows targets with a GNU/MinGW clang toolchain.
++  develop_suit_mingw = false
++
+   # This should not normally be set as a build argument.  It's here so that
+   # every toolchain can pass through the "global" value via toolchain_args().
+   host_toolchain = ""
+@@ -253,7 +256,9 @@ if (target_os == "android") {
+ } else if (target_os == "win") {
+   # On Windows, we use the same toolchain for host and target by default.
+   # Beware, win cross builds have some caveats, see docs/win_cross.md
+-  if (is_clang) {
++  if (develop_suit_mingw) {
++    _default_toolchain = "//build/toolchain/win:mingw_$target_cpu"
++  } else if (is_clang) {
+     _default_toolchain = "//build/toolchain/win:win_clang_$target_cpu"
+   } else {
+     _default_toolchain = "//build/toolchain/win:$target_cpu"
+@@ -306,9 +311,11 @@ is_linux = current_os == "linux"
+ is_mac = current_os == "mac"
+ is_nacl = current_os == "nacl"
+ is_win = current_os == "win" || current_os == "winuwp"
++is_mingw = is_win && develop_suit_mingw
++is_msvc = is_win && !is_mingw
+ 
+ is_apple = is_ios || is_mac
+ is_posix = !is_win && !is_fuchsia
+ 
+ # =============================================================================
+ # TARGET DEFAULTS
+@@ -408,7 +415,7 @@ set_defaults("rust_library") {
+ 
+ # Compute the set of configs common to all linked targets (shared libraries,
+ # loadable modules, executables) to avoid duplication below.
+-if (is_win) {
++if (is_msvc) {
+   # Many targets remove these configs, so they are not contained within
+   # //build/config:executable_config for easy removal.
+   _linker_configs = [
+@@ -430,7 +437,7 @@ default_executable_configs = default_compiler_configs + [
+                                "//build/config:executable_config",
+                              ] + _linker_configs
+ 
+-if (is_win) {
++if (is_msvc) {
+   # Turn on linker CFI for executables, and position it so it can be removed
+   # if needed.
+   default_executable_configs += [ "//build/config/win:cfi_linker" ]
+@@ -454,7 +461,7 @@ default_shared_library_configs = default_compiler_configs + [
+                                    "//build/config:default_libs",
+                                    "//build/config:shared_library_config",
+                                  ] + _linker_configs
+-if (is_win) {
++if (is_msvc) {
+   # Turn on linker CFI for DLLs, and position it so it can be removed if needed.
+   default_shared_library_configs += [ "//build/config/win:cfi_linker" ]
+ }
+diff --git a/build/config/win/BUILD.gn b/build/config/win/BUILD.gn
+index 83be929..99ec3f5 100644
+--- a/build/config/win/BUILD.gn
++++ b/build/config/win/BUILD.gn
+@@ -9,7 +9,9 @@ import("//build/config/compiler/compiler.gni")
+ import("//build/config/rust.gni")
+ import("//build/config/sanitizers/sanitizers.gni")
+ import("//build/config/win/control_flow_guard.gni")
+-import("//build/config/win/visual_studio_version.gni")
++if (!is_mingw) {
++  import("//build/config/win/visual_studio_version.gni")
++}
+ import("//build/timestamp.gni")
+ import("//build/toolchain/goma.gni")
+ import("//build/toolchain/rbe.gni")
+@@ -60,14 +60,22 @@ config("compiler") {
+     ]
+   }
+ 
+-  cflags = [
+-    "/Gy",  # Enable function-level linking.
+-    "/FS",  # Preserve previous PDB behavior.
+-    "/bigobj",  # Some of our files are bigger than the regular limits.
+-    "/utf-8",  # Assume UTF-8 by default to avoid code page dependencies.
+-  ]
++  if (is_mingw) {
++    cflags = [
++      "-Wa,-mbig-obj",
++      "-Wno-attributes",
++      "-Wno-unknown-pragmas",
++    ]
++  } else {
++    cflags = [
++      "/Gy",  # Enable function-level linking.
++      "/FS",  # Preserve previous PDB behavior.
++      "/bigobj",  # Some of our files are bigger than the regular limits.
++      "/utf-8",  # Assume UTF-8 by default to avoid code page dependencies.
++    ]
++  }
+ 
+-  if (is_clang) {
++  if (is_msvc && is_clang) {
+     cflags += [
+       "/Zc:twoPhase",
+ 
+@@ -207,13 +215,15 @@ config("compiler") {
+   # set for executable and shared library targets so arflags must be set
+   # elsewhere. Since this is relatively contained, we just apply them in this
+   # more general config and they will only have an effect on static libraries.
+-  arflags = [
+-    # "No public symbols found; archive member will be inaccessible." This
+-    # means that one or more object files in the library can never be
+-    # pulled in to targets that link to this library. It's just a warning that
+-    # the source file is a no-op.
+-    "/ignore:4221",
+-  ]
++  if (is_msvc) {
++    arflags = [
++      # "No public symbols found; archive member will be inaccessible." This
++      # means that one or more object files in the library can never be
++      # pulled in to targets that link to this library. It's just a warning that
++      # the source file is a no-op.
++      "/ignore:4221",
++    ]
++  }
+ }
+ 
+ # This is included by reference in the //build/config/compiler:runtime_library
+@@ -314,13 +324,20 @@ config("sdk_link") {
+ # targets who want different library configurations can remove this and specify
+ # their own.
+ config("common_linker_setup") {
+-  ldflags = [
+-    "/FIXED:NO",
+-    "/ignore:4199",
+-    "/ignore:4221",
+-    "/NXCOMPAT",
+-    "/DYNAMICBASE",
+-  ]
++  if (is_mingw) {
++    ldflags = [
++      "-Wl,-dynamicbase",
++      "-Wl,-nxcompat",
++    ]
++  } else {
++    ldflags = [
++      "/FIXED:NO",
++      "/ignore:4199",
++      "/ignore:4221",
++      "/NXCOMPAT",
++      "/DYNAMICBASE",
++    ]
++  }
+ 
+   if (win_linker_timing) {
+     ldflags += [
+@@ -335,7 +352,7 @@ config("default_cfg_compiler") {
+   # This is needed to allow functions to be called by code that is built
+   # with CFG enabled, such as system libraries.
+   # The CFG guards are only emitted if |win_enable_cfg_guards| is enabled.
+-  if (win_enable_cfg_guards) {
++  if (is_msvc && win_enable_cfg_guards) {
+     if (is_clang) {
+       cflags = [ "/guard:cf" ]
+     }
+diff --git a/build/toolchain/toolchain.gni b/build/toolchain/toolchain.gni
+index 8534c82..1412dc5 100644
+--- a/build/toolchain/toolchain.gni
++++ b/build/toolchain/toolchain.gni
+@@ -69,7 +69,7 @@ if (host_os == "mac") {
+ }
+ 
+ # Prefix for shared library files.
+-if (is_posix || is_fuchsia) {
++if (is_posix || is_fuchsia || is_mingw) {
+   shlib_prefix = "lib"
+ } else {
+   shlib_prefix = ""
+diff --git a/build/toolchain/win/BUILD.gn b/build/toolchain/win/BUILD.gn
+index fe09790..28fc6df 100644
+--- a/build/toolchain/win/BUILD.gn
++++ b/build/toolchain/win/BUILD.gn
+@@ -2,7 +2,11 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
+-import("//build/config/win/visual_studio_version.gni")
++if (is_mingw) {
++  import("//build/toolchain/gcc_toolchain.gni")
++} else {
++  import("//build/config/win/visual_studio_version.gni")
++}
+ import("//build/toolchain/win/toolchain.gni")
+ 
+ assert(is_win, "Should only be running on Windows")
+@@ -15,7 +19,7 @@ assert(is_win, "Should only be running on Windows")
+ 
+ # Copy the VS runtime DLL for the default toolchain to the root build directory
+ # so things will run.
+-if (current_toolchain == default_toolchain) {
++if (is_msvc && current_toolchain == default_toolchain) {
+   if (is_debug) {
+     configuration_name = "Debug"
+   } else {
+@@ -30,16 +34,23 @@ if (current_toolchain == default_toolchain) {
+               ])
+ }
+ 
+-if (target_cpu == "x86" || target_cpu == "x64") {
++if (is_mingw) {
++  if (target_cpu == "x86" || target_cpu == "x64") {
++    mingw_toolchain("x86") {
++      toolchain_arch = "x86"
++    }
++    mingw_toolchain("x64") {
++      toolchain_arch = "x64"
++    }
++  }
++} else if (target_cpu == "x86" || target_cpu == "x64") {
+   win_toolchains("x86") {
+     toolchain_arch = "x86"
+   }
+   win_toolchains("x64") {
+     toolchain_arch = "x64"
+   }
+-}
+-
+-if (target_cpu == "arm64") {
++} else if (target_cpu == "arm64") {
+   win_toolchains("arm64") {
+     toolchain_arch = "arm64"
+   }
+@@ -53,16 +64,18 @@ if (target_cpu == "arm64") {
+ # The only reason it's a separate toolchain is so that it can force
+ # is_component_build to false in the toolchain_args() block, because
+ # building nacl64.exe in component style does not work.
+-win_toolchains("nacl_win64") {
+-  toolchain_arch = "x64"
+-  toolchain_args = {
+-    is_component_build = false
++if (!is_mingw) {
++  win_toolchains("nacl_win64") {
++    toolchain_arch = "x64"
++    toolchain_args = {
++      is_component_build = false
++    }
+   }
+ }
+ 
+ # WinUWP toolchains. Only define these when targeting them.
+ 
+-if (target_os == "winuwp") {
++if (!is_mingw && target_os == "winuwp") {
+   assert(target_cpu == "x64" || target_cpu == "x86" || target_cpu == "arm" ||
+          target_cpu == "arm64")
+ 
+diff --git a/build/toolchain/win/toolchain.gni b/build/toolchain/win/toolchain.gni
+index a2a7108..fecde67 100644
+--- a/build/toolchain/win/toolchain.gni
++++ b/build/toolchain/win/toolchain.gni
+@@ -6,12 +6,18 @@ import("//build/config/clang/clang.gni")
+ import("//build/config/compiler/compiler.gni")
+ import("//build/config/rust.gni")
+ import("//build/config/sanitizers/sanitizers.gni")
+-import("//build/config/win/visual_studio_version.gni")
++if (!is_mingw) {
++  import("//build/config/win/visual_studio_version.gni")
++}
+ import("//build/toolchain/cc_wrapper.gni")
+ import("//build/toolchain/goma.gni")
+ import("//build/toolchain/rbe.gni")
+ import("//build/toolchain/toolchain.gni")
+-import("//build/toolchain/win/win_toolchain_data.gni")
++if (is_mingw) {
++  import("//build/toolchain/gcc_toolchain.gni")
++} else {
++  import("//build/toolchain/win/win_toolchain_data.gni")
++}
+ 
+ assert(is_win, "Should only be running on Windows")
+ 
+@@ -729,3 +735,37 @@ template("win_toolchains") {
+     }
+   }
+ }
++
++
++template("mingw_toolchain") {
++  gcc_toolchain("mingw_" + target_name) {
++    forward_variables_from(invoker, "*")
++    if (toolchain_arch == "x64") {
++      mingw_triple = "x86_64-w64-windows-gnu"
++    } else if (toolchain_arch == "x86") {
++      mingw_triple = "i686-w64-windows-gnu"
++    } else {
++      assert(false, "unsupported MinGW toolchain arch: $toolchain_arch")
++    }
++
++    cc = "$clang_base_path/bin/${mingw_triple}-clang-gcc"
++    cxx = "$clang_base_path/bin/${mingw_triple}-clang-g++"
++    ld = cxx
++    ar = "$clang_base_path/bin/llvm-ar"
++    nm = "$clang_base_path/bin/llvm-nm"
++    readelf = "$clang_base_path/bin/llvm-readobj"
++    strip = "$clang_base_path/bin/llvm-strip"
++    executable_extension = ".exe"
++    shlib_extension = ".dll"
++    enable_linker_map = false
++    extra_cflags = "-DWIN32 -D_WINDOWS"
++    extra_ldflags = "-Wl,--out-implib={{output_dir}}/{{target_output_name}}.dll.a"
++
++    toolchain_args = {
++      current_os = "win"
++      current_cpu = toolchain_arch
++      is_clang = true
++      develop_suit_mingw = true
++    }
++  }
++}

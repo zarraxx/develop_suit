@@ -1,13 +1,14 @@
 # V8 package
 
 - Target: @TARGET_TRIPLE@
-- v8-cmake/V8 version: @V8_VERSION@
+- V8 version: @V8_VERSION@
 - LLVM toolchain: @LLVM_VERSION@
-- Upstream archive: https://github.com/bnoordhuis/v8-cmake/archive/refs/tags/@V8_VERSION@.tar.gz
+- Upstream checkout: https://chromium.googlesource.com/v8/v8
 
-This package contains V8 public headers and the static libraries produced by
-v8-cmake. It is intended as an input for PostgreSQL PL/V8 builds.
+This package contains V8 public headers, shared V8 component libraries, the
+`d8` shell, pkg-config metadata, and CMake discovery metadata. It is intended
+as an input for PostgreSQL PL/V8 builds.
 
-The current package is x86_64 Linux only. Other targets need a separate
-host-tool build for torque and mksnapshot before target V8 libraries can be
-cross-compiled reliably.
+The package is built through the official `depot_tools`/`fetch v8`/GN/Ninja
+flow with `is_component_build=true`, `v8_enable_i18n_support=false`, and
+`v8_use_external_startup_data=false`.

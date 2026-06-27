@@ -1,0 +1,52 @@
+diff --git a/third_party/zlib/BUILD.gn b/third_party/zlib/BUILD.gn
+index e76a3d5..74d8aca 100644
+--- a/third_party/zlib/BUILD.gn
++++ b/third_party/zlib/BUILD.gn
+@@ -8,6 +8,11 @@ declare_args() {
+   # Expose zlib's symbols, used by Node.js to provide zlib APIs for its native
+   # modules.
+   zlib_symbols_visible = false
++
++  # develop-suit: link V8 against a prebuilt target zlib while keeping the
++  # Chromium helper sources under third_party/zlib/google.
++  develop_suit_use_external_zlib = false
++  develop_suit_external_zlib_prefix = ""
+ }
+ 
+ if (build_with_chromium) {
+@@ -285,7 +290,26 @@ config("zlib_warnings") {
+   }
+ }
+ 
+-component("zlib") {
++if (develop_suit_use_external_zlib) {
++  assert(develop_suit_external_zlib_prefix != "",
++         "develop_suit_external_zlib_prefix is required")
++
++  config("develop_suit_external_zlib_config") {
++    defines = [ "USE_SYSTEM_ZLIB=1" ]
++    if (current_toolchain == default_toolchain) {
++      include_dirs = [ develop_suit_external_zlib_prefix + "/include" ]
++    }
++  }
++
++  source_set("zlib") {
++    if (current_toolchain == default_toolchain) {
++      lib_dirs = [ develop_suit_external_zlib_prefix + "/lib" ]
++    }
++    libs = [ "z" ]
++    public_configs = [ ":develop_suit_external_zlib_config" ]
++  }
++} else {
++component("zlib") {
+   if (!is_win) {
+     # Don't stomp on "libzlib" on other platforms.
+     output_name = "chrome_zlib"
+@@ -381,6 +405,7 @@ component("zlib") {
+ 
+   allow_circular_includes_from = deps
+ }
++}
+ 
+ config("minizip_warnings") {
+   visibility = [ ":*" ]

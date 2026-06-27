@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       v8_version:
-        description: "v8-cmake tag/V8 version to build and publish"
+        description: "Official V8 git tag/version to build and publish"
         required: false
         type: string
         default: "11.6.189.4"
@@ -99,7 +99,11 @@ jobs:
             ${{ runner.os }}-package-llvm-dependencies-cache-
             ${{ runner.os }}-package-llvmsdk-cache-
 
-      - name: Build V8 package
+      - name: Install Docker emulation prerequisites
+        if: ${{ matrix.target.target == 'aarch64' || matrix.target.target == 'riscv64' || matrix.target.target == 'loongarch64' }}
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build V8 depot/GN dynamic package
         run: |
           set -euo pipefail
 
@@ -204,6 +208,7 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
+
           archive_path="artifacts/v8-${{ env.V8_PACKAGE_VERSION }}-${{ matrix.triple }}.tar.xz"
           [[ -f "${archive_path}" ]] || {
             echo "missing package artifact: ${archive_path}" >&2

@@ -1,0 +1,29 @@
+diff --git a/build/toolchain/gcc_solink_wrapper.py b/build/toolchain/gcc_solink_wrapper.py
+index 03ef042..c3580f3 100755
+--- a/build/toolchain/gcc_solink_wrapper.py
++++ b/build/toolchain/gcc_solink_wrapper.py
+@@ -171,6 +171,8 @@ def main():
+   if result != 0:
+     return result
+ 
++  is_pe_dll = args.sofile.lower().endswith('.dll')
++
+   # If dwp is set, then package debug info for this SO.
+   dwp_proc = None
+   if args.dwp:
+@@ -184,9 +186,12 @@ def main():
+ 
+   if not partitioned_library:
+     # Next, generate the contents of the TOC file.
+-    result, toc = CollectTOC(args)
+-    if result != 0:
+-      return result
++    if is_pe_dll:
++      toc = ''
++    else:
++      result, toc = CollectTOC(args)
++      if result != 0:
++        return result
+ 
+     # If there is an existing TOC file with identical contents, leave it alone.
+     # Otherwise, write out the TOC file.

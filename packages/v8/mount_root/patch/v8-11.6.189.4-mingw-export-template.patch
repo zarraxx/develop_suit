@@ -1,0 +1,15 @@
+diff --git a/src/base/export-template.h b/src/base/export-template.h
+index 861cfe4..79df5f4 100644
+--- a/src/base/export-template.h
++++ b/src/base/export-template.h
+@@ -153,8 +153,10 @@
+ 
+ EXPORT_TEMPLATE_TEST(DEFAULT, );
+ EXPORT_TEMPLATE_TEST(DEFAULT, __attribute__((visibility("default"))));
++#if !defined(__MINGW32__)
+ EXPORT_TEMPLATE_TEST(MSVC_HACK, __declspec(dllexport));
+ EXPORT_TEMPLATE_TEST(DEFAULT, __declspec(dllimport));
++#endif
+ 
+ #undef EXPORT_TEMPLATE_TEST
+ #undef EXPORT_TEMPLATE_TEST_DEFAULT_DEFAULT

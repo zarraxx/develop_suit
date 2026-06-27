@@ -3,7 +3,7 @@ includedir=${prefix}/include
 libdir=${prefix}/lib
 
 Name: v8
-Description: V8 JavaScript engine built from v8-cmake
+Description: V8 JavaScript engine built with official depot_tools/GN
 Version: @V8_VERSION@
 Cflags: -I${includedir}
 Libs: -L${libdir} @V8_LIBS@
