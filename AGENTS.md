@@ -49,6 +49,7 @@ Each stage should move the environment forward in a predictable way, from a mini
 - Avoid fake native shortcuts that diverge from the target runtime model.
 - Prefer deterministic, repeatable builds over convenience hacks.
 - Any modification to upstream package source must be applied through an explicit patch file and the `patch` command. Do not modify extracted upstream source with `sed`, `perl -pi`, inline shell rewrites, or other ad-hoc text editing commands.
+- When creating or updating patch files, generate them from real file diffs: copy the original upstream files to a temporary baseline, edit a separate copy, then use `diff` or `git diff --no-index` to produce the patch. Do not hand-write patch files from scratch.
 - Prefer dynamic libraries in distributable package outputs. Disable static libraries when upstream supports it; otherwise delete ordinary `.a` and `.la` files after install. Preserve MinGW `*.dll.a` import libraries because they are required for DLL linking. Keep unavoidable static artifacts only when they are intrinsic to the toolchain/runtime being shipped, such as compiler-rt or LLVM component archives.
 
 ## Structure Expectations
