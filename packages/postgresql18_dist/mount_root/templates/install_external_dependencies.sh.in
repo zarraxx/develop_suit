@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+package_root="$script_dir"
+target_triple="@TARGET_TRIPLE@"
+install_prefix="${POSTGRESQL18_VENDOR_PREFIX:-${package_root}/vendor}"
+service_name="postgresql18"
+oracle_basic_archive=""
+db2_cli_archive=""
+db2_cli_dir=""
+update_service_env=1
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<EOF
+Usage: $0 [options]
+
+Install vendor-owned runtime dependencies for oracle_fdw and db2_fdw.
+
+Options:
+  --oracle-basic-archive=<zip>     Oracle Instant Client Basic archive
+  --db2-cli-archive=<archive>      IBM DB2 CLI/ODBC archive
+  --db2-cli-dir=<dir>              Existing IBM DB2 clidriver directory
+  --prefix=<dir>                   Install prefix, default: ./vendor
+  --service-name=<name>            systemd service env file to update, default: postgresql18
+  --no-service-env                 Do not update /etc/default/<service-name>
+  -h, --help                       Show this help
+
+Expected package targets:
+  x86_64 Linux: Oracle + DB2
+  aarch64 Linux: Oracle
+  MinGW64: use install_external_dependencies.cmd for Oracle + DB2
+EOF
+}
+
+quote_systemd_value() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+abs_path() {
+  local path="$1"
+  case "$path" in
+    /*) printf '%s\n' "$path" ;;
+    *) printf '%s\n' "$(pwd)/$path" ;;
+  esac
+}
+
+extract_archive() {
+  local archive="$1"
+  local output_dir="$2"
+
+  rm -rf "$output_dir"
+  mkdir -p "$output_dir"
+  case "$archive" in
+    *.zip)
+      require_command unzip
+      unzip -oq "$archive" -d "$output_dir"
+      ;;
+    *.tar|*.tar.gz|*.tgz|*.tar.xz|*.txz)
+      tar -xf "$archive" -C "$output_dir"
+      ;;
+    *)
+      die "unsupported archive type: $archive"
+      ;;
+  esac
+}
+
+install_oracle_basic() {
+  local extract_dir="${install_prefix}/.extract-oracle"
+  local source_dir=""
+  local dest_dir="${install_prefix}/oracle/instantclient"
+
+  [[ -n "$oracle_basic_archive" ]] || return 0
+  oracle_basic_archive="$(abs_path "$oracle_basic_archive")"
+  [[ -f "$oracle_basic_archive" ]] || die "missing Oracle archive: $oracle_basic_archive"
+
+  extract_archive "$oracle_basic_archive" "$extract_dir"
+  source_dir="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -name 'instantclient*' | sort | head -n 1)"
+  [[ -n "$source_dir" ]] || die "could not find instantclient directory in $oracle_basic_archive"
+
+  rm -rf "$dest_dir"
+  mkdir -p "$(dirname "$dest_dir")"
+  cp -a "${source_dir}/." "$dest_dir/"
+  rm -rf "$extract_dir"
+  echo "Installed Oracle Instant Client: $dest_dir"
+}
+
+install_db2_cli() {
+  local extract_dir="${install_prefix}/.extract-db2"
+  local source_dir=""
+  local dest_dir="${install_prefix}/db2/clidriver"
+
+  if [[ -n "$db2_cli_archive" ]]; then
+    db2_cli_archive="$(abs_path "$db2_cli_archive")"
+    [[ -f "$db2_cli_archive" ]] || die "missing DB2 CLI archive: $db2_cli_archive"
+    extract_archive "$db2_cli_archive" "$extract_dir"
+    source_dir="$(find "$extract_dir" -type d -name clidriver | sort | head -n 1)"
+  elif [[ -n "$db2_cli_dir" ]]; then
+    db2_cli_dir="$(abs_path "$db2_cli_dir")"
+    source_dir="$db2_cli_dir"
+  else
+    return 0
+  fi
+
+  [[ -n "$source_dir" && -d "${source_dir}/include" ]] || die "invalid DB2 CLI directory"
+  [[ -d "${source_dir}/lib" || -d "${source_dir}/lib64" ]] || die "DB2 CLI directory missing lib or lib64"
+
+  rm -rf "$dest_dir"
+  mkdir -p "$(dirname "$dest_dir")"
+  cp -a "${source_dir}/." "$dest_dir/"
+  rm -rf "$extract_dir"
+  echo "Installed IBM DB2 CLI: $dest_dir"
+}
+
+update_linux_service_env() {
+  local env_file="/etc/default/${service_name}"
+  local marker_begin="# postgresql18_dist external dependencies begin"
+  local marker_end="# postgresql18_dist external dependencies end"
+  local oracle_home="${install_prefix}/oracle/instantclient"
+  local db2_home="${install_prefix}/db2/clidriver"
+  local runtime_path="${package_root}/lib:${package_root}/lib64"
+
+  [[ "$update_service_env" -eq 1 ]] || return 0
+  [[ -f "$env_file" ]] || {
+    echo "Skipped service env update: $env_file does not exist"
+    return 0
+  }
+
+  [[ "$(id -u)" -eq 0 ]] || die "root privileges are required to update $env_file; rerun with sudo or use --no-service-env"
+
+  if [[ -d "$oracle_home" ]]; then
+    runtime_path="${oracle_home}:${runtime_path}"
+  fi
+  if [[ -d "$db2_home" ]]; then
+    [[ -d "${db2_home}/lib" ]] && runtime_path="${db2_home}/lib:${runtime_path}"
+    [[ -d "${db2_home}/lib64" ]] && runtime_path="${db2_home}/lib64:${runtime_path}"
+  fi
+
+  sed -i "/^${marker_begin}$/,/^${marker_end}$/d" "$env_file"
+  cat >>"$env_file" <<EOF
+
+${marker_begin}
+ORACLE_HOME=$(quote_systemd_value "$oracle_home")
+TNS_ADMIN=$(quote_systemd_value "${oracle_home}/network/admin")
+DB2_HOME=$(quote_systemd_value "$db2_home")
+IBM_DB_HOME=$(quote_systemd_value "$db2_home")
+LD_LIBRARY_PATH=$(quote_systemd_value "$runtime_path")
+${marker_end}
+EOF
+  echo "Updated service environment: $env_file"
+  echo "Run: systemctl restart ${service_name}"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --oracle-basic-archive=*) oracle_basic_archive="${1#*=}" ;;
+    --oracle-basic-archive) shift; [[ $# -gt 0 ]] || die "--oracle-basic-archive requires a value"; oracle_basic_archive="$1" ;;
+    --db2-cli-archive=*) db2_cli_archive="${1#*=}" ;;
+    --db2-cli-archive) shift; [[ $# -gt 0 ]] || die "--db2-cli-archive requires a value"; db2_cli_archive="$1" ;;
+    --db2-cli-dir=*) db2_cli_dir="${1#*=}" ;;
+    --db2-cli-dir) shift; [[ $# -gt 0 ]] || die "--db2-cli-dir requires a value"; db2_cli_dir="$1" ;;
+    --prefix=*) install_prefix="${1#*=}" ;;
+    --prefix) shift; [[ $# -gt 0 ]] || die "--prefix requires a value"; install_prefix="$1" ;;
+    --service-name=*) service_name="${1#*=}" ;;
+    --service-name) shift; [[ $# -gt 0 ]] || die "--service-name requires a value"; service_name="$1" ;;
+    --no-service-env) update_service_env=0 ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+[[ "$target_triple" != x86_64-w64-windows-gnu ]] || die "use install_external_dependencies.cmd for MinGW64 packages"
+[[ "$service_name" =~ ^[A-Za-z0-9_.@-]+$ ]] || die "invalid service name: ${service_name}"
+
+install_prefix="$(abs_path "$install_prefix")"
+mkdir -p "$install_prefix"
+
+install_oracle_basic
+install_db2_cli
+update_linux_service_env
+
+echo "External dependency install prefix: $install_prefix"

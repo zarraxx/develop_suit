@@ -803,6 +803,15 @@ write_service_installers() {
   render_template "/work/mount_root/templates/install_service.cmd.in" \
     "${SDK_PREFIX}/install_service.cmd"
 
+  render_template "/work/mount_root/templates/install_external_dependencies.sh.in" \
+    "${SDK_PREFIX}/install_external_dependencies.sh" \
+    "TARGET_TRIPLE=${TARGET_TRIPLE}"
+  chmod +x "${SDK_PREFIX}/install_external_dependencies.sh"
+
+  render_template "/work/mount_root/templates/install_external_dependencies.cmd.in" \
+    "${SDK_PREFIX}/install_external_dependencies.cmd" \
+    "TARGET_TRIPLE=${TARGET_TRIPLE}"
+
   render_template "/work/mount_root/templates/uninstall_service.sh.in" \
     "${SDK_PREFIX}/uninstall_service.sh"
   chmod +x "${SDK_PREFIX}/uninstall_service.sh"

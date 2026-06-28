@@ -1,0 +1,174 @@
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+set "PACKAGE_ROOT=%~dp0"
+if "%PACKAGE_ROOT:~-1%"=="\" set "PACKAGE_ROOT=%PACKAGE_ROOT:~0,-1%"
+set "TARGET_TRIPLE=@TARGET_TRIPLE@"
+set "INSTALL_PREFIX=%PACKAGE_ROOT%\vendor"
+set "ORACLE_BASIC_ARCHIVE="
+set "DB2_CLI_ARCHIVE="
+set "DB2_CLI_DIR="
+
+:parse_args
+if "%~1"=="" goto after_args
+set "ARG=%~1"
+if /I "%ARG%"=="-h" goto usage
+if /I "%ARG%"=="--help" goto usage
+if /I "%ARG:~0,23%"=="--oracle-basic-archive=" (
+  set "ORACLE_BASIC_ARCHIVE=%ARG:~23%"
+  shift
+  goto parse_args
+)
+if /I "%ARG%"=="--oracle-basic-archive" (
+  shift
+  if "%~1"=="" goto missing_value
+  set "ORACLE_BASIC_ARCHIVE=%~1"
+  shift
+  goto parse_args
+)
+if /I "%ARG:~0,18%"=="--db2-cli-archive=" (
+  set "DB2_CLI_ARCHIVE=%ARG:~18%"
+  shift
+  goto parse_args
+)
+if /I "%ARG%"=="--db2-cli-archive" (
+  shift
+  if "%~1"=="" goto missing_value
+  set "DB2_CLI_ARCHIVE=%~1"
+  shift
+  goto parse_args
+)
+if /I "%ARG:~0,14%"=="--db2-cli-dir=" (
+  set "DB2_CLI_DIR=%ARG:~14%"
+  shift
+  goto parse_args
+)
+if /I "%ARG%"=="--db2-cli-dir" (
+  shift
+  if "%~1"=="" goto missing_value
+  set "DB2_CLI_DIR=%~1"
+  shift
+  goto parse_args
+)
+if /I "%ARG:~0,9%"=="--prefix=" (
+  set "INSTALL_PREFIX=%ARG:~9%"
+  shift
+  goto parse_args
+)
+if /I "%ARG%"=="--prefix" (
+  shift
+  if "%~1"=="" goto missing_value
+  set "INSTALL_PREFIX=%~1"
+  shift
+  goto parse_args
+)
+echo error: unknown argument: %~1
+exit /b 1
+
+:missing_value
+echo error: missing option value
+exit /b 1
+
+:usage
+echo Usage: %~nx0 [options]
+echo.
+echo Install vendor-owned runtime dependencies for oracle_fdw and db2_fdw.
+echo.
+echo Options:
+echo   --oracle-basic-archive ^<zip^>     Oracle Instant Client Basic archive
+echo   --db2-cli-archive ^<zip^>          IBM DB2 CLI/ODBC archive
+echo   --db2-cli-dir ^<dir^>              Existing IBM DB2 clidriver directory
+echo   --prefix ^<dir^>                   Install prefix, default: .\vendor
+exit /b 0
+
+:after_args
+if /I not "%TARGET_TRIPLE%"=="x86_64-w64-windows-gnu" (
+  echo error: use install_external_dependencies.sh for Linux packages
+  exit /b 1
+)
+
+for %%I in ("%INSTALL_PREFIX%") do set "INSTALL_PREFIX=%%~fI"
+if not exist "%INSTALL_PREFIX%" mkdir "%INSTALL_PREFIX%"
+if errorlevel 1 exit /b 1
+
+if not "%ORACLE_BASIC_ARCHIVE%"=="" call :install_oracle
+if errorlevel 1 exit /b 1
+
+if not "%DB2_CLI_ARCHIVE%"=="" call :install_db2_archive
+if errorlevel 1 exit /b 1
+
+if not "%DB2_CLI_DIR%"=="" call :install_db2_dir
+if errorlevel 1 exit /b 1
+
+echo External dependency install prefix: %INSTALL_PREFIX%
+echo Runtime DLLs were copied into: %PACKAGE_ROOT%\bin
+exit /b 0
+
+:install_oracle
+for %%I in ("%ORACLE_BASIC_ARCHIVE%") do set "ORACLE_BASIC_ARCHIVE=%%~fI"
+if not exist "%ORACLE_BASIC_ARCHIVE%" (
+  echo error: missing Oracle archive: %ORACLE_BASIC_ARCHIVE%
+  exit /b 1
+)
+set "EXTRACT_DIR=%INSTALL_PREFIX%\.extract-oracle"
+set "ORACLE_DEST=%INSTALL_PREFIX%\oracle\instantclient"
+if exist "%EXTRACT_DIR%" rmdir /S /Q "%EXTRACT_DIR%"
+mkdir "%EXTRACT_DIR%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%ORACLE_BASIC_ARCHIVE%' -DestinationPath '%EXTRACT_DIR%' -Force"
+if errorlevel 1 exit /b 1
+set "ORACLE_SRC="
+for /D %%D in ("%EXTRACT_DIR%\instantclient*") do if not defined ORACLE_SRC set "ORACLE_SRC=%%~fD"
+if not defined ORACLE_SRC (
+  echo error: could not find instantclient directory in %ORACLE_BASIC_ARCHIVE%
+  exit /b 1
+)
+if exist "%ORACLE_DEST%" rmdir /S /Q "%ORACLE_DEST%"
+mkdir "%INSTALL_PREFIX%\oracle" 2>nul
+xcopy /E /I /Y "%ORACLE_SRC%" "%ORACLE_DEST%" >nul
+if errorlevel 1 exit /b 1
+copy /Y "%ORACLE_DEST%\*.dll" "%PACKAGE_ROOT%\bin\" >nul 2>nul
+rmdir /S /Q "%EXTRACT_DIR%"
+echo Installed Oracle Instant Client: %ORACLE_DEST%
+exit /b 0
+
+:install_db2_archive
+for %%I in ("%DB2_CLI_ARCHIVE%") do set "DB2_CLI_ARCHIVE=%%~fI"
+if not exist "%DB2_CLI_ARCHIVE%" (
+  echo error: missing DB2 CLI archive: %DB2_CLI_ARCHIVE%
+  exit /b 1
+)
+set "EXTRACT_DIR=%INSTALL_PREFIX%\.extract-db2"
+if exist "%EXTRACT_DIR%" rmdir /S /Q "%EXTRACT_DIR%"
+mkdir "%EXTRACT_DIR%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%DB2_CLI_ARCHIVE%' -DestinationPath '%EXTRACT_DIR%' -Force"
+if errorlevel 1 exit /b 1
+set "DB2_SRC="
+for /D /R "%EXTRACT_DIR%" %%D in (*) do if /I "%%~nxD"=="clidriver" if not defined DB2_SRC set "DB2_SRC=%%~fD"
+if not defined DB2_SRC (
+  echo error: could not find clidriver directory in %DB2_CLI_ARCHIVE%
+  exit /b 1
+)
+call :copy_db2 "%DB2_SRC%"
+set "DB2_RC=%ERRORLEVEL%"
+rmdir /S /Q "%EXTRACT_DIR%"
+exit /b %DB2_RC%
+
+:install_db2_dir
+for %%I in ("%DB2_CLI_DIR%") do set "DB2_SRC=%%~fI"
+call :copy_db2 "%DB2_SRC%"
+exit /b %ERRORLEVEL%
+
+:copy_db2
+set "DB2_SRC=%~1"
+set "DB2_DEST=%INSTALL_PREFIX%\db2\clidriver"
+if not exist "%DB2_SRC%\include" (
+  echo error: invalid DB2 CLI directory: %DB2_SRC%
+  exit /b 1
+)
+if exist "%DB2_DEST%" rmdir /S /Q "%DB2_DEST%"
+mkdir "%INSTALL_PREFIX%\db2" 2>nul
+xcopy /E /I /Y "%DB2_SRC%" "%DB2_DEST%" >nul
+if errorlevel 1 exit /b 1
+copy /Y "%DB2_DEST%\bin\*.dll" "%PACKAGE_ROOT%\bin\" >nul 2>nul
+echo Installed IBM DB2 CLI: %DB2_DEST%
+exit /b 0

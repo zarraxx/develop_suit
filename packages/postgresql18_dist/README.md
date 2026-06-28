@@ -75,6 +75,29 @@ Oracle Instant Client and IBM DB2 CLI/ODBC are vendor binaries. They can be used
 as local build inputs for oracle_fdw and db2_fdw, but they should not be bundled
 as reusable dependency packages.
 
+Runtime vendor clients can be installed after extracting the package:
+
+- `x86_64-unknown-linux-gnu`: Oracle Instant Client Basic and IBM DB2 CLI/ODBC
+- `aarch64-unknown-linux-gnu`: Oracle Instant Client Basic
+- `x86_64-w64-windows-gnu`: Oracle Instant Client Basic and IBM DB2 CLI/ODBC
+
+Linux:
+
+```bash
+sudo ./install_external_dependencies.sh \
+  --oracle-basic-archive=/path/to/instantclient-basic-linux.zip \
+  --db2-cli-archive=/path/to/linuxx64_odbc_cli.tar.gz \
+  --service-name=postgresql18
+```
+
+MinGW64:
+
+```cmd
+install_external_dependencies.cmd ^
+  --oracle-basic-archive C:\path\instantclient-basic-windows.x64.zip ^
+  --db2-cli-archive C:\path\ntx64_odbc_cli.zip
+```
+
 MinGW64:
 
 ```bash

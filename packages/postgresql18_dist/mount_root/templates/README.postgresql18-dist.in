@@ -28,6 +28,29 @@ Oracle Instant Client and IBM DB2 CLI are build-time/runtime inputs owned by
 their vendors. When oracle_fdw or db2_fdw are built, this package includes only
 the PostgreSQL extension files, not the vendor client libraries.
 
+Runtime vendor clients can be installed after extracting the package:
+
+- `x86_64-unknown-linux-gnu`: Oracle Instant Client Basic and IBM DB2 CLI/ODBC
+- `aarch64-unknown-linux-gnu`: Oracle Instant Client Basic
+- `x86_64-w64-windows-gnu`: Oracle Instant Client Basic and IBM DB2 CLI/ODBC
+
+Linux:
+
+```bash
+sudo ./install_external_dependencies.sh \
+  --oracle-basic-archive=/path/to/instantclient-basic-linux.zip \
+  --db2-cli-archive=/path/to/linuxx64_odbc_cli.tar.gz \
+  --service-name=postgresql18
+```
+
+MinGW64:
+
+```cmd
+install_external_dependencies.cmd ^
+  --oracle-basic-archive C:\path\instantclient-basic-windows.x64.zip ^
+  --db2-cli-archive C:\path\ntx64_odbc_cli.zip
+```
+
 Linux packages also install systemd templates under `share/systemd/`:
 
 - `postgresql18-dist.service`
@@ -37,8 +60,10 @@ The package root includes service helper scripts:
 
 - Linux install: `./install_service.sh [data_dir] [service_name] [service_user] [listen_addresses] [port] [auth_network]`
 - Linux uninstall: `./uninstall_service.sh [service_name]`
+- Linux external dependencies: `./install_external_dependencies.sh [options]`
 - Windows install: `install_service.cmd [data_dir] [service_name]`
 - Windows uninstall: `uninstall_service.cmd [service_name]`
+- Windows external dependencies: `install_external_dependencies.cmd [options]`
 
 Defaults:
 
