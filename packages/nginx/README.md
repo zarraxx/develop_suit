@@ -117,8 +117,10 @@ The package layout contains:
 ```
 
 The test starts nginx locally, checks the welcome page at
-`http://127.0.0.1:<port>`, then checks the forward proxy listener with:
+`http://127.0.0.1:<port>`, then checks HTTP forward proxying and HTTPS
+`CONNECT` proxying against local loopback nginx listeners:
 
 ```sh
-bin/curl_static -v -x http://127.0.0.1:7890 https://www.google.com
+bin/curl_static -x http://127.0.0.1:7890 http://127.0.0.1:18080/
+bin/curl_static -k -x http://127.0.0.1:7890 https://127.0.0.1:18443/
 ```
