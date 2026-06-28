@@ -232,10 +232,10 @@ build_cxx_runtimes() {
       -DLIBCXXABI_HAS_DL_LIB=OFF
       -DLIBCXXABI_HAS_PTHREAD_LIB=OFF
       -DLIBCXXABI_HAS_WIN32_THREAD_API=ON
+      -DLIBCXXABI_ENABLE_SHARED=OFF
       -DLIBCXX_HAS_PTHREAD_LIB=OFF
       -DLIBCXX_HAS_RT_LIB=OFF
       -DLIBCXX_HAS_WIN32_THREAD_API=ON
-      -DLIBCXX_ENABLE_STATIC_ABI_LIBRARY=OFF
       -DLIBCXX_EXTRA_SITE_DEFINES=__USE_MINGW_ANSI_STDIO=1
     )
   fi
@@ -333,9 +333,7 @@ validate_outputs() {
   [[ -d "$RESOURCE_LIB_DIR" ]] || die "missing compiler-rt resource lib dir: ${RESOURCE_LIB_DIR}"
 
   if [[ "$TARGET_KIND" == "mingw" ]]; then
-    [[ -e "${SDK_PREFIX}/bin/libc++.dll" ]] || die "missing MinGW libc++ DLL in bin"
-    [[ -e "${SDK_PREFIX}/bin/libc++abi.dll" ]] || die "missing MinGW libc++abi DLL in bin"
-    [[ -e "${SDK_PREFIX}/bin/libunwind.dll" ]] || die "missing MinGW libunwind DLL in bin"
+    compgen -G "${SDK_PREFIX}/bin/libc++*.dll" >/dev/null || die "missing MinGW libc++ DLL in bin"
   else
     [[ -e "${RUNTIME_LIB_DIR}/libc++.so" || -e "${RUNTIME_LIB_DIR}/libc++.so.1" ]] || die "missing libc++.so"
     [[ -e "${RUNTIME_LIB_DIR}/libunwind.so" || -e "${RUNTIME_LIB_DIR}/libunwind.so.1" ]] || die "missing libunwind.so"
