@@ -40,6 +40,9 @@ if [[ -x "${PACKAGE_DIR}/sbin/nginx.exe" ]]; then
 fi
 NGINX_BIN="${PACKAGE_DIR}/sbin/nginx${EXEEXT}"
 CURL_BIN="${PACKAGE_DIR}/bin/curl_static${EXEEXT}"
+CURL_TIMEOUT_ARGS=(--connect-timeout 10 --max-time 30)
+NGINX_CMD=("$NGINX_BIN")
+CURL_CMD=("$CURL_BIN")
 TEST_DIR="${PACKAGE_DIR}/test-runtime"
 TEST_CONF="${TEST_DIR}/nginx-test.conf"
 TEST_CERT="${TEST_DIR}/localhost.crt"
@@ -47,6 +50,18 @@ TEST_KEY="${TEST_DIR}/localhost.key"
 
 [[ -x "$NGINX_BIN" ]] || die "missing nginx binary: ${NGINX_BIN}"
 [[ -x "$CURL_BIN" ]] || die "missing curl_static binary: ${CURL_BIN}"
+
+if [[ "$EXEEXT" == ".exe" ]]; then
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      ;;
+    *)
+      command -v wine >/dev/null 2>&1 || die "wine is required to test Windows package on this host"
+      NGINX_CMD=(wine "$NGINX_BIN")
+      CURL_CMD=(wine "$CURL_BIN")
+      ;;
+  esac
+fi
 
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR/logs" "$TEST_DIR/run"
@@ -56,6 +71,8 @@ nginx_path() {
 
   if [[ "$EXEEXT" == ".exe" ]] && command -v cygpath >/dev/null 2>&1; then
     cygpath -m "$path"
+  elif [[ "$EXEEXT" == ".exe" ]] && command -v winepath >/dev/null 2>&1; then
+    winepath -w "$path" | tr '\\' '/'
   else
     printf '%s\n' "$path"
   fi
@@ -63,6 +80,7 @@ nginx_path() {
 
 NGINX_PREFIX="$(nginx_path "${PACKAGE_DIR}/")"
 NGINX_TEST_DIR="$(nginx_path "$TEST_DIR")"
+NGINX_TEST_CONF="$(nginx_path "$TEST_CONF")"
 NGINX_CONF_MIME="$(nginx_path "${PACKAGE_DIR}/conf/mime.types")"
 NGINX_HTML_DIR="$(nginx_path "${PACKAGE_DIR}/html")"
 NGINX_TEST_CERT="$(nginx_path "$TEST_CERT")"
@@ -194,25 +212,29 @@ EOF
 
 cleanup() {
   if [[ -f "${TEST_DIR}/run/nginx.pid" ]]; then
-    "$NGINX_BIN" -p "$NGINX_PREFIX" -c "$TEST_CONF" -s quit >/dev/null 2>&1 || true
+    "${NGINX_CMD[@]}" -p "$NGINX_PREFIX" -c "$NGINX_TEST_CONF" -s quit >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
 
-"$NGINX_BIN" -p "$NGINX_PREFIX" -c "$TEST_CONF" -e stderr -t
-"$NGINX_BIN" -p "$NGINX_PREFIX" -c "$TEST_CONF" -e stderr
+"${NGINX_CMD[@]}" -p "$NGINX_PREFIX" -c "$NGINX_TEST_CONF" -e stderr -t
+if [[ "$EXEEXT" == ".exe" ]]; then
+  "${NGINX_CMD[@]}" -p "$NGINX_PREFIX" -c "$NGINX_TEST_CONF" -e stderr &
+else
+  "${NGINX_CMD[@]}" -p "$NGINX_PREFIX" -c "$NGINX_TEST_CONF" -e stderr
+fi
 sleep 1
 
 echo "-- curl_static version"
-"$CURL_BIN" -V
+"${CURL_CMD[@]}" -V
 
 echo "-- testing nginx welcome page on http://127.0.0.1:${WEB_PORT}"
-"$CURL_BIN" -fsS "http://127.0.0.1:${WEB_PORT}/" | grep -q "Welcome to nginx"
+"${CURL_CMD[@]}" "${CURL_TIMEOUT_ARGS[@]}" -fsS "http://127.0.0.1:${WEB_PORT}/" | grep -q "Welcome to nginx"
 
 echo "-- testing HTTP forward proxy on http://127.0.0.1:${PROXY_PORT}"
-"$CURL_BIN" -fsS -x "http://127.0.0.1:${PROXY_PORT}" "http://127.0.0.1:${WEB_PORT}/" | grep -q "Welcome to nginx"
+"${CURL_CMD[@]}" "${CURL_TIMEOUT_ARGS[@]}" -fsS -x "http://127.0.0.1:${PROXY_PORT}" "http://127.0.0.1:${WEB_PORT}/" | grep -q "Welcome to nginx"
 
 echo "-- testing CONNECT forward proxy on http://127.0.0.1:${PROXY_PORT}"
-"$CURL_BIN" -k -fsS -x "http://127.0.0.1:${PROXY_PORT}" "https://127.0.0.1:${HTTPS_PORT}/" | grep -q "nginx local https ok"
+"${CURL_CMD[@]}" "${CURL_TIMEOUT_ARGS[@]}" -k -fsS -x "http://127.0.0.1:${PROXY_PORT}" "https://127.0.0.1:${HTTPS_PORT}/" | grep -q "nginx local https ok"
 
 echo "-- nginx package test passed"
