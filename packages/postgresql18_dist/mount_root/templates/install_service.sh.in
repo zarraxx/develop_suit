@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+package_root="$script_dir"
+default_data_dir="$(pwd)/var/lib/postgresql/18/main"
+default_service_name="postgresql18"
+data_dir="${1:-$default_data_dir}"
+service_name="${2:-$default_service_name}"
+interactive_confirm=0
+
+case "$data_dir" in
+  /*)
+    ;;
+  *)
+    data_dir="$(pwd)/${data_dir}"
+    ;;
+esac
+
+if [[ $# -eq 0 && "${INSTALL_SERVICE_CONFIRMED:-0}" != "1" ]]; then
+  interactive_confirm=1
+fi
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+confirm_install() {
+  local message="Install PostgreSQL 18 system service?
+
+Package root: ${package_root}
+Data dir: ${data_dir}
+Service name: ${service_name}
+"
+
+  if command -v whiptail >/dev/null 2>&1; then
+    whiptail --title "PostgreSQL 18 service" --yesno "$message" 14 78
+    return
+  fi
+
+  if command -v dialog >/dev/null 2>&1; then
+    dialog --title "PostgreSQL 18 service" --yesno "$message" 14 78
+    return
+  fi
+
+  printf '%s\n' "$message"
+  read -r -p "Continue? [y/N] " answer
+  [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
+}
+
+quote_systemd_value() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
+find_python_path() {
+  local python_dir=""
+  local python_path=""
+
+  python_dir="$(find "${package_root}/lib" -maxdepth 1 -type d -name 'python3.*' 2>/dev/null | sort | head -n 1)"
+  if [[ -n "$python_dir" ]]; then
+    python_path="$python_dir"
+    [[ -d "${python_dir}/lib-dynload" ]] && python_path="${python_path}:${python_dir}/lib-dynload"
+    [[ -d "${python_dir}/site-packages" ]] && python_path="${python_path}:${python_dir}/site-packages"
+  fi
+  printf '%s' "$python_path"
+}
+
+find_perl5lib() {
+  local perl_archlib=""
+  local perl_privlib=""
+
+  perl_archlib="$(find "${package_root}/lib" -path '*/Config_heavy.pl' -type f -print 2>/dev/null | sort | head -n 1)"
+  if [[ -n "$perl_archlib" ]]; then
+    perl_archlib="$(dirname "$perl_archlib")"
+    perl_privlib="$(dirname "$perl_archlib")"
+    printf '%s:%s' "$perl_archlib" "$perl_privlib"
+  fi
+}
+
+find_tcl_library() {
+  find "${package_root}/lib" -maxdepth 1 -type d -name 'tcl8.*' 2>/dev/null | sort | head -n 1
+}
+
+choose_initdb_locale() {
+  if command -v locale >/dev/null 2>&1; then
+    if locale -a 2>/dev/null | grep -Eiq '^C\.UTF-?8$'; then
+      printf '%s' "C.UTF-8"
+      return
+    fi
+  fi
+  printf '%s' "C"
+}
+
+run_as_service_user() {
+  if [[ "$(id -u)" -eq 0 && "$service_user" != "root" ]]; then
+    if command -v runuser >/dev/null 2>&1; then
+      runuser -u "$service_user" -- "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+      sudo -u "$service_user" "$@"
+    else
+      die "runuser or sudo is required to run initdb as ${service_user}"
+    fi
+  else
+    "$@"
+  fi
+}
+
+if [[ "$interactive_confirm" -eq 1 ]]; then
+  confirm_install || die "service installation cancelled"
+fi
+
+[[ -x "${package_root}/bin/postgres" ]] || die "missing postgres: ${package_root}/bin/postgres"
+[[ -x "${package_root}/bin/initdb" ]] || die "missing initdb: ${package_root}/bin/initdb"
+[[ -x "${package_root}/bin/pg_ctl" ]] || die "missing pg_ctl: ${package_root}/bin/pg_ctl"
+command -v systemctl >/dev/null 2>&1 || die "systemctl is required"
+[[ "$service_name" =~ ^[A-Za-z0-9_.@-]+$ ]] || die "invalid service name: ${service_name}"
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || die "root privileges or sudo are required to install a system service"
+  exec sudo SERVICE_RUN_USER="$(id -un)" INSTALL_SERVICE_CONFIRMED=1 "$0" "$data_dir" "$service_name"
+fi
+
+service_user="${SERVICE_RUN_USER:-${SUDO_USER:-postgres}}"
+id "$service_user" >/dev/null 2>&1 || die "service user does not exist: ${service_user}"
+
+mkdir -p "$data_dir"
+chown "$service_user" "$data_dir"
+chmod 700 "$data_dir"
+
+if [[ ! -f "${data_dir}/PG_VERSION" ]]; then
+  initdb_locale="$(choose_initdb_locale)"
+  run_as_service_user "${package_root}/bin/initdb" \
+    --encoding=UTF8 \
+    --locale="$initdb_locale" \
+    --auth-local=trust \
+    --auth-host=scram-sha-256 \
+    -D "$data_dir"
+fi
+
+env_file="/etc/default/${service_name}"
+service_file="/etc/systemd/system/${service_name}.service"
+python_path="$(find_python_path)"
+perl5lib="$(find_perl5lib)"
+tcl_library="$(find_tcl_library)"
+
+cat >"$env_file" <<EOF
+POSTGRESQL18_DIST_PREFIX=$(quote_systemd_value "$package_root")
+POSTGRESQL18_DIST_DATADIR=$(quote_systemd_value "$data_dir")
+POSTGRESQL18_DIST_PORT=5432
+POSTGRESQL18_DIST_LISTEN_ADDRESSES=127.0.0.1
+POSTGRESQL18_DIST_EXTRA_POSTGRES_ARGS=
+PATH=$(quote_systemd_value "${package_root}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+LD_LIBRARY_PATH=$(quote_systemd_value "${package_root}/lib:${package_root}/lib64")
+PYTHONHOME=$(quote_systemd_value "$package_root")
+PYTHONPATH=$(quote_systemd_value "$python_path")
+PERL5LIB=$(quote_systemd_value "$perl5lib")
+TCL_LIBRARY=$(quote_systemd_value "$tcl_library")
+PROJ_DATA=$(quote_systemd_value "${package_root}/share/proj")
+GDAL_DATA=$(quote_systemd_value "${package_root}/share/gdal")
+ODBCSYSINI=$(quote_systemd_value "${package_root}/etc")
+ODBCINI=$(quote_systemd_value "${package_root}/etc/odbc.ini")
+FREETDSCONF=$(quote_systemd_value "${package_root}/etc/freetds.conf")
+MARIADB_PLUGIN_DIR=$(quote_systemd_value "${package_root}/lib/mariadb/plugin")
+MYSQL_PLUGIN_DIR=$(quote_systemd_value "${package_root}/lib/mariadb/plugin")
+EOF
+
+cat >"$service_file" <<EOF
+[Unit]
+Description=PostgreSQL 18 (${service_name})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=${service_user}
+EnvironmentFile=${env_file}
+ExecStartPre=/bin/sh -lc 'test -f "\${POSTGRESQL18_DIST_DATADIR}/PG_VERSION"'
+ExecStart=/bin/sh -lc 'exec "\${POSTGRESQL18_DIST_PREFIX}/bin/postgres" -D "\${POSTGRESQL18_DIST_DATADIR}" -p "\${POSTGRESQL18_DIST_PORT}" -c listen_addresses="\${POSTGRESQL18_DIST_LISTEN_ADDRESSES}" \${POSTGRESQL18_DIST_EXTRA_POSTGRES_ARGS}'
+ExecReload=/bin/sh -lc 'exec "\${POSTGRESQL18_DIST_PREFIX}/bin/pg_ctl" reload -D "\${POSTGRESQL18_DIST_DATADIR}"'
+ExecStop=/bin/sh -lc 'exec "\${POSTGRESQL18_DIST_PREFIX}/bin/pg_ctl" stop -D "\${POSTGRESQL18_DIST_DATADIR}" -m fast'
+ExecStopPost=/bin/sh -lc 'rm -f "\${POSTGRESQL18_DIST_DATADIR}/postmaster.pid"'
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStartSec=120
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable "$service_name"
+
+echo "Installed systemd service: ${service_name}"
+echo "Data directory: ${data_dir}"
+echo "Start it with: systemctl start ${service_name}"

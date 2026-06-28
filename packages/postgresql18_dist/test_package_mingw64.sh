@@ -14,6 +14,10 @@ TARGET=""
 PACKAGE_DIR=""
 ARCHIVE=""
 
+if [[ -z "${MINGW_TEST_RUNNER:-}" && ( -n "${MSYSTEM:-}" || -n "${MINGW_PREFIX:-}" ) ]]; then
+  MINGW_TEST_RUNNER=direct
+fi
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target=*|--arch=*) TARGET="${1#*=}" ;;

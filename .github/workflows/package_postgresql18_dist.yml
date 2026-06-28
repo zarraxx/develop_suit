@@ -438,7 +438,7 @@ jobs:
             exit 1
           }
 
-          bash ./packages/postgresql18_dist/test_package_mingw64.sh \
+          MINGW_TEST_RUNNER=direct bash ./packages/postgresql18_dist/test_package_mingw64.sh \
             --target="${{ matrix.target }}" \
             --archive="${archive_path}"
 

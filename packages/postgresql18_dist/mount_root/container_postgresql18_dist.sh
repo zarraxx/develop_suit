@@ -742,6 +742,15 @@ write_systemd_templates() {
     "TARGET_TRIPLE=${TARGET_TRIPLE}"
 }
 
+write_service_installers() {
+  render_template "/work/mount_root/templates/install_service.sh.in" \
+    "${SDK_PREFIX}/install_service.sh"
+  chmod +x "${SDK_PREFIX}/install_service.sh"
+
+  render_template "/work/mount_root/templates/install_service.cmd.in" \
+    "${SDK_PREFIX}/install_service.cmd"
+}
+
 write_exec_wrapper() {
   local wrapper_path="$1"
   local real_tool="$2"
@@ -1184,5 +1193,6 @@ validate_mingw_pl_languages
 patch_linux_elf_rpaths "$SDK_PREFIX" "$TARGET_KIND"
 write_distribution_readme
 write_systemd_templates
+write_service_installers
 
 log "PostgreSQL 18 distribution package ready: ${SDK_PREFIX}"
