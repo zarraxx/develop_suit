@@ -16,6 +16,10 @@ Installed extensions:
 
 @INSTALLED_EXTENSIONS@
 
+Installed tools:
+
+@INSTALLED_TOOLS@
+
 Skipped extensions:
 
 @SKIPPED_EXTENSIONS@

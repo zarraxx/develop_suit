@@ -32,6 +32,9 @@ https://github.com/pramsey/pgsql-http/archive/refs/tags/v1.7.1.tar.gz
 pgmq
 https://github.com/pgmq/pgmq/archive/refs/tags/v1.11.1.tar.gz
 
+pgbouncer
+https://www.pgbouncer.org/downloads/files/1.25.2/pgbouncer-1.25.2.tar.gz
+
 plv8
 https://github.com/plv8/plv8/archive/refs/tags/v3.2.4.tar.gz
 

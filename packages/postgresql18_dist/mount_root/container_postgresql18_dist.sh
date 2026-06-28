@@ -452,6 +452,35 @@ build_pgmq() {
   make_pgxs_install pgmq "${EXT_SOURCE_DIR}/pgmq/pgmq-extension"
 }
 
+build_pgbouncer() {
+  local source_dir="${EXT_SOURCE_DIR}/pgbouncer"
+  local build_dir="${EXT_BUILD_DIR}/pgbouncer"
+
+  rm -rf "$build_dir"
+  mkdir -p "$build_dir"
+  cp -a "${source_dir}/." "$build_dir/"
+
+  log "Configuring tool: pgbouncer"
+  (
+    cd "$build_dir"
+    extension_env \
+      LIBEVENT_CFLAGS="-I${SDK_PREFIX}/include" \
+      LIBEVENT_LIBS="-L${SDK_PREFIX}/lib -levent" \
+      ./configure \
+      --build="${BUILD_TRIPLE}" \
+      --host="$CONFIGURE_HOST_TRIPLE" \
+      --prefix="$SDK_PREFIX" \
+      --with-openssl="$SDK_PREFIX" \
+      --without-cares
+    extension_env make -j "$JOBS" "pgbouncer${EXEEXT}"
+    install -d "${SDK_PREFIX}/bin" "${SDK_PREFIX}/etc/pgbouncer"
+    install -m 755 "pgbouncer${EXEEXT}" "${SDK_PREFIX}/bin/"
+    install -m 644 etc/pgbouncer.ini etc/userlist.txt "${SDK_PREFIX}/etc/pgbouncer/"
+  )
+  [[ -x "${SDK_PREFIX}/bin/pgbouncer${EXEEXT}" ]] || die "pgbouncer install did not produce ${SDK_PREFIX}/bin/pgbouncer${EXEEXT}"
+  INSTALLED_TOOLS+=(pgbouncer)
+}
+
 build_pg_tde() {
   local source_dir="${EXT_SOURCE_DIR}/pg_tde"
 
@@ -669,12 +698,18 @@ validate_mingw_pl_languages() {
 
 write_distribution_readme() {
   local extension_lines=""
+  local tool_lines=""
   local skipped_lines=""
   local extension_name=""
+  local tool_name=""
 
   for extension_name in "${INSTALLED_EXTENSIONS[@]}"; do
     extension_lines+="- ${extension_name}"$'\n'
   done
+  for tool_name in "${INSTALLED_TOOLS[@]}"; do
+    tool_lines+="- ${tool_name}"$'\n'
+  done
+  [[ -n "$tool_lines" ]] || tool_lines="- none"$'\n'
   for extension_name in "${SKIPPED_EXTENSIONS[@]}"; do
     skipped_lines+="- ${extension_name}"$'\n'
   done
@@ -685,6 +720,7 @@ write_distribution_readme() {
     "TARGET_TRIPLE=${TARGET_TRIPLE}" \
     "POSTGRESQL_VERSION=${POSTGRESQL_VERSION}" \
     "INSTALLED_EXTENSIONS=${extension_lines}" \
+    "INSTALLED_TOOLS=${tool_lines}" \
     "SKIPPED_EXTENSIONS=${skipped_lines}"
 }
 
@@ -933,6 +969,7 @@ PG_PARTMAN_VERSION="${PG_PARTMAN_VERSION:-5.4.3}"
 PG_NET_VERSION="${PG_NET_VERSION:-0.20.3}"
 PGSQL_HTTP_VERSION="${PGSQL_HTTP_VERSION:-1.7.1}"
 PGMQ_VERSION="${PGMQ_VERSION:-1.11.1}"
+PGBOUNCER_VERSION="${PGBOUNCER_VERSION:-1.25.2}"
 PLV8_VERSION="${PLV8_VERSION:-3.2.4}"
 TIMESCALEDB_VERSION="${TIMESCALEDB_VERSION:-2.28.0}"
 PGAUDIT_VERSION="${PGAUDIT_VERSION:-18.0}"
@@ -1055,6 +1092,7 @@ download_archive "https://github.com/pgpartman/pg_partman/archive/refs/tags/v${P
 download_archive "https://github.com/supabase/pg_net/archive/refs/tags/v${PG_NET_VERSION}.tar.gz" "pg_net-${PG_NET_VERSION}.tar.gz"
 download_archive "https://github.com/pramsey/pgsql-http/archive/refs/tags/v${PGSQL_HTTP_VERSION}.tar.gz" "pgsql-http-${PGSQL_HTTP_VERSION}.tar.gz"
 download_archive "https://github.com/pgmq/pgmq/archive/refs/tags/v${PGMQ_VERSION}.tar.gz" "pgmq-${PGMQ_VERSION}.tar.gz"
+download_archive "https://www.pgbouncer.org/downloads/files/${PGBOUNCER_VERSION}/pgbouncer-${PGBOUNCER_VERSION}.tar.gz" "pgbouncer-${PGBOUNCER_VERSION}.tar.gz"
 if is_enabled "$WITH_PLV8"; then
   download_archive "https://github.com/plv8/plv8/archive/refs/tags/v${PLV8_VERSION}.tar.gz" "plv8-${PLV8_VERSION}.tar.gz"
 fi
@@ -1092,6 +1130,7 @@ extract_source "${EXT_SOURCE_DIR}/pg_partman" "pg_partman-${PG_PARTMAN_VERSION}.
 extract_source "${EXT_SOURCE_DIR}/pg_net" "pg_net-${PG_NET_VERSION}.tar.gz" "Makefile"
 extract_source "${EXT_SOURCE_DIR}/pgsql-http" "pgsql-http-${PGSQL_HTTP_VERSION}.tar.gz" "Makefile"
 extract_source "${EXT_SOURCE_DIR}/pgmq" "pgmq-${PGMQ_VERSION}.tar.gz" "pgmq-extension/Makefile"
+extract_source "${EXT_SOURCE_DIR}/pgbouncer" "pgbouncer-${PGBOUNCER_VERSION}.tar.gz" "configure"
 if is_enabled "$WITH_PLV8"; then
   extract_source "${EXT_SOURCE_DIR}/plv8" "plv8-${PLV8_VERSION}.tar.gz" "Makefile"
 fi
@@ -1120,6 +1159,7 @@ if is_enabled "$WITH_FDW"; then
 fi
 
 INSTALLED_EXTENSIONS=()
+INSTALLED_TOOLS=()
 SKIPPED_EXTENSIONS=()
 ORACLE_HOME=""
 if is_enabled "$WITH_PLJAVA"; then
@@ -1154,6 +1194,7 @@ make_pgxs_install pg_partman "${EXT_SOURCE_DIR}/pg_partman"
 build_pg_net
 build_pgsql_http
 build_pgmq
+build_pgbouncer
 if is_enabled "$WITH_PLV8"; then
   build_plv8
 else
