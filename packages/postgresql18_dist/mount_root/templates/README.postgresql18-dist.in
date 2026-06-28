@@ -32,3 +32,20 @@ Linux packages also install systemd templates under `share/systemd/`:
 
 - `postgresql18-dist.service`
 - `postgresql18-dist.env`
+
+The package root includes service helper scripts:
+
+- Linux install: `./install_service.sh [data_dir] [service_name] [service_user]`
+- Linux uninstall: `./uninstall_service.sh [service_name]`
+- Windows install: `install_service.cmd [data_dir] [service_name]`
+- Windows uninstall: `uninstall_service.cmd [service_name]`
+
+Defaults:
+
+- `data_dir`: `./var/lib/postgresql/18/main`
+- `service_name`: `postgresql18`
+- Linux `service_user`: `postgres`
+
+On Linux, `install_service.sh` creates the service user as a system user with a
+non-login shell when it does not already exist. New clusters are initialized by
+that service user, so the default superuser role is `postgres`.

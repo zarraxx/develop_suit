@@ -93,6 +93,27 @@ x86_64 Linux:
   --db2-cli-archive=cache/vendor/linuxx64_odbc_cli.tar.gz
 ```
 
+Service helpers
+
+发行包根目录包含服务脚本：
+
+```bash
+./install_service.sh [data_dir] [service_name] [service_user]
+./uninstall_service.sh [service_name]
+```
+
+默认 `data_dir=./var/lib/postgresql/18/main`，`service_name=postgresql18`，
+Linux `service_user=postgres`。Linux 安装时如果用户不存在，会创建一个不能
+登录的系统用户，并用该用户执行 `initdb`，所以默认数据库超级用户角色也是
+`postgres`。
+
+Windows 对应：
+
+```cmd
+install_service.cmd [data_dir] [service_name]
+uninstall_service.cmd [service_name]
+```
+
 
 <!-- java
 

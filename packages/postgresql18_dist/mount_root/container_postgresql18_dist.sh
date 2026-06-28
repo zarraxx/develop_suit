@@ -802,6 +802,13 @@ write_service_installers() {
 
   render_template "/work/mount_root/templates/install_service.cmd.in" \
     "${SDK_PREFIX}/install_service.cmd"
+
+  render_template "/work/mount_root/templates/uninstall_service.sh.in" \
+    "${SDK_PREFIX}/uninstall_service.sh"
+  chmod +x "${SDK_PREFIX}/uninstall_service.sh"
+
+  render_template "/work/mount_root/templates/uninstall_service.cmd.in" \
+    "${SDK_PREFIX}/uninstall_service.cmd"
 }
 
 write_exec_wrapper() {

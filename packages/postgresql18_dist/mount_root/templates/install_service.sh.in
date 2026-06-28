@@ -5,8 +5,10 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 package_root="$script_dir"
 default_data_dir="$(pwd)/var/lib/postgresql/18/main"
 default_service_name="postgresql18"
+default_service_user="postgres"
 data_dir="${1:-$default_data_dir}"
 service_name="${2:-$default_service_name}"
+service_user="${3:-${SERVICE_RUN_USER:-$default_service_user}}"
 interactive_confirm=0
 
 case "$data_dir" in
@@ -32,6 +34,7 @@ confirm_install() {
 Package root: ${package_root}
 Data dir: ${data_dir}
 Service name: ${service_name}
+Service user: ${service_user}
 "
 
   if command -v whiptail >/dev/null 2>&1; then
@@ -109,6 +112,33 @@ run_as_service_user() {
   fi
 }
 
+choose_nologin_shell() {
+  if [[ -x /usr/sbin/nologin ]]; then
+    printf '%s\n' /usr/sbin/nologin
+  elif [[ -x /sbin/nologin ]]; then
+    printf '%s\n' /sbin/nologin
+  else
+    printf '%s\n' /bin/false
+  fi
+}
+
+ensure_service_user() {
+  local nologin_shell=""
+
+  if id "$service_user" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  nologin_shell="$(choose_nologin_shell)"
+  if command -v useradd >/dev/null 2>&1; then
+    useradd --system --home-dir "$data_dir" --shell "$nologin_shell" --no-create-home "$service_user"
+  elif command -v adduser >/dev/null 2>&1; then
+    adduser --system --home "$data_dir" --shell "$nologin_shell" --no-create-home "$service_user"
+  else
+    die "useradd or adduser is required to create service user: ${service_user}"
+  fi
+}
+
 if [[ "$interactive_confirm" -eq 1 ]]; then
   confirm_install || die "service installation cancelled"
 fi
@@ -118,14 +148,14 @@ fi
 [[ -x "${package_root}/bin/pg_ctl" ]] || die "missing pg_ctl: ${package_root}/bin/pg_ctl"
 command -v systemctl >/dev/null 2>&1 || die "systemctl is required"
 [[ "$service_name" =~ ^[A-Za-z0-9_.@-]+$ ]] || die "invalid service name: ${service_name}"
+[[ "$service_user" =~ ^[A-Za-z0-9_.@-]+$ ]] || die "invalid service user: ${service_user}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   command -v sudo >/dev/null 2>&1 || die "root privileges or sudo are required to install a system service"
-  exec sudo SERVICE_RUN_USER="$(id -un)" INSTALL_SERVICE_CONFIRMED=1 "$0" "$data_dir" "$service_name"
+  exec sudo env SERVICE_RUN_USER="$service_user" INSTALL_SERVICE_CONFIRMED=1 "$0" "$data_dir" "$service_name" "$service_user"
 fi
 
-service_user="${SERVICE_RUN_USER:-${SUDO_USER:-postgres}}"
-id "$service_user" >/dev/null 2>&1 || die "service user does not exist: ${service_user}"
+ensure_service_user
 
 mkdir -p "$data_dir"
 chown "$service_user" "$data_dir"
@@ -200,4 +230,5 @@ systemctl enable "$service_name"
 
 echo "Installed systemd service: ${service_name}"
 echo "Data directory: ${data_dir}"
+echo "Service user: ${service_user}"
 echo "Start it with: systemctl start ${service_name}"
