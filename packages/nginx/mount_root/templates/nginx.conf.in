@@ -1,0 +1,48 @@
+worker_processes auto;
+
+error_log logs/error.log info;
+pid run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include mime.types;
+    default_type application/octet-stream;
+    resolver 1.1.1.1 8.8.8.8 valid=300s ipv6=off;
+
+    access_log logs/access.log;
+    sendfile on;
+    keepalive_timeout 65;
+
+    server {
+        listen 8080;
+        server_name localhost;
+
+        location / {
+            root html;
+            index index.html index.htm;
+        }
+    }
+
+    # HTTP forward proxy CONNECT support from ngx_http_proxy_connect_module.
+    # Keep this bound to loopback unless you intentionally operate a proxy.
+    server {
+        listen 127.0.0.1:7890;
+        server_name localhost;
+
+        proxy_connect;
+        proxy_connect_allow 443 563;
+        proxy_connect_connect_timeout 10s;
+        proxy_connect_read_timeout 10s;
+        proxy_connect_send_timeout 10s;
+
+        location / {
+            proxy_pass http://$host$request_uri;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+    }
+}

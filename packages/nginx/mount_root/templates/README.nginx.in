@@ -1,0 +1,32 @@
+# nginx Package
+
+Target: @TARGET_TRIPLE@
+
+Components:
+
+- nginx @NGINX_VERSION@
+- OpenSSL @OPENSSL_VERSION@
+- PCRE2 @PCRE2_VERSION@
+- zlib @ZLIB_VERSION@
+- curl @CURL_VERSION@ static client installed as bin/curl_static
+- ngx_http_proxy_connect_module from @PROXY_CONNECT_REPO@, ref @PROXY_CONNECT_REF@, patch @PROXY_CONNECT_PATCH@
+
+Feature intent:
+
+- ECH-capable TLS stack through bundled OpenSSL 4.x.
+- HTTP forward proxy CONNECT support through ngx_http_proxy_connect_module.
+- Self-contained nginx binary with bundled OpenSSL, PCRE2, and zlib built from source.
+
+Useful paths:
+
+- sbin/nginx
+- bin/curl_static
+- conf/nginx.conf
+- logs/
+- run/
+
+Example:
+
+```sh
+./sbin/nginx -p "$(pwd)/" -c conf/nginx.conf
+```
