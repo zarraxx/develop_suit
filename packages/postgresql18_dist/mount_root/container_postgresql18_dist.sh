@@ -441,8 +441,8 @@ build_plv8() {
   local source_dir="${EXT_SOURCE_DIR}/plv8"
 
   if [[ "$TARGET_KIND" == "mingw" ]]; then
-    log "Skipping plv8: PostgreSQL Win32 open/rename macros conflict with libc++ headers used by V8"
-    SKIPPED_EXTENSIONS+=("plv8: disabled on MinGW due to port.h macro conflicts with libc++/V8 headers")
+    log "Skipping plv8: MinGW clang/libc++ runtime linking is not stable for plv8 yet"
+    SKIPPED_EXTENSIONS+=("plv8: disabled on MinGW due to clang/libc++ runtime linking issues")
     return 0
   fi
 

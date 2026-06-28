@@ -6,6 +6,7 @@ env:
   POSTGIS_DEPENDENCIES_VERSION: ${{ inputs.postgis_dependencies_version || 'gdal-3.13.1-cgal-5.6.3-qhull-2020.2' }}
   GROONGA_PACKAGE_VERSION: ${{ inputs.groonga_version || '16.0.5' }}
   FDW_DEPENDENCIES_VERSION: ${{ inputs.fdw_dependencies_version || 'unixodbc-2.3.14-freetds-1.5.16-mariadb-3.4.9-hiredis-1.4.0-mongo-c-driver-1.30.8' }}
+  V8_PACKAGE_VERSION: ${{ inputs.v8_version || '11.6.189.4' }}
   PACKAGE_TEST_IMAGE: ghcr.io/zarraxx/develop_suit:llvm-with-mingw64-18.1.8
 
 on:
@@ -31,6 +32,11 @@ on:
         required: false
         type: string
         default: "unixodbc-2.3.14-freetds-1.5.16-mariadb-3.4.9-hiredis-1.4.0-mongo-c-driver-1.30.8"
+      v8_version:
+        description: "V8 package version"
+        required: false
+        type: string
+        default: "11.6.189.4"
       publish_release:
         description: "Create or update a GitHub Release after building"
         required: true
@@ -63,6 +69,8 @@ jobs:
       groonga_asset_prefix: ${{ steps.meta.outputs.groonga_asset_prefix }}
       fdw_dependencies_release_tag: ${{ steps.meta.outputs.fdw_dependencies_release_tag }}
       fdw_dependencies_asset_prefix: ${{ steps.meta.outputs.fdw_dependencies_asset_prefix }}
+      v8_release_tag: ${{ steps.meta.outputs.v8_release_tag }}
+      v8_asset_prefix: ${{ steps.meta.outputs.v8_asset_prefix }}
 
     steps:
       - name: Resolve release metadata
@@ -72,6 +80,7 @@ jobs:
           INPUT_POSTGIS_DEPENDENCIES_VERSION: ${{ inputs.postgis_dependencies_version }}
           INPUT_GROONGA_VERSION: ${{ inputs.groonga_version }}
           INPUT_FDW_DEPENDENCIES_VERSION: ${{ inputs.fdw_dependencies_version }}
+          INPUT_V8_VERSION: ${{ inputs.v8_version }}
           INPUT_RELEASE_NAME: ${{ inputs.release_name }}
         run: |
           set -euo pipefail
@@ -80,6 +89,7 @@ jobs:
           postgis_dependencies_version="${INPUT_POSTGIS_DEPENDENCIES_VERSION:-gdal-3.13.1-cgal-5.6.3-qhull-2020.2}"
           groonga_version="${INPUT_GROONGA_VERSION:-16.0.5}"
           fdw_dependencies_version="${INPUT_FDW_DEPENDENCIES_VERSION:-unixodbc-2.3.14-freetds-1.5.16-mariadb-3.4.9-hiredis-1.4.0-mongo-c-driver-1.30.8}"
+          v8_version="${INPUT_V8_VERSION:-11.6.189.4}"
 
           release_tag="postgresql18_dist-${postgresql_version}"
           release_name="${INPUT_RELEASE_NAME}"
@@ -97,6 +107,8 @@ jobs:
             echo "groonga_asset_prefix=groonga-${groonga_version}"
             echo "fdw_dependencies_release_tag=fdw_dependencies-${fdw_dependencies_version}"
             echo "fdw_dependencies_asset_prefix=fdw_dependencies"
+            echo "v8_release_tag=v8-${v8_version}"
+            echo "v8_asset_prefix=v8-${v8_version}"
           } >> "${GITHUB_OUTPUT}"
 
   build-postgresql18-dist:
@@ -191,6 +203,8 @@ jobs:
           GROONGA_ASSET_PREFIX: ${{ needs.resolve-meta.outputs.groonga_asset_prefix }}
           FDW_RELEASE_TAG: ${{ needs.resolve-meta.outputs.fdw_dependencies_release_tag }}
           FDW_ASSET_PREFIX: ${{ needs.resolve-meta.outputs.fdw_dependencies_asset_prefix }}
+          V8_RELEASE_TAG: ${{ needs.resolve-meta.outputs.v8_release_tag }}
+          V8_ASSET_PREFIX: ${{ needs.resolve-meta.outputs.v8_asset_prefix }}
         run: |
           set -euo pipefail
 
@@ -223,6 +237,7 @@ jobs:
           download_release_asset "${POSTGIS_RELEASE_TAG}" "${POSTGIS_ASSET_PREFIX}-${TARGET_TRIPLE}.tar.xz" "${inputs_dir}"
           download_release_asset "${GROONGA_RELEASE_TAG}" "${GROONGA_ASSET_PREFIX}-${TARGET_TRIPLE}.tar.xz" "${inputs_dir}"
           download_release_asset "${FDW_RELEASE_TAG}" "${FDW_ASSET_PREFIX}-${TARGET_TRIPLE}.tar.xz" "${inputs_dir}"
+          download_release_asset "${V8_RELEASE_TAG}" "${V8_ASSET_PREFIX}-${TARGET_TRIPLE}.tar.xz" "${inputs_dir}"
 
       - name: Download vendor archives
         env:
@@ -272,6 +287,7 @@ jobs:
           postgis_archive="${inputs_dir}/${{ needs.resolve-meta.outputs.postgis_dependencies_asset_prefix }}-${TARGET_TRIPLE}.tar.xz"
           groonga_archive="${inputs_dir}/${{ needs.resolve-meta.outputs.groonga_asset_prefix }}-${TARGET_TRIPLE}.tar.xz"
           fdw_archive="${inputs_dir}/${{ needs.resolve-meta.outputs.fdw_dependencies_asset_prefix }}-${TARGET_TRIPLE}.tar.xz"
+          v8_archive="${inputs_dir}/${{ needs.resolve-meta.outputs.v8_asset_prefix }}-${TARGET_TRIPLE}.tar.xz"
 
           extra_args=()
           if [[ "${WITH_ORACLE}" == "true" ]]; then
@@ -294,11 +310,12 @@ jobs:
             --postgresql-version="${{ env.POSTGRESQL_PACKAGE_VERSION }}" \
             --postgis-deps-version="${{ env.POSTGIS_DEPENDENCIES_VERSION }}" \
             --groonga-version="${{ env.GROONGA_PACKAGE_VERSION }}" \
+            --v8-version="${{ env.V8_PACKAGE_VERSION }}" \
             --postgresql-archive="${postgresql_archive}" \
             --postgis-deps-archive="${postgis_archive}" \
             --groonga-archive="${groonga_archive}" \
             --fdw-deps-archive="${fdw_archive}" \
-            --without-plv8 \
+            --v8-archive="${v8_archive}" \
             --without-pljava \
             --without-tde \
             "${extra_args[@]}" \

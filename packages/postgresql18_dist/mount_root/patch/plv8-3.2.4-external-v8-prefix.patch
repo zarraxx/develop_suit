@@ -1,25 +1,40 @@
-diff --git a/Makefile b/Makefile
-index d306935..f7b9d6e 100644
---- a/Makefile
-+++ b/Makefile
-@@ -3,6 +3,7 @@ PLV8_VERSION = 3.2.4
+diff -urN a/Makefile b/Makefile
+--- a/Makefile	2025-07-06 01:44:26.000000000 +0800
++++ b/Makefile	2026-06-28 08:26:39.893051611 +0800
+@@ -3,6 +3,9 @@
  
  CP := cp
  PG_CONFIG = pg_config
 +V8_PREFIX ?= deps/v8-cmake
++V8_LIBS ?= -lv8 -lv8_libplatform -lv8_libbase
++V8_SYSTEM_LIBS ?=
  PGXS := $(shell $(PG_CONFIG) --pgxs)
  SHLIB_LINK += -std=c++17
  PG_CPPFLAGS := -fPIC -Wall -Wno-register -xc++
-@@ -17,7 +18,7 @@ PLV8_DATA = plv8.control plv8--$(PLV8_VERSION).sql
- ifeq ($(OS),Windows_NT)
- 	# noop for now
+@@ -14,10 +17,10 @@
+ EXTENSION = plv8
+ PLV8_DATA = plv8.control plv8--$(PLV8_VERSION).sql
+ 
+-ifeq ($(OS),Windows_NT)
+-	# noop for now
++ifneq (,$(findstring w64-windows,$(CXX)))
++	V8_SYSTEM_LIBS += -lwinmm -ldbghelp -lws2_32 -lz
  else
 -	SHLIB_LINK += -Ldeps/v8-cmake/build
-+	SHLIB_LINK += -L$(V8_PREFIX)/lib
++	V8_SYSTEM_LIBS += -ldl -pthread
  	UNAME_S := $(shell uname -s)
  	ifeq ($(UNAME_S),Darwin)
  		CCFLAGS += -stdlib=libc++
-@@ -35,12 +36,12 @@ ifeq ($(NUMPROC),0)
+@@ -26,7 +29,7 @@
+ 		PATCH_V8 := patches/v8-cmake/macos-build.patch
+ 	endif
+ 	ifeq ($(UNAME_S),Linux)
+-		SHLIB_LINK += -lrt -std=c++17
++		V8_SYSTEM_LIBS += -lrt
+ 		NUMPROC := $(shell grep -c ^processor /proc/cpuinfo)
+ 	endif
+ endif
+@@ -35,12 +38,12 @@
  	NUMPROC = 1
  endif
  
@@ -35,7 +50,7 @@ index d306935..f7b9d6e 100644
  
  deps/v8-cmake/README.md:
  	@git submodule update --init --recursive
-@@ -54,7 +55,7 @@ v8: deps/v8-cmake/build/libv8_libbase.a
+@@ -54,7 +57,7 @@
  # enable direct jsonb conversion by default
  CCFLAGS += -DJSONB_DIRECT_CONVERSION
  
@@ -44,3 +59,61 @@ index d306935..f7b9d6e 100644
  
  ifdef EXECUTION_TIMEOUT
  	CCFLAGS += -DEXECUTION_TIMEOUT
+@@ -76,7 +79,7 @@
+ 	REGRESS += bigint_graceful
+ endif
+ 
+-SHLIB_LINK += -lv8_base_without_compiler -lv8_compiler -lv8_snapshot -lv8_inspector -lv8_libplatform -lv8_base_without_compiler -lv8_libsampler -lv8_torque_generated -lv8_libbase
++SHLIB_LINK += $(V8_LIBS) $(V8_SYSTEM_LIBS)
+ 
+ OPTFLAGS = -std=c++17 -fno-rtti -O2
+ CCFLAGS += -Wall $(OPTFLAGS)
+diff -urN a/plv8.cc b/plv8.cc
+--- a/plv8.cc	2025-07-06 01:44:26.000000000 +0800
++++ b/plv8.cc	2026-06-28 08:17:05.422333631 +0800
+@@ -7,8 +7,10 @@
+  */
+ #include "plv8.h"
+ 
+-#ifdef _MSC_VER
++#if defined(_MSC_VER) || defined(__MINGW64__)
+ #undef open
++#undef rename
++#undef fopen
+ #endif
+ 
+ #include "libplatform/libplatform.h"
+diff -urN a/plv8.h b/plv8.h
+--- a/plv8.h	2025-07-06 01:44:26.000000000 +0800
++++ b/plv8.h	2026-06-28 08:17:05.422333631 +0800
+@@ -25,6 +25,18 @@
+ #include "utils/tuplestore.h"
+ #include "windowapi.h"
+ }
++
++#if defined(__MINGW64__) && defined(__clang__)
++#ifdef sigsetjmp
++#undef sigsetjmp
++#define sigsetjmp(x, y) __builtin_setjmp((void **)(x))
++#endif
++#ifdef siglongjmp
++#undef siglongjmp
++#define siglongjmp(x, y) __builtin_longjmp((void **)(x), (y))
++#endif
++#endif
++
+ #include <string>
+ 
+ #ifdef _MSC_VER
+diff -urN a/plv8_type.cc b/plv8_type.cc
+--- a/plv8_type.cc	2025-07-06 01:44:26.000000000 +0800
++++ b/plv8_type.cc	2026-06-28 08:17:05.423333641 +0800
+@@ -754,7 +754,7 @@
+ #if JSONB_DIRECT_CONVERSION
+ 		{
+ 			Jsonb *obj = ConvertObject(Local<v8::Object>::Cast(value));
+-			PG_RETURN_JSONB_P(DatumGetJsonbP((unsigned long)obj));
++			PG_RETURN_JSONB_P(obj);
+ 		}
+ #else // JSONB_DIRECT_CONVERSION
+ 		if (value->IsObject() || value->IsArray())
