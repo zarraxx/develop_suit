@@ -1,17 +1,18 @@
 diff -urN a/Makefile b/Makefile
 --- a/Makefile	2025-07-06 01:44:26.000000000 +0800
-+++ b/Makefile	2026-06-28 08:26:39.893051611 +0800
-@@ -3,6 +3,9 @@
++++ b/Makefile	2026-06-28 08:51:49.772921834 +0800
+@@ -3,6 +3,10 @@
  
  CP := cp
  PG_CONFIG = pg_config
 +V8_PREFIX ?= deps/v8-cmake
++V8_CFLAGS ?= -I$(V8_PREFIX)/include -DV8_COMPRESS_POINTERS
 +V8_LIBS ?= -lv8 -lv8_libplatform -lv8_libbase
 +V8_SYSTEM_LIBS ?=
  PGXS := $(shell $(PG_CONFIG) --pgxs)
  SHLIB_LINK += -std=c++17
  PG_CPPFLAGS := -fPIC -Wall -Wno-register -xc++
-@@ -14,10 +17,10 @@
+@@ -14,10 +18,10 @@
  EXTENSION = plv8
  PLV8_DATA = plv8.control plv8--$(PLV8_VERSION).sql
  
@@ -25,7 +26,7 @@ diff -urN a/Makefile b/Makefile
  	UNAME_S := $(shell uname -s)
  	ifeq ($(UNAME_S),Darwin)
  		CCFLAGS += -stdlib=libc++
-@@ -26,7 +29,7 @@
+@@ -26,7 +30,7 @@
  		PATCH_V8 := patches/v8-cmake/macos-build.patch
  	endif
  	ifeq ($(UNAME_S),Linux)
@@ -34,7 +35,7 @@ diff -urN a/Makefile b/Makefile
  		NUMPROC := $(shell grep -c ^processor /proc/cpuinfo)
  	endif
  endif
-@@ -35,12 +38,12 @@
+@@ -35,12 +39,12 @@
  	NUMPROC = 1
  endif
  
@@ -50,16 +51,16 @@ diff -urN a/Makefile b/Makefile
  
  deps/v8-cmake/README.md:
  	@git submodule update --init --recursive
-@@ -54,7 +57,7 @@
+@@ -54,7 +58,7 @@
  # enable direct jsonb conversion by default
  CCFLAGS += -DJSONB_DIRECT_CONVERSION
  
 -CCFLAGS += -Ideps/v8-cmake/v8/include -std=c++17
-+CCFLAGS += -I$(V8_PREFIX)/include -std=c++17
++CCFLAGS += $(V8_CFLAGS) -std=c++17
  
  ifdef EXECUTION_TIMEOUT
  	CCFLAGS += -DEXECUTION_TIMEOUT
-@@ -76,7 +79,7 @@
+@@ -76,7 +80,7 @@
  	REGRESS += bigint_graceful
  endif
  

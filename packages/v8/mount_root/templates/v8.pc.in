@@ -5,5 +5,5 @@ libdir=${prefix}/lib
 Name: v8
 Description: V8 JavaScript engine built with official depot_tools/GN
 Version: @V8_VERSION@
-Cflags: -I${includedir}
+Cflags: -I${includedir} -DV8_COMPRESS_POINTERS
 Libs: -L${libdir} @V8_LIBS@
