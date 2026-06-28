@@ -455,24 +455,40 @@ build_pgmq() {
 build_pgbouncer() {
   local source_dir="${EXT_SOURCE_DIR}/pgbouncer"
   local build_dir="${EXT_BUILD_DIR}/pgbouncer"
+  local pgbouncer_libevent_cflags="-I${SDK_PREFIX}/include"
+  local pgbouncer_libevent_libs="-L${SDK_PREFIX}/lib -levent"
+  local pgbouncer_extra_libs=""
 
   rm -rf "$build_dir"
   mkdir -p "$build_dir"
   cp -a "${source_dir}/." "$build_dir/"
 
+  if extension_env pkg-config --exists libevent; then
+    pgbouncer_libevent_cflags="$(extension_env pkg-config --cflags libevent)"
+    pgbouncer_libevent_libs="$(extension_env pkg-config --libs libevent)"
+  fi
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    pgbouncer_extra_libs="-lws2_32 -liphlpapi -lshell32 -ladvapi32"
+  fi
+
   log "Configuring tool: pgbouncer"
   (
     cd "$build_dir"
     extension_env \
-      LIBEVENT_CFLAGS="-I${SDK_PREFIX}/include" \
-      LIBEVENT_LIBS="-L${SDK_PREFIX}/lib -levent" \
+      LIBEVENT_CFLAGS="$pgbouncer_libevent_cflags" \
+      LIBEVENT_LIBS="${pgbouncer_libevent_libs} ${pgbouncer_extra_libs}" \
+      LIBS="${pgbouncer_libevent_libs} ${pgbouncer_extra_libs} ${LIBS:-}" \
       ./configure \
       --build="${BUILD_TRIPLE}" \
       --host="$CONFIGURE_HOST_TRIPLE" \
       --prefix="$SDK_PREFIX" \
       --with-openssl="$SDK_PREFIX" \
       --without-cares
-    extension_env make -j "$JOBS" "pgbouncer${EXEEXT}"
+    extension_env \
+      LIBEVENT_CFLAGS="$pgbouncer_libevent_cflags" \
+      LIBEVENT_LIBS="${pgbouncer_libevent_libs} ${pgbouncer_extra_libs}" \
+      LIBS="${pgbouncer_libevent_libs} ${pgbouncer_extra_libs} ${LIBS:-}" \
+      make -j "$JOBS" "pgbouncer${EXEEXT}"
     install -d "${SDK_PREFIX}/bin" "${SDK_PREFIX}/etc/pgbouncer"
     install -m 755 "pgbouncer${EXEEXT}" "${SDK_PREFIX}/bin/"
     install -m 644 etc/pgbouncer.ini etc/userlist.txt "${SDK_PREFIX}/etc/pgbouncer/"
