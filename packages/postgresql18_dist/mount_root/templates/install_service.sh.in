@@ -6,9 +6,15 @@ package_root="$script_dir"
 default_data_dir="$(pwd)/var/lib/postgresql/18/main"
 default_service_name="postgresql18"
 default_service_user="postgres"
+default_listen_addresses="*"
+default_port="5432"
+default_auth_network="192.168.0.0/16"
 data_dir="${1:-$default_data_dir}"
 service_name="${2:-$default_service_name}"
 service_user="${3:-${SERVICE_RUN_USER:-$default_service_user}}"
+listen_addresses="${4:-$default_listen_addresses}"
+port="${5:-$default_port}"
+auth_network="${6:-$default_auth_network}"
 interactive_confirm=0
 
 case "$data_dir" in
@@ -35,6 +41,9 @@ Package root: ${package_root}
 Data dir: ${data_dir}
 Service name: ${service_name}
 Service user: ${service_user}
+Listen addresses: ${listen_addresses}
+Port: ${port}
+Host auth network: ${auth_network}
 "
 
   if command -v whiptail >/dev/null 2>&1; then
@@ -57,6 +66,12 @@ quote_systemd_value() {
   value="${value//\\/\\\\}"
   value="${value//\"/\\\"}"
   printf '"%s"' "$value"
+}
+
+quote_postgresql_conf_value() {
+  local value="$1"
+  value="${value//\'/\'\'}"
+  printf "'%s'" "$value"
 }
 
 find_python_path() {
@@ -139,6 +154,93 @@ ensure_service_user() {
   fi
 }
 
+service_user_can_execute_initdb() {
+  run_as_service_user test -x "${package_root}/bin/initdb" >/dev/null 2>&1
+}
+
+grant_parent_traverse_acl() {
+  local target_path="$1"
+  local parent_dir=""
+
+  command -v setfacl >/dev/null 2>&1 || return 1
+
+  parent_dir="$(dirname "$target_path")"
+  while [[ "$parent_dir" != "/" && -n "$parent_dir" ]]; do
+    setfacl -m "u:${service_user}:--x" "$parent_dir" || return 1
+    parent_dir="$(dirname "$parent_dir")"
+  done
+}
+
+ensure_package_access() {
+  if service_user_can_execute_initdb; then
+    return 0
+  fi
+
+  if command -v setfacl >/dev/null 2>&1; then
+    if setfacl -R -m "u:${service_user}:rX" "$package_root" && \
+      grant_parent_traverse_acl "$package_root" && \
+      service_user_can_execute_initdb; then
+      return 0
+    fi
+  fi
+
+  die "service user ${service_user} cannot execute ${package_root}/bin/initdb. Move the package under a service-accessible prefix such as /opt, or install setfacl and grant ${service_user} execute access to the package parent directories."
+}
+
+ensure_data_dir() {
+  local path=""
+  local created_root=""
+
+  path="$data_dir"
+  while [[ "$path" != "/" && ! -e "$path" ]]; do
+    created_root="$path"
+    path="$(dirname "$path")"
+  done
+
+  mkdir -p "$data_dir"
+
+  if [[ -n "$created_root" ]]; then
+    chown -R "$service_user" "$created_root"
+  else
+    chown "$service_user" "$data_dir"
+  fi
+  chmod 700 "$data_dir"
+
+  if ! run_as_service_user test -d "$data_dir" >/dev/null 2>&1; then
+    if grant_parent_traverse_acl "$data_dir" && run_as_service_user test -d "$data_dir" >/dev/null 2>&1; then
+      return 0
+    fi
+    die "service user ${service_user} cannot access data directory ${data_dir}. Move the data directory under a service-accessible prefix such as /var/lib/postgresql, or install setfacl and grant ${service_user} execute access to the parent directories."
+  fi
+}
+
+configure_cluster_network() {
+  local conf_file="${data_dir}/postgresql.conf"
+  local hba_file="${data_dir}/pg_hba.conf"
+  local marker_begin="# postgresql18_dist install_service begin"
+  local marker_end="# postgresql18_dist install_service end"
+
+  [[ -f "$conf_file" ]] || die "missing postgresql.conf: ${conf_file}"
+  [[ -f "$hba_file" ]] || die "missing pg_hba.conf: ${hba_file}"
+
+  sed -i "/^${marker_begin}$/,/^${marker_end}$/d" "$conf_file"
+  cat >>"$conf_file" <<EOF
+
+${marker_begin}
+listen_addresses = $(quote_postgresql_conf_value "$listen_addresses")
+port = ${port}
+${marker_end}
+EOF
+
+  sed -i "/^${marker_begin}$/,/^${marker_end}$/d" "$hba_file"
+  cat >>"$hba_file" <<EOF
+
+${marker_begin}
+host    all             all             ${auth_network}          scram-sha-256
+${marker_end}
+EOF
+}
+
 if [[ "$interactive_confirm" -eq 1 ]]; then
   confirm_install || die "service installation cancelled"
 fi
@@ -149,17 +251,19 @@ fi
 command -v systemctl >/dev/null 2>&1 || die "systemctl is required"
 [[ "$service_name" =~ ^[A-Za-z0-9_.@-]+$ ]] || die "invalid service name: ${service_name}"
 [[ "$service_user" =~ ^[A-Za-z0-9_.@-]+$ ]] || die "invalid service user: ${service_user}"
+[[ "$port" =~ ^[0-9]+$ && "$port" -ge 1 && "$port" -le 65535 ]] || die "invalid port: ${port}"
+[[ "$listen_addresses" != *$'\n'* && "$listen_addresses" != *$'\r'* ]] || die "invalid listen addresses: ${listen_addresses}"
+[[ "$auth_network" != *[[:space:]]* ]] || die "invalid host auth network: ${auth_network}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   command -v sudo >/dev/null 2>&1 || die "root privileges or sudo are required to install a system service"
-  exec sudo env SERVICE_RUN_USER="$service_user" INSTALL_SERVICE_CONFIRMED=1 "$0" "$data_dir" "$service_name" "$service_user"
+  exec sudo env SERVICE_RUN_USER="$service_user" INSTALL_SERVICE_CONFIRMED=1 "$0" "$data_dir" "$service_name" "$service_user" "$listen_addresses" "$port" "$auth_network"
 fi
 
 ensure_service_user
+ensure_package_access
 
-mkdir -p "$data_dir"
-chown "$service_user" "$data_dir"
-chmod 700 "$data_dir"
+ensure_data_dir
 
 if [[ ! -f "${data_dir}/PG_VERSION" ]]; then
   initdb_locale="$(choose_initdb_locale)"
@@ -170,6 +274,7 @@ if [[ ! -f "${data_dir}/PG_VERSION" ]]; then
     --auth-host=scram-sha-256 \
     -D "$data_dir"
 fi
+configure_cluster_network
 
 env_file="/etc/default/${service_name}"
 service_file="/etc/systemd/system/${service_name}.service"
@@ -180,8 +285,6 @@ tcl_library="$(find_tcl_library)"
 cat >"$env_file" <<EOF
 POSTGRESQL18_DIST_PREFIX=$(quote_systemd_value "$package_root")
 POSTGRESQL18_DIST_DATADIR=$(quote_systemd_value "$data_dir")
-POSTGRESQL18_DIST_PORT=5432
-POSTGRESQL18_DIST_LISTEN_ADDRESSES=127.0.0.1
 POSTGRESQL18_DIST_EXTRA_POSTGRES_ARGS=
 PATH=$(quote_systemd_value "${package_root}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
 LD_LIBRARY_PATH=$(quote_systemd_value "${package_root}/lib:${package_root}/lib64")
@@ -209,7 +312,7 @@ Type=notify
 User=${service_user}
 EnvironmentFile=${env_file}
 ExecStartPre=/bin/sh -lc 'test -f "\${POSTGRESQL18_DIST_DATADIR}/PG_VERSION"'
-ExecStart=/bin/sh -lc 'exec "\${POSTGRESQL18_DIST_PREFIX}/bin/postgres" -D "\${POSTGRESQL18_DIST_DATADIR}" -p "\${POSTGRESQL18_DIST_PORT}" -c listen_addresses="\${POSTGRESQL18_DIST_LISTEN_ADDRESSES}" \${POSTGRESQL18_DIST_EXTRA_POSTGRES_ARGS}'
+ExecStart=/bin/sh -lc 'exec "\${POSTGRESQL18_DIST_PREFIX}/bin/postgres" -D "\${POSTGRESQL18_DIST_DATADIR}" \${POSTGRESQL18_DIST_EXTRA_POSTGRES_ARGS}'
 ExecReload=/bin/sh -lc 'exec "\${POSTGRESQL18_DIST_PREFIX}/bin/pg_ctl" reload -D "\${POSTGRESQL18_DIST_DATADIR}"'
 ExecStop=/bin/sh -lc 'exec "\${POSTGRESQL18_DIST_PREFIX}/bin/pg_ctl" stop -D "\${POSTGRESQL18_DIST_DATADIR}" -m fast'
 ExecStopPost=/bin/sh -lc 'rm -f "\${POSTGRESQL18_DIST_DATADIR}/postmaster.pid"'

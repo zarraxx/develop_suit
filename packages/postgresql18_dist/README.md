@@ -98,14 +98,20 @@ Service helpers
 发行包根目录包含服务脚本：
 
 ```bash
-./install_service.sh [data_dir] [service_name] [service_user]
+./install_service.sh [data_dir] [service_name] [service_user] [listen_addresses] [port] [auth_network]
 ./uninstall_service.sh [service_name]
 ```
 
 默认 `data_dir=./var/lib/postgresql/18/main`，`service_name=postgresql18`，
-Linux `service_user=postgres`。Linux 安装时如果用户不存在，会创建一个不能
-登录的系统用户，并用该用户执行 `initdb`，所以默认数据库超级用户角色也是
-`postgres`。
+Linux `service_user=postgres`，`listen_addresses=*`，`port=5432`，
+`auth_network=192.168.0.0/16`。Linux 安装时如果用户不存在，会创建一个
+不能登录的系统用户，并用该用户执行 `initdb`，所以默认数据库超级用户角色
+也是 `postgres`。安装脚本会把监听地址和端口写入 `postgresql.conf`，并把
+授权网段写入 `pg_hba.conf`。
+
+如果发行包放在 `/home/user/opt` 这类私有 home 目录下，安装脚本会优先用
+`setfacl` 给服务用户授予父目录穿透权限和包目录读取/执行权限。如果系统没有
+ACL 支持，建议把发行包放到 `/opt` 这类服务用户可访问的位置。
 
 Windows 对应：
 

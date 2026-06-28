@@ -35,7 +35,7 @@ Linux packages also install systemd templates under `share/systemd/`:
 
 The package root includes service helper scripts:
 
-- Linux install: `./install_service.sh [data_dir] [service_name] [service_user]`
+- Linux install: `./install_service.sh [data_dir] [service_name] [service_user] [listen_addresses] [port] [auth_network]`
 - Linux uninstall: `./uninstall_service.sh [service_name]`
 - Windows install: `install_service.cmd [data_dir] [service_name]`
 - Windows uninstall: `uninstall_service.cmd [service_name]`
@@ -45,7 +45,18 @@ Defaults:
 - `data_dir`: `./var/lib/postgresql/18/main`
 - `service_name`: `postgresql18`
 - Linux `service_user`: `postgres`
+- Linux `listen_addresses`: `*`
+- Linux `port`: `5432`
+- Linux `auth_network`: `192.168.0.0/16`
 
 On Linux, `install_service.sh` creates the service user as a system user with a
 non-login shell when it does not already exist. New clusters are initialized by
-that service user, so the default superuser role is `postgres`.
+that service user, so the default superuser role is `postgres`. The installer
+writes the listen address and port to `postgresql.conf`, and writes the host
+authorization network to `pg_hba.conf`.
+
+If the package is installed below a private home directory such as
+`/home/user/opt`, the installer uses `setfacl` when available so the service
+user can traverse the parent directories and execute the packaged PostgreSQL
+binaries. If ACL support is not available, install the package under a
+service-accessible prefix such as `/opt`.
