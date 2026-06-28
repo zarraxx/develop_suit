@@ -719,7 +719,7 @@ case "$TARGET_KIND" in
     TARGET_ROOT="${TARGET_ROOT:-${MINGW_SYSROOT_PREFIX}}"
     SYSROOT="${SYSROOT:-${TARGET_ROOT}/sysroot}"
     CMAKE_STANDARD_LIBRARY_ARGS=(
-      "-DCMAKE_CXX_STANDARD_LIBRARIES=${SDK_PREFIX}/lib/${TARGET_TRIPLE}/libc++.dll.a ${SDK_PREFIX}/lib/${TARGET_TRIPLE}/libc++abi.a ${SDK_PREFIX}/lib/${TARGET_TRIPLE}/libunwind.dll.a -lole32"
+      "-DCMAKE_CXX_STANDARD_LIBRARIES=${SDK_PREFIX}/lib/${TARGET_TRIPLE}/libc++.dll.a ${SDK_PREFIX}/lib/${TARGET_TRIPLE}/libc++abi.dll.a ${SDK_PREFIX}/lib/${TARGET_TRIPLE}/libunwind.dll.a -lole32"
     )
     CMAKE_RPATH_ARGS=()
     ;;
