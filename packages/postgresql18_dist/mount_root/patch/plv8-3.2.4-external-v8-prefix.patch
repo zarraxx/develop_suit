@@ -1,6 +1,5 @@
-diff -urN a/Makefile b/Makefile
---- a/Makefile	2025-07-06 01:44:26.000000000 +0800
-+++ b/Makefile	2026-06-28 08:51:49.772921834 +0800
+--- a/Makefile
++++ b/Makefile
 @@ -3,6 +3,10 @@
  
  CP := cp
@@ -19,7 +18,7 @@ diff -urN a/Makefile b/Makefile
 -ifeq ($(OS),Windows_NT)
 -	# noop for now
 +ifneq (,$(findstring w64-windows,$(CXX)))
-+	V8_SYSTEM_LIBS += -lwinmm -ldbghelp -lws2_32 -lz
++	V8_SYSTEM_LIBS += -Wl,--enable-auto-import -lc++ -lunwind -lwinmm -ldbghelp -lws2_32 -lz
  else
 -	SHLIB_LINK += -Ldeps/v8-cmake/build
 +	V8_SYSTEM_LIBS += -ldl -pthread
@@ -69,9 +68,8 @@ diff -urN a/Makefile b/Makefile
  
  OPTFLAGS = -std=c++17 -fno-rtti -O2
  CCFLAGS += -Wall $(OPTFLAGS)
-diff -urN a/plv8.cc b/plv8.cc
---- a/plv8.cc	2025-07-06 01:44:26.000000000 +0800
-+++ b/plv8.cc	2026-06-28 08:17:05.422333631 +0800
+--- a/plv8.cc
++++ b/plv8.cc
 @@ -7,8 +7,10 @@
   */
  #include "plv8.h"
@@ -84,9 +82,8 @@ diff -urN a/plv8.cc b/plv8.cc
  #endif
  
  #include "libplatform/libplatform.h"
-diff -urN a/plv8.h b/plv8.h
---- a/plv8.h	2025-07-06 01:44:26.000000000 +0800
-+++ b/plv8.h	2026-06-28 08:17:05.422333631 +0800
+--- a/plv8.h
++++ b/plv8.h
 @@ -25,6 +25,18 @@
  #include "utils/tuplestore.h"
  #include "windowapi.h"
@@ -106,9 +103,8 @@ diff -urN a/plv8.h b/plv8.h
  #include <string>
  
  #ifdef _MSC_VER
-diff -urN a/plv8_type.cc b/plv8_type.cc
---- a/plv8_type.cc	2025-07-06 01:44:26.000000000 +0800
-+++ b/plv8_type.cc	2026-06-28 08:17:05.423333641 +0800
+--- a/plv8_type.cc
++++ b/plv8_type.cc
 @@ -754,7 +754,7 @@
  #if JSONB_DIRECT_CONVERSION
  		{

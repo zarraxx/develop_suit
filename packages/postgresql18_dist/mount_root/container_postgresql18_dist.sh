@@ -440,12 +440,6 @@ build_pgroonga() {
 build_plv8() {
   local source_dir="${EXT_SOURCE_DIR}/plv8"
 
-  if [[ "$TARGET_KIND" == "mingw" ]]; then
-    log "Skipping plv8: MinGW clang/libc++ runtime linking is not stable for plv8 yet"
-    SKIPPED_EXTENSIONS+=("plv8: disabled on MinGW due to clang/libc++ runtime linking issues")
-    return 0
-  fi
-
   apply_source_patch "$source_dir" "/work/mount_root/patch/plv8-3.2.4-external-v8-prefix.patch"
   make_pgxs_install plv8 "$source_dir" \
     V8_PREFIX="$SDK_PREFIX" \

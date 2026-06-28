@@ -102,7 +102,7 @@ show_runtime_context() {
 
 show_cluster_context() {
   log_section "cluster context"
-  "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" status >&2 || true
+  run_windows "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" status >&2 || true
   echo "--- data directory files ---" >&2
   find "${DATA_DIR}" -maxdepth 2 \( -type f -o -type d \) | LC_ALL=C sort >&2 || true
   echo "--- end data directory files ---" >&2
@@ -129,12 +129,25 @@ psql_scalar() {
   local database="$4"
   local sql="$5"
 
-  "${psql_bin}" -h "${host}" -p "${port}" -U postgres -d "${database}" -Atqc "${sql}"
+  run_windows "${psql_bin}" -h "${host}" -p "${port}" -U postgres -d "${database}" -Atqc "${sql}"
 }
 
 extension_enabled() {
   local ext_name="$1"
   [[ -f "${PACKAGE_DIR}/share/extension/${ext_name}.control" ]]
+}
+
+normalize_sql_output() {
+  tr -d '\r'
+}
+
+run_windows() {
+  if [[ "${MINGW_TEST_RUNNER:-wine}" == "direct" ]]; then
+    "$@"
+    return $?
+  fi
+
+  "${WINE:-wine}" "$@"
 }
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -168,6 +181,10 @@ export PATH="${PACKAGE_DIR}/bin:${PACKAGE_DIR}/lib:${PATH}"
 [[ -d "${PACKAGE_DIR}/share/proj" ]] && export PROJ_DATA="${PACKAGE_DIR}/share/proj"
 [[ -d "${PACKAGE_DIR}/share/gdal" ]] && export GDAL_DATA="${PACKAGE_DIR}/share/gdal"
 
+if [[ "${MINGW_TEST_RUNNER:-wine}" != "direct" ]]; then
+  command -v "${WINE:-wine}" >/dev/null 2>&1 || { echo "missing wine runner: ${WINE:-wine}" >&2; exit 1; }
+fi
+
 PYTHON_DIR="$(find "${PACKAGE_DIR}/lib" -type d -path '*/python3.*' | sort | sed -n '1p')"
 if [[ -n "${PYTHON_DIR:-}" ]]; then
   export PYTHONHOME="${PACKAGE_DIR}"
@@ -186,10 +203,10 @@ fi
 TCL_DIR="$(find "${PACKAGE_DIR}/lib" -type d -path '*/tcl8.*' | sort | sed -n '1p')"
 [[ -n "${TCL_DIR:-}" ]] && export TCL_LIBRARY="${TCL_DIR}"
 
-[[ ! -f "${PACKAGE_DIR}/share/extension/plpython3u.control" ]] || "${PACKAGE_DIR}/bin/python3.exe" -c 'import sys; print(sys.version)'
-[[ ! -f "${PACKAGE_DIR}/share/extension/plperl.control" ]] || "${PACKAGE_DIR}/bin/perl.exe" -e 'print "perl runtime ok\n";'
+[[ ! -f "${PACKAGE_DIR}/share/extension/plpython3u.control" ]] || run_windows "${PACKAGE_DIR}/bin/python3.exe" -c 'import sys; print(sys.version)'
+[[ ! -f "${PACKAGE_DIR}/share/extension/plperl.control" ]] || run_windows "${PACKAGE_DIR}/bin/perl.exe" -e 'print "perl runtime ok\n";'
 if [[ -f "${PACKAGE_DIR}/share/extension/pltcl.control" ]]; then
-  "${PACKAGE_DIR}/bin/tclsh86.exe" <<'TCL'
+  run_windows "${PACKAGE_DIR}/bin/tclsh86.exe" <<'TCL'
 puts "tcl runtime ok"
 TCL
 fi
@@ -210,7 +227,7 @@ FAILURES=()
 CLUSTER_STARTED=0
 CURRENT_POSTGRES_OPTS=()
 
-"${PACKAGE_DIR}/bin/initdb.exe" --username=postgres --auth-local=trust --auth-host=trust --no-instructions -D "${DATA_DIR}" >/dev/null
+run_windows "${PACKAGE_DIR}/bin/initdb.exe" --username=postgres --auth-local=trust --auth-host=trust --no-instructions -D "${DATA_DIR}" >/dev/null
 
 POSTGRES_OPTS=(
   "-F"
@@ -238,7 +255,7 @@ record_failure() {
 
 stop_cluster() {
   if [[ "${CLUSTER_STARTED}" == "1" ]]; then
-    "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" -m immediate stop >/dev/null 2>&1 || true
+    run_windows "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" -m immediate stop >/dev/null 2>&1 || true
     CLUSTER_STARTED=0
   fi
 }
@@ -250,7 +267,7 @@ start_cluster() {
   postgres_opts_string="$(join_postgres_opts "${start_opts[@]}")"
   log_section "starting cluster"
   echo "pg_ctl options: ${postgres_opts_string}" >&2
-  "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" -l "${LOG_FILE}" -o "${postgres_opts_string}" -w start >/dev/null || {
+  run_windows "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" -l "${LOG_FILE}" -o "${postgres_opts_string}" -w start >/dev/null || {
     show_log "${LOG_FILE}"
     show_cluster_context
     return 1
@@ -273,7 +290,7 @@ join_postgres_opts() {
 }
 
 ensure_cluster_running() {
-  if [[ "${CLUSTER_STARTED}" == "1" ]] && "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" status >/dev/null 2>&1; then
+  if [[ "${CLUSTER_STARTED}" == "1" ]] && run_windows "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" status >/dev/null 2>&1; then
     return 0
   fi
 
@@ -294,7 +311,7 @@ run_sql_step() {
   echo "running sql step: ${label}"
   : > "${STEP_STDOUT}"
   : > "${STEP_STDERR}"
-  if ! "${PACKAGE_DIR}/bin/psql.exe" -h 127.0.0.1 -p "${PORT}" -U postgres -d "${database}" -v ON_ERROR_STOP=1 -c "${sql}" >"${STEP_STDOUT}" 2>"${STEP_STDERR}"; then
+  if ! run_windows "${PACKAGE_DIR}/bin/psql.exe" -h 127.0.0.1 -p "${PORT}" -U postgres -d "${database}" -v ON_ERROR_STOP=1 -c "${sql}" >"${STEP_STDOUT}" 2>"${STEP_STDERR}"; then
     echo "sql step failed: ${label}" >&2
     echo "database=${database}" >&2
     echo "sql=${sql}" >&2
@@ -319,7 +336,7 @@ check_scalar() {
   ensure_cluster_running
   : > "${STEP_STDOUT}"
   : > "${STEP_STDERR}"
-  if ! actual="$("${PACKAGE_DIR}/bin/psql.exe" -h 127.0.0.1 -p "${PORT}" -U postgres -d "${database}" -Atqc "${sql}" 2>"${STEP_STDERR}")"; then
+  if ! actual="$(run_windows "${PACKAGE_DIR}/bin/psql.exe" -h 127.0.0.1 -p "${PORT}" -U postgres -d "${database}" -Atqc "${sql}" 2>"${STEP_STDERR}" | normalize_sql_output)"; then
     show_command_output "psql stderr" "${STEP_STDERR}"
     echo "database=${database}" >&2
     echo "sql=${sql}" >&2
@@ -343,7 +360,7 @@ check_true() {
   ensure_cluster_running
   : > "${STEP_STDOUT}"
   : > "${STEP_STDERR}"
-  if ! actual="$("${PACKAGE_DIR}/bin/psql.exe" -h 127.0.0.1 -p "${PORT}" -U postgres -d "${database}" -Atqc "${sql}" 2>"${STEP_STDERR}")"; then
+  if ! actual="$(run_windows "${PACKAGE_DIR}/bin/psql.exe" -h 127.0.0.1 -p "${PORT}" -U postgres -d "${database}" -Atqc "${sql}" 2>"${STEP_STDERR}" | normalize_sql_output)"; then
     show_command_output "psql stderr" "${STEP_STDERR}"
     echo "database=${database}" >&2
     echo "sql=${sql}" >&2
@@ -415,6 +432,12 @@ if extension_enabled plpython3u; then
     "CREATE FUNCTION codex_plpython_probe(x integer) RETURNS integer LANGUAGE plpython3u AS \$\$ return x + 11 \$\$;"
 fi
 
+if extension_enabled plv8; then
+  run_sql_step dist_test "create extension plv8" "CREATE EXTENSION plv8;"
+  run_sql_step dist_test "create plv8 helper codex_plv8_sum" \
+    "CREATE OR REPLACE FUNCTION codex_plv8_sum(v text) RETURNS integer LANGUAGE plv8 AS \$\$ return JSON.parse(v).reduce((a, b) => a + b, 0); \$\$;"
+fi
+
 if extension_enabled pg_stat_monitor; then
   run_sql_step dist_test "create extension pg_stat_monitor" "CREATE EXTENSION pg_stat_monitor;"
   run_sql_step dist_test "reset pg_stat_monitor" "SELECT pg_stat_monitor_reset();"
@@ -442,6 +465,10 @@ fi
 
 if extension_enabled plpython3u; then
   check_scalar dist_test "plpython function result" "SELECT codex_plpython_probe(31);" "42"
+fi
+
+if extension_enabled plv8; then
+  check_scalar dist_test "plv8 sum" "SELECT codex_plv8_sum('[1,2,3,4]');" "10"
 fi
 
 if extension_enabled pg_stat_monitor; then
