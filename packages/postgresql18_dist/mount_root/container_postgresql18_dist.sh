@@ -468,6 +468,7 @@ build_pgbouncer() {
     pgbouncer_libevent_libs="$(extension_env pkg-config --libs libevent)"
   fi
   if [[ "$TARGET_KIND" == "mingw" ]]; then
+    pgbouncer_libevent_libs="-L${SDK_PREFIX}/lib -levent_core -levent"
     pgbouncer_extra_libs="-lws2_32 -liphlpapi -lshell32 -ladvapi32"
   fi
 
