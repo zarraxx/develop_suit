@@ -105,6 +105,9 @@ if [[ "\$#" -eq 0 ]]; then
   exit 0
 fi
 
+want_cppflags=0
+want_cxxflags=0
+want_ldflags=0
 want_libs=0
 want_system_libs=0
 for arg in "\$@"; do
@@ -130,16 +133,13 @@ for arg in "\$@"; do
       exit 0
       ;;
     --cppflags)
-      printf '%s\n' "\${cppflags}"
-      exit 0
+      want_cppflags=1
       ;;
     --ldflags)
-      printf '%s\n' "\${ldflags}"
-      exit 0
+      want_ldflags=1
       ;;
     --cxxflags)
-      printf '%s\n' "\${cxxflags}"
-      exit 0
+      want_cxxflags=1
       ;;
     --components)
       printf '%s\n' "\${components}"
@@ -172,17 +172,34 @@ for arg in "\$@"; do
   esac
 done
 
-if [[ "\$want_libs" -eq 1 ]]; then
-  printf '%s' "\${libs}"
-  if [[ "\$want_system_libs" -eq 1 && -n "\${system_libs}" ]]; then
-    printf ' %s' "\${system_libs}"
-  fi
-  printf '\n'
-  exit 0
-fi
+if [[ "\$want_cppflags" -eq 1 || "\$want_cxxflags" -eq 1 || "\$want_ldflags" -eq 1 || "\$want_libs" -eq 1 || "\$want_system_libs" -eq 1 ]]; then
+  output=""
+  append_output() {
+    [[ -n "\$1" ]] || return 0
+    if [[ -n "\$output" ]]; then
+      output="\${output} \$1"
+    else
+      output="\$1"
+    fi
+  }
 
-if [[ "\$want_system_libs" -eq 1 ]]; then
-  printf '%s\n' "\${system_libs}"
+  if [[ "\$want_cppflags" -eq 1 ]]; then
+    append_output "\${cppflags}"
+  fi
+  if [[ "\$want_cxxflags" -eq 1 ]]; then
+    append_output "\${cxxflags}"
+  fi
+  if [[ "\$want_ldflags" -eq 1 ]]; then
+    append_output "\${ldflags}"
+  fi
+  if [[ "\$want_libs" -eq 1 ]]; then
+    append_output "\${libs}"
+  fi
+  if [[ "\$want_system_libs" -eq 1 ]]; then
+    append_output "\${system_libs}"
+  fi
+
+  printf '%s\n' "\${output}"
   exit 0
 fi
 
