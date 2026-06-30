@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+package_root="$script_dir"
+default_service_name="nginx"
+default_service_user="nginx"
+service_name="${1:-$default_service_name}"
+service_user="${2:-${SERVICE_RUN_USER:-$default_service_user}}"
+interactive_confirm=0
+
+if [[ $# -eq 0 && "${INSTALL_SERVICE_CONFIRMED:-0}" != "1" ]]; then
+  interactive_confirm=1
+fi
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+confirm_install() {
+  local message="Install nginx system service?
+
+Package root: ${package_root}
+Service name: ${service_name}
+Service user: ${service_user}
+Config file: ${package_root}/conf/nginx.conf
+"
+
+  if command -v whiptail >/dev/null 2>&1; then
+    whiptail --title "nginx service" --yesno "$message" 12 78
+    return
+  fi
+
+  if command -v dialog >/dev/null 2>&1; then
+    dialog --title "nginx service" --yesno "$message" 12 78
+    return
+  fi
+
+  printf '%s\n' "$message"
+  read -r -p "Continue? [y/N] " answer
+  [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
+}
+
+quote_systemd_value() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
+run_as_service_user() {
+  if [[ "$(id -u)" -eq 0 && "$service_user" != "root" ]]; then
+    if command -v runuser >/dev/null 2>&1; then
+      runuser -u "$service_user" -- "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+      sudo -u "$service_user" "$@"
+    else
+      die "runuser or sudo is required to check package access as ${service_user}"
+    fi
+  else
+    "$@"
+  fi
+}
+
+choose_nologin_shell() {
+  if [[ -x /usr/sbin/nologin ]]; then
+    printf '%s\n' /usr/sbin/nologin
+  elif [[ -x /sbin/nologin ]]; then
+    printf '%s\n' /sbin/nologin
+  else
+    printf '%s\n' /bin/false
+  fi
+}
+
+ensure_service_user() {
+  local nologin_shell=""
+
+  if [[ "$service_user" == "root" ]] || id "$service_user" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  nologin_shell="$(choose_nologin_shell)"
+  if command -v useradd >/dev/null 2>&1; then
+    useradd --system --home-dir "$package_root" --shell "$nologin_shell" --no-create-home "$service_user"
+  elif command -v adduser >/dev/null 2>&1; then
+    adduser --system --home "$package_root" --shell "$nologin_shell" --no-create-home "$service_user"
+  else
+    die "useradd or adduser is required to create service user: ${service_user}"
+  fi
+}
+
+service_user_can_execute_nginx() {
+  run_as_service_user test -x "${package_root}/sbin/nginx" >/dev/null 2>&1
+}
+
+grant_parent_traverse_acl() {
+  local target_path="$1"
+  local parent_dir=""
+
+  command -v setfacl >/dev/null 2>&1 || return 1
+
+  parent_dir="$(dirname "$target_path")"
+  while [[ "$parent_dir" != "/" && -n "$parent_dir" ]]; do
+    setfacl -m "u:${service_user}:--x" "$parent_dir" || return 1
+    parent_dir="$(dirname "$parent_dir")"
+  done
+}
+
+ensure_package_access() {
+  if service_user_can_execute_nginx; then
+    return 0
+  fi
+
+  if command -v setfacl >/dev/null 2>&1; then
+    if setfacl -R -m "u:${service_user}:rX" "$package_root" && \
+      grant_parent_traverse_acl "$package_root" && \
+      service_user_can_execute_nginx; then
+      return 0
+    fi
+  fi
+
+  die "service user ${service_user} cannot execute ${package_root}/sbin/nginx. Move the package under a service-accessible prefix such as /opt, or install setfacl and grant ${service_user} execute access to the package parent directories."
+}
+
+ensure_runtime_dirs() {
+  mkdir -p \
+    "${package_root}/logs" \
+    "${package_root}/run" \
+    "${package_root}/client_body_temp" \
+    "${package_root}/proxy_temp" \
+    "${package_root}/fastcgi_temp" \
+    "${package_root}/uwsgi_temp" \
+    "${package_root}/scgi_temp"
+  chown -R "$service_user" \
+    "${package_root}/logs" \
+    "${package_root}/run" \
+    "${package_root}/client_body_temp" \
+    "${package_root}/proxy_temp" \
+    "${package_root}/fastcgi_temp" \
+    "${package_root}/uwsgi_temp" \
+    "${package_root}/scgi_temp"
+  chmod 755 \
+    "${package_root}/logs" \
+    "${package_root}/run" \
+    "${package_root}/client_body_temp" \
+    "${package_root}/proxy_temp" \
+    "${package_root}/fastcgi_temp" \
+    "${package_root}/uwsgi_temp" \
+    "${package_root}/scgi_temp"
+}
+
+if [[ "$interactive_confirm" -eq 1 ]]; then
+  confirm_install || die "service installation cancelled"
+fi
+
+[[ -x "${package_root}/sbin/nginx" ]] || die "missing nginx: ${package_root}/sbin/nginx"
+[[ -f "${package_root}/conf/nginx.conf" ]] || die "missing nginx.conf: ${package_root}/conf/nginx.conf"
+command -v systemctl >/dev/null 2>&1 || die "systemctl is required"
+[[ "$service_name" =~ ^[A-Za-z0-9_.@-]+$ ]] || die "invalid service name: ${service_name}"
+[[ "$service_user" =~ ^[A-Za-z0-9_.@-]+$ ]] || die "invalid service user: ${service_user}"
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || die "root privileges or sudo are required to install a system service"
+  exec sudo env SERVICE_RUN_USER="$service_user" INSTALL_SERVICE_CONFIRMED=1 "$0" "$service_name" "$service_user"
+fi
+
+ensure_service_user
+ensure_package_access
+ensure_runtime_dirs
+
+env_file="/etc/default/${service_name}"
+service_file="/etc/systemd/system/${service_name}.service"
+
+cat >"$env_file" <<EOF
+NGINX_PACKAGE_ROOT=$(quote_systemd_value "$package_root")
+NGINX_EXTRA_ARGS=
+PATH=$(quote_systemd_value "${package_root}/sbin:${package_root}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+LD_LIBRARY_PATH=$(quote_systemd_value "${package_root}/lib:${package_root}/lib64")
+EOF
+
+cat >"$service_file" <<EOF
+[Unit]
+Description=nginx (${service_name})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${service_user}
+EnvironmentFile=${env_file}
+ExecStartPre=/bin/sh -lc 'test -x "\${NGINX_PACKAGE_ROOT}/sbin/nginx" && test -f "\${NGINX_PACKAGE_ROOT}/conf/nginx.conf"'
+ExecStart=/bin/sh -lc 'exec "\${NGINX_PACKAGE_ROOT}/sbin/nginx" -p "\${NGINX_PACKAGE_ROOT}/" -c conf/nginx.conf -e stderr -g "daemon off;" \${NGINX_EXTRA_ARGS}'
+ExecReload=/bin/sh -lc 'exec "\${NGINX_PACKAGE_ROOT}/sbin/nginx" -p "\${NGINX_PACKAGE_ROOT}/" -c conf/nginx.conf -e stderr -s reload'
+TimeoutStartSec=60
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable "$service_name"
+
+echo "Installed systemd service: ${service_name}"
+echo "Package root: ${package_root}"
+echo "Service user: ${service_user}"
+echo "Start it with: systemctl start ${service_name}"

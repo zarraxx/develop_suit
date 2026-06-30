@@ -24,9 +24,23 @@ Useful paths:
 - conf/nginx.conf
 - logs/
 - run/
+- install_service.sh / uninstall_service.sh for systemd on Linux
+- install_service.cmd / uninstall_service.cmd for WinSW on Windows
 
 Example:
 
 ```sh
 ./sbin/nginx -p "$(pwd)/" -c conf/nginx.conf
+```
+
+Service install examples:
+
+```sh
+sudo ./install_service.sh nginx nginx
+sudo systemctl start nginx
+```
+
+```cmd
+install_service.cmd nginx
+net start nginx
 ```

@@ -108,7 +108,39 @@ The package layout contains:
 - `conf/nginx.conf`
 - `logs/`
 - `run/`
+- `install_service.sh`
+- `uninstall_service.sh`
+- `install_service.cmd`
+- `uninstall_service.cmd`
 - `README.nginx`
+
+## Service Scripts
+
+Linux packages include systemd installers:
+
+```sh
+sudo ./install_service.sh nginx nginx
+sudo systemctl start nginx
+sudo ./uninstall_service.sh nginx
+```
+
+The installer creates `/etc/default/<service>` and
+`/etc/systemd/system/<service>.service`, runs nginx in the foreground with
+`daemon off`, and leaves the package directory and service user in place during
+uninstall.
+
+Windows packages include WinSW installers:
+
+```cmd
+install_service.cmd nginx
+net start nginx
+uninstall_service.cmd nginx
+```
+
+`install_service.cmd` writes a WinSW XML file under `service\<name>\`, downloads
+`winsw.exe` when it is not already present, and prefers package
+`bin\curl_static.exe` for the download before trying `curl.exe`, PowerShell, and
+`certutil`. Set `WINSW_URL` to override the default WinSW download URL.
 
 ## Test
 

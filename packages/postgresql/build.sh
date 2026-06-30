@@ -27,6 +27,8 @@ Options:
   --llvm-version=<ver>                Bootstrap LLVM toolchain version (default: 18.1.8)
   --llvmsdk-archive=<tar>             Target LLVM SDK archive used for PostgreSQL LLVM/JIT
   --llvmsdk-dir=<dir>                 Already extracted target LLVM SDK prefix
+  --enable-llvm-jit                   Force PostgreSQL LLVM/JIT on for Linux targets
+  --disable-llvm-jit                  Build without PostgreSQL LLVM/JIT
   --postgresql-deps-archive=<tar>     postgresql_dependencies archive to use as base prefix
   --postgresql-deps-dir=<dir>         Already extracted postgresql_dependencies prefix
   --postgresql-archive=<tar>          Use a local PostgreSQL source archive
@@ -360,6 +362,7 @@ validate_base_prefix() {
 TARGET=""
 POSTGRESQL_VERSION="18.4"
 LLVM_VERSION="18.1.8"
+LLVM_JIT_MODE="auto"
 BUILD_IMAGE="$PACKAGES_DEFAULT_BUILD_IMAGE"
 JOBS="$PACKAGES_DEFAULT_JOBS"
 PACKAGE_NAME=""
@@ -395,6 +398,12 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || die "--llvm-version requires a value"
       LLVM_VERSION="$1"
+      ;;
+    --enable-llvm-jit|--with-llvm-jit|--with-llvm)
+      LLVM_JIT_MODE="enabled"
+      ;;
+    --disable-llvm-jit|--without-llvm-jit|--without-llvm)
+      LLVM_JIT_MODE="disabled"
       ;;
     --llvmsdk-archive=*) LLVMSDK_ARCHIVE="${1#*=}" ;;
     --llvmsdk-archive)
@@ -491,6 +500,16 @@ if [[ -n "$QEMU_BINARY" && -n "$POSTGRESQL_TARGET_RUNNER" ]]; then
   die "--qemu-binary and --postgresql-target-runner are mutually exclusive"
 fi
 
+LLVM_JIT_ENABLED=0
+case "${TARGET_KIND}:${ARCH}:${LLVM_JIT_MODE}" in
+  linux:x86_64:auto|linux:aarch64:auto|linux:*:enabled)
+    LLVM_JIT_ENABLED=1
+    ;;
+  linux:riscv64:auto|linux:loongarch64:auto|linux:*:disabled|mingw:*:*)
+    LLVM_JIT_ENABLED=0
+    ;;
+esac
+
 if [[ -z "$PACKAGE_NAME" ]]; then
   PACKAGE_NAME="postgresql-${POSTGRESQL_VERSION}-${PACKAGE_TRIPLE}"
 fi
@@ -579,10 +598,10 @@ copy_or_extract_base_prefix "$OUT_DIR" "$POSTGRESQL_DEPS_ARCHIVE" "$POSTGRESQL_D
 overlay_optional_runtime_archives
 validate_base_prefix "$OUT_DIR"
 
-if [[ "$TARGET_KIND" == "linux" && -z "$LLVMSDK_ARCHIVE" && -z "$LLVMSDK_DIR" ]]; then
+if [[ "$LLVM_JIT_ENABLED" -eq 1 && "$TARGET_KIND" == "linux" && -z "$LLVMSDK_ARCHIVE" && -z "$LLVMSDK_DIR" ]]; then
   LLVMSDK_ARCHIVE="$(find_local_llvmsdk_archive || true)"
 fi
-if [[ "$TARGET_KIND" == "linux" ]] && [[ -n "$LLVMSDK_ARCHIVE" || -n "$LLVMSDK_DIR" ]]; then
+if [[ "$LLVM_JIT_ENABLED" -eq 1 && "$TARGET_KIND" == "linux" ]] && [[ -n "$LLVMSDK_ARCHIVE" || -n "$LLVMSDK_DIR" ]]; then
   echo "-- preparing LLVM SDK for PostgreSQL JIT"
   prepare_llvmsdk_prefix "$LLVMSDK_EXTRACT_DIR" "$LLVMSDK_ARCHIVE" "$LLVMSDK_DIR"
 fi
@@ -605,6 +624,9 @@ echo "-- image: ${BUILD_IMAGE}"
 echo "-- target kind: ${TARGET_KIND}"
 echo "-- target triple: ${TARGET_TRIPLE}"
 echo "-- postgresql version: ${POSTGRESQL_VERSION}"
+if [[ "$TARGET_KIND" == "linux" ]]; then
+  echo "-- llvm jit: $([[ "$LLVM_JIT_ENABLED" -eq 1 ]] && printf enabled || printf disabled)"
+fi
 echo "-- package: ${PACKAGE_NAME}"
 echo "-- output: ${OUT_DIR}"
 if [[ -n "$POSTGRESQL_DEPS_ARCHIVE" ]]; then
@@ -634,7 +656,8 @@ container_args=(
   -e "POSTGRESQL_VERSION=${POSTGRESQL_VERSION}"
   -e "POSTGRESQL_ARCHIVE=${CONTAINER_POSTGRESQL_ARCHIVE}"
   -e "POSTGRESQL_TARGET_RUNNER=${POSTGRESQL_TARGET_RUNNER}"
-  -e "POSTGRESQL_LLVM_ROOT=$([[ "$TARGET_KIND" == "linux" && -d "$LLVMSDK_EXTRACT_DIR" ]] && printf /work/build/llvmsdk || true)"
+  -e "POSTGRESQL_ENABLE_LLVM_JIT=${LLVM_JIT_ENABLED}"
+  -e "POSTGRESQL_LLVM_ROOT=$([[ "$LLVM_JIT_ENABLED" -eq 1 && "$TARGET_KIND" == "linux" && -d "$LLVMSDK_EXTRACT_DIR" ]] && printf /work/build/llvmsdk || true)"
   -e "JOBS=${JOBS}"
   -e "SDK_PREFIX=/opt/${PACKAGE_NAME}"
 )

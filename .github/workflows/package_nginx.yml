@@ -271,12 +271,205 @@ jobs:
           tar -C "${PWD}" -xf "${archive_path}"
           bash ./packages/nginx/test_package.sh "${package_dir}"
 
+  service-test-nginx-linux-x64:
+    name: service-test-nginx-linux-x64
+    runs-on: ubuntu-24.04
+    needs:
+      - resolve-meta
+      - test-nginx
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download x64 Linux nginx artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: nginx-x86_64
+          path: artifacts
+
+      - name: Install, start, and uninstall nginx systemd service
+        env:
+          ASSET_PREFIX: ${{ needs.resolve-meta.outputs.asset_prefix }}
+        run: |
+          set -euo pipefail
+
+          service_name="nginx-ci"
+          archive_name="${ASSET_PREFIX}-x86_64-unknown-linux-gnu.tar.xz"
+          archive_path="${PWD}/artifacts/${archive_name}"
+          package_dir="${PWD}/${ASSET_PREFIX}-x86_64-unknown-linux-gnu"
+
+          [[ -f "${archive_path}" ]] || {
+            echo "missing package artifact: ${archive_path}" >&2
+            exit 1
+          }
+
+          cleanup() {
+            if [[ -x "${package_dir}/uninstall_service.sh" ]]; then
+              sudo "${package_dir}/uninstall_service.sh" "${service_name}" || true
+            fi
+          }
+          trap cleanup EXIT
+
+          rm -rf "${package_dir}"
+          tar -C "${PWD}" -xf "${archive_path}"
+          sed -i 's/listen 8080;/listen 127.0.0.1:18080;/' "${package_dir}/conf/nginx.conf"
+
+          sudo "${package_dir}/install_service.sh" "${service_name}" nginx
+          sudo systemctl start "${service_name}"
+          sudo systemctl status "${service_name}" --no-pager
+
+          "${package_dir}/bin/curl_static" \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --retry 10 \
+            --retry-delay 1 \
+            -fsS "http://127.0.0.1:18080/" \
+            | grep -q "Welcome to nginx"
+
+          sudo bash ./packages/nginx/test_package.sh "${package_dir}" 28080 27890 28443
+
+          sudo "${package_dir}/uninstall_service.sh" "${service_name}"
+          trap - EXIT
+
+          if systemctl is-active --quiet "${service_name}"; then
+            echo "service is still active after uninstall: ${service_name}" >&2
+            exit 1
+          fi
+
+  service-test-nginx-windows-x64:
+    name: service-test-nginx-windows-x64
+    runs-on: windows-latest
+    needs:
+      - resolve-meta
+      - test-nginx
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download x64 Windows nginx artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: nginx-mingw64
+          path: artifacts
+
+      - name: Set up MSYS2 for service test script
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: tar
+
+      - name: Install, start, and uninstall nginx WinSW service
+        shell: pwsh
+        env:
+          ASSET_PREFIX: ${{ needs.resolve-meta.outputs.asset_prefix }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $serviceName = 'nginx-ci'
+          $archiveName = "${env:ASSET_PREFIX}-x86_64-w64-windows-gnu.tar.xz"
+          $archivePath = Join-Path $PWD "artifacts\$archiveName"
+          $packageDir = Join-Path $PWD "${env:ASSET_PREFIX}-x86_64-w64-windows-gnu"
+
+          if (-not (Test-Path $archivePath)) {
+            throw "missing package artifact: $archivePath"
+          }
+
+          function Invoke-CmdChecked {
+            param([Parameter(Mandatory = $true)][string]$Command)
+
+            & cmd.exe /c $Command
+            if ($LASTEXITCODE -ne 0) {
+              throw "command failed with exit code ${LASTEXITCODE}: $Command"
+            }
+          }
+
+          if (Test-Path $packageDir) {
+            Remove-Item -Recurse -Force $packageDir
+          }
+          tar -C $PWD -xf $archivePath
+          $configPath = Join-Path $packageDir 'conf\nginx.conf'
+          (Get-Content $configPath) -replace 'listen 8080;', 'listen 127.0.0.1:18080;' | Set-Content $configPath
+
+          $nginx = Join-Path $packageDir 'sbin\nginx.exe'
+          & $nginx -p "$packageDir\" -c 'conf/nginx.conf' -e 'logs/error.log' -t
+          if ($LASTEXITCODE -ne 0) {
+            throw "nginx config test failed with exit code $LASTEXITCODE"
+          }
+
+          try {
+            Invoke-CmdChecked "`"$packageDir\install_service.cmd`" $serviceName"
+            Start-Service -Name $serviceName
+            $runningService = Get-Service -Name $serviceName
+            $runningService.WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+            Get-Service -Name $serviceName
+
+            $curl = Join-Path $packageDir 'bin\curl_static.exe'
+            $response = & $curl `
+              --connect-timeout 10 `
+              --max-time 30 `
+              --retry 10 `
+              --retry-delay 1 `
+              -fsS 'http://127.0.0.1:18080/'
+            if ($LASTEXITCODE -ne 0) {
+              throw "curl_static failed with exit code $LASTEXITCODE"
+            }
+            $responseText = $response | Out-String
+            if ($responseText -notmatch 'Welcome to nginx') {
+              throw "nginx welcome page check failed"
+            }
+
+            $workspaceForBash = $env:GITHUB_WORKSPACE.Replace('\', '/')
+            $packageDirForBash = $packageDir.Replace('\', '/')
+            & C:\msys64\usr\bin\bash.exe -lc "cd '${workspaceForBash}' && bash ./packages/nginx/test_package.sh '${packageDirForBash}' 28080 27890 28443"
+            if ($LASTEXITCODE -ne 0) {
+              throw "test_package.sh failed with exit code $LASTEXITCODE"
+            }
+          } finally {
+            foreach ($logDir in @((Join-Path $packageDir 'logs'), (Join-Path $packageDir "service\$serviceName"))) {
+              if (Test-Path $logDir) {
+                Get-ChildItem -Path $logDir -File -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Extension -in @('.log', '.out', '.err', '.xml') } |
+                  ForEach-Object {
+                  Write-Host "----- $($_.FullName) -----"
+                  Get-Content $_.FullName -ErrorAction SilentlyContinue
+                }
+              }
+            }
+            $uninstallScript = Join-Path $packageDir 'uninstall_service.cmd'
+            if (Test-Path $uninstallScript) {
+              & cmd.exe /c "`"$uninstallScript`" $serviceName"
+              if ($LASTEXITCODE -ne 0) {
+                Write-Warning "service uninstall exited with code $LASTEXITCODE"
+              }
+            }
+          }
+
+          $serviceRemoved = $false
+          for ($i = 0; $i -lt 15; $i++) {
+            $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+            if ($null -eq $service) {
+              $serviceRemoved = $true
+              break
+            }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $serviceRemoved) {
+            throw "service still exists after uninstall: $serviceName"
+          }
+
   publish-release:
     name: publish-release
     runs-on: ubuntu-latest
     needs:
       - resolve-meta
       - test-nginx
+      - service-test-nginx-linux-x64
+      - service-test-nginx-windows-x64
     if: ${{ inputs.publish_release }}
 
     steps:

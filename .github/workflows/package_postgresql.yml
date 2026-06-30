@@ -306,7 +306,7 @@ jobs:
           exit 1
 
       - name: Download LLVM SDK archive
-        if: ${{ matrix.build_kind != 'mingw64' }}
+        if: ${{ matrix.build_kind != 'mingw64' && matrix.target != 'riscv64' && matrix.target != 'loongarch64' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -346,12 +346,16 @@ jobs:
             exit 1
           }
           llvmsdk_args=()
-          if [[ "${{ matrix.build_kind }}" != "mingw64" ]]; then
+          llvm_jit_args=()
+          if [[ "${{ matrix.build_kind }}" != "mingw64" && "${{ matrix.target }}" != "riscv64" && "${{ matrix.target }}" != "loongarch64" ]]; then
             [[ -f "${llvmsdk_archive}" ]] || {
               echo "missing downloaded LLVM SDK archive: ${llvmsdk_archive}" >&2
               exit 1
             }
             llvmsdk_args+=(--llvmsdk-archive="${llvmsdk_archive}")
+            llvm_jit_args+=(--enable-llvm-jit)
+          else
+            llvm_jit_args+=(--disable-llvm-jit)
           fi
 
           bash ./packages/postgresql/build.sh \
@@ -360,6 +364,7 @@ jobs:
             --llvm-version="${{ env.LLVM_SDK_VERSION }}" \
             --postgresql-deps-archive="${dependency_archive}" \
             "${llvmsdk_args[@]}" \
+            "${llvm_jit_args[@]}" \
             --package-name="${package_name}" \
             --clean \
             --pull \

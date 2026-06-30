@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+default_service_name="nginx"
+service_name="${1:-$default_service_name}"
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+[[ "$service_name" =~ ^[A-Za-z0-9_.@-]+$ ]] || die "invalid service name: ${service_name}"
+command -v systemctl >/dev/null 2>&1 || die "systemctl is required"
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || die "root privileges or sudo are required to uninstall a system service"
+  exec sudo "$0" "$service_name"
+fi
+
+service_file="/etc/systemd/system/${service_name}.service"
+env_file="/etc/default/${service_name}"
+stopped=0
+
+if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -qx "${service_name}.service"; then
+  systemctl disable "$service_name" >/dev/null 2>&1 || true
+  systemctl stop "$service_name" >/dev/null 2>&1 || true
+elif systemctl list-units --type=service --all --no-legend 2>/dev/null | awk '{print $1}' | grep -qx "${service_name}.service"; then
+  systemctl stop "$service_name" >/dev/null 2>&1 || true
+fi
+
+for _ in $(seq 1 10); do
+  if ! systemctl is-active --quiet "$service_name"; then
+    stopped=1
+    break
+  fi
+  sleep 1
+done
+
+if [[ "$stopped" -ne 1 ]]; then
+  systemctl kill --kill-who=all -s TERM "$service_name" >/dev/null 2>&1 || true
+  for _ in $(seq 1 10); do
+    if ! systemctl is-active --quiet "$service_name"; then
+      stopped=1
+      break
+    fi
+    sleep 1
+  done
+fi
+
+if [[ "$stopped" -ne 1 ]]; then
+  systemctl kill --kill-who=all -s KILL "$service_name" >/dev/null 2>&1 || true
+  for _ in $(seq 1 10); do
+    if ! systemctl is-active --quiet "$service_name"; then
+      stopped=1
+      break
+    fi
+    sleep 1
+  done
+fi
+
+[[ "$stopped" -eq 1 ]] || die "service did not stop: ${service_name}"
+
+rm -f "$service_file" "$env_file"
+systemctl daemon-reload
+systemctl reset-failed "$service_name" >/dev/null 2>&1 || true
+
+echo "Uninstalled systemd service: ${service_name}"
+echo "Package directory and service user were left unchanged."

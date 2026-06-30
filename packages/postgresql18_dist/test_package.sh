@@ -140,6 +140,34 @@ extension_enabled() {
   [[ -f "${PACKAGE_DIR}/share/extension/${ext_name}.control" ]]
 }
 
+package_has_llvm_jit() {
+  [[ -f "${PACKAGE_DIR}/lib/llvmjit.so" ]]
+}
+
+check_llvm_jit_runtime_dependencies() {
+  local dynamic_entries=""
+  local ldd_output=""
+
+  package_has_llvm_jit || return 0
+
+  if command -v readelf >/dev/null 2>&1; then
+    dynamic_entries="$(readelf -d "${PACKAGE_DIR}/lib/llvmjit.so" 2>&1)" \
+      || die "failed to inspect llvmjit.so dynamic entries: ${dynamic_entries}"
+    if ! grep -q 'Shared library: \[libLLVM\.so' <<<"$dynamic_entries"; then
+      die "llvmjit.so is not linked against libLLVM: ${dynamic_entries}"
+    fi
+  fi
+
+  command -v ldd >/dev/null 2>&1 || return 0
+
+  if ! ldd_output="$(LD_LIBRARY_PATH="${PACKAGE_DIR}/lib:${LD_LIBRARY_PATH:-}" ldd "${PACKAGE_DIR}/lib/llvmjit.so" 2>&1)"; then
+    die "failed to inspect llvmjit.so runtime dependencies: ${ldd_output}"
+  fi
+  if grep -q "not found" <<<"$ldd_output"; then
+    die "llvmjit.so has missing runtime dependencies: ${ldd_output}"
+  fi
+}
+
 setup_runtime_env() {
   local python_lib=""
   local python_dynload=""
@@ -343,6 +371,35 @@ run_postgresql18_dist_test() {
     return 0
   }
 
+  check_jit_query() {
+    local actual=""
+
+    package_has_llvm_jit || return 0
+
+    ensure_cluster_running
+    echo "running sql step: llvm jit query"
+    if ! actual="$("${psql_bin}" -h "$psql_host" -p "$port" -U postgres -d postgres -v ON_ERROR_STOP=1 -Atq <<'SQL' 2>/dev/null
+SET jit = on;
+SET jit_above_cost = 0;
+SET jit_inline_above_cost = 0;
+SET jit_optimize_above_cost = 0;
+SELECT sum((i::bigint * i::bigint)) FROM generate_series(1, 10000) AS g(i);
+SQL
+)"; then
+      show_postgresql_log "${log_file}"
+      record_failure "query failed: llvm jit query"
+      stop_cluster
+      ensure_cluster_running
+      return 0
+    fi
+
+    if [[ "${actual}" != "333383335000" ]]; then
+      record_failure "unexpected result for llvm jit query: expected [333383335000], got [${actual}]"
+      return 0
+    fi
+    return 0
+  }
+
   cleanup_cluster() {
     stop_cluster
   }
@@ -390,6 +447,14 @@ run_postgresql18_dist_test() {
   run_sql_step postgres "create database" "CREATE DATABASE dist_test;"
   run_sql_step dist_test "create random data table" \
     "CREATE TABLE dist_random_data AS SELECT gs AS id, ((random() * 100)::integer) AS n, format('row-%s postgresql graph search', gs) AS content FROM generate_series(1, 64) AS gs;"
+
+  if package_has_llvm_jit; then
+    check_llvm_jit_runtime_dependencies
+    check_scalar postgres "jit setting" "SHOW jit;" "on"
+    check_scalar postgres "jit provider" "SHOW jit_provider;" "llvmjit"
+    check_true postgres "pg_jit_available" "SELECT pg_jit_available();"
+    check_jit_query
+  fi
 
   if extension_enabled plpython3u; then
     run_sql_step dist_test "create extension plpython3u" "CREATE EXTENSION plpython3u;"
