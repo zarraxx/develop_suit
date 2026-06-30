@@ -27,7 +27,7 @@ Options:
   --llvm-version=<ver>                Bootstrap LLVM toolchain version (default: 18.1.8)
   --llvmsdk-archive=<tar>             Target LLVM SDK archive used for PostgreSQL LLVM/JIT
   --llvmsdk-dir=<dir>                 Already extracted target LLVM SDK prefix
-  --enable-llvm-jit                   Force PostgreSQL LLVM/JIT on for Linux targets
+  --enable-llvm-jit                   Force PostgreSQL LLVM/JIT on for supported targets
   --disable-llvm-jit                  Build without PostgreSQL LLVM/JIT
   --postgresql-deps-archive=<tar>     postgresql_dependencies archive to use as base prefix
   --postgresql-deps-dir=<dir>         Already extracted postgresql_dependencies prefix
@@ -211,8 +211,21 @@ prepare_llvmsdk_prefix() {
   fi
 
   [[ -d "${output_dir}/include/llvm" ]] || die "llvmsdk missing LLVM headers: ${output_dir}/include/llvm"
-  find "${output_dir}/lib" -maxdepth 1 -name 'libLLVM.so*' -print -quit | grep -q . \
-    || die "llvmsdk missing libLLVM shared library: ${output_dir}/lib"
+  case "$TARGET_KIND" in
+    linux)
+      find "${output_dir}/lib" -maxdepth 1 -name 'libLLVM.so*' -print -quit | grep -q . \
+        || die "llvmsdk missing libLLVM shared library: ${output_dir}/lib"
+      ;;
+    mingw)
+      find "${output_dir}/lib" -maxdepth 1 -name 'libLLVM*.dll.a' -print -quit | grep -q . \
+        || die "llvmsdk missing libLLVM import library: ${output_dir}/lib"
+      find "${output_dir}/bin" -maxdepth 1 -name 'libLLVM*.dll' -print -quit | grep -q . \
+        || die "llvmsdk missing libLLVM runtime DLL: ${output_dir}/bin"
+      ;;
+    *)
+      die "unsupported llvmsdk target kind: ${TARGET_KIND}"
+      ;;
+  esac
 }
 
 copy_or_extract_base_prefix() {
@@ -502,10 +515,10 @@ fi
 
 LLVM_JIT_ENABLED=0
 case "${TARGET_KIND}:${ARCH}:${LLVM_JIT_MODE}" in
-  linux:x86_64:auto|linux:aarch64:auto|linux:*:enabled)
+  linux:x86_64:auto|linux:aarch64:auto|mingw:x86_64:auto|linux:*:enabled|mingw:*:enabled)
     LLVM_JIT_ENABLED=1
     ;;
-  linux:riscv64:auto|linux:loongarch64:auto|linux:*:disabled|mingw:*:*)
+  linux:riscv64:auto|linux:loongarch64:auto|linux:*:disabled|mingw:*:disabled)
     LLVM_JIT_ENABLED=0
     ;;
 esac
@@ -598,10 +611,10 @@ copy_or_extract_base_prefix "$OUT_DIR" "$POSTGRESQL_DEPS_ARCHIVE" "$POSTGRESQL_D
 overlay_optional_runtime_archives
 validate_base_prefix "$OUT_DIR"
 
-if [[ "$LLVM_JIT_ENABLED" -eq 1 && "$TARGET_KIND" == "linux" && -z "$LLVMSDK_ARCHIVE" && -z "$LLVMSDK_DIR" ]]; then
+if [[ "$LLVM_JIT_ENABLED" -eq 1 && -z "$LLVMSDK_ARCHIVE" && -z "$LLVMSDK_DIR" ]]; then
   LLVMSDK_ARCHIVE="$(find_local_llvmsdk_archive || true)"
 fi
-if [[ "$LLVM_JIT_ENABLED" -eq 1 && "$TARGET_KIND" == "linux" ]] && [[ -n "$LLVMSDK_ARCHIVE" || -n "$LLVMSDK_DIR" ]]; then
+if [[ "$LLVM_JIT_ENABLED" -eq 1 ]] && [[ -n "$LLVMSDK_ARCHIVE" || -n "$LLVMSDK_DIR" ]]; then
   echo "-- preparing LLVM SDK for PostgreSQL JIT"
   prepare_llvmsdk_prefix "$LLVMSDK_EXTRACT_DIR" "$LLVMSDK_ARCHIVE" "$LLVMSDK_DIR"
 fi
@@ -624,9 +637,7 @@ echo "-- image: ${BUILD_IMAGE}"
 echo "-- target kind: ${TARGET_KIND}"
 echo "-- target triple: ${TARGET_TRIPLE}"
 echo "-- postgresql version: ${POSTGRESQL_VERSION}"
-if [[ "$TARGET_KIND" == "linux" ]]; then
-  echo "-- llvm jit: $([[ "$LLVM_JIT_ENABLED" -eq 1 ]] && printf enabled || printf disabled)"
-fi
+echo "-- llvm jit: $([[ "$LLVM_JIT_ENABLED" -eq 1 ]] && printf enabled || printf disabled)"
 echo "-- package: ${PACKAGE_NAME}"
 echo "-- output: ${OUT_DIR}"
 if [[ -n "$POSTGRESQL_DEPS_ARCHIVE" ]]; then
@@ -657,7 +668,7 @@ container_args=(
   -e "POSTGRESQL_ARCHIVE=${CONTAINER_POSTGRESQL_ARCHIVE}"
   -e "POSTGRESQL_TARGET_RUNNER=${POSTGRESQL_TARGET_RUNNER}"
   -e "POSTGRESQL_ENABLE_LLVM_JIT=${LLVM_JIT_ENABLED}"
-  -e "POSTGRESQL_LLVM_ROOT=$([[ "$LLVM_JIT_ENABLED" -eq 1 && "$TARGET_KIND" == "linux" && -d "$LLVMSDK_EXTRACT_DIR" ]] && printf /work/build/llvmsdk || true)"
+  -e "POSTGRESQL_LLVM_ROOT=$([[ "$LLVM_JIT_ENABLED" -eq 1 && -d "$LLVMSDK_EXTRACT_DIR" ]] && printf /work/build/llvmsdk || true)"
   -e "JOBS=${JOBS}"
   -e "SDK_PREFIX=/opt/${PACKAGE_NAME}"
 )

@@ -14,6 +14,7 @@ TARGET=""
 PACKAGE_DIR=""
 ARCHIVE=""
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+POSTGRESQL_EXPECT_LLVM_JIT="${POSTGRESQL_EXPECT_LLVM_JIT:-0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -77,6 +78,54 @@ psql_scalar() {
   local sql="$5"
 
   "${psql_bin}" -h "${host}" -p "${port}" -U postgres -d "${database}" -Atqc "${sql}"
+}
+
+package_has_llvm_jit() {
+  [[ -f "${PACKAGE_DIR}/lib/llvmjit.dll" || -f "${PACKAGE_DIR}/lib/llvmjit.so" ]]
+}
+
+run_postgresql_jit_test() {
+  local jit_setting=""
+  local jit_provider=""
+  local jit_available=""
+  local jit_sum=""
+
+  if ! package_has_llvm_jit; then
+    if [[ "$POSTGRESQL_EXPECT_LLVM_JIT" == "1" ]]; then
+      show_log "${LOG_FILE}"
+      echo "missing PostgreSQL LLVM JIT module" >&2
+      exit 1
+    fi
+    return 0
+  fi
+
+  echo "Running PostgreSQL LLVM JIT test"
+
+  jit_setting="$(psql_scalar "${PACKAGE_DIR}/bin/psql.exe" 127.0.0.1 "${PORT}" base_test "SHOW jit")" \
+    || { show_log "${LOG_FILE}"; exit 1; }
+  [[ "$jit_setting" == "on" ]] \
+    || { show_log "${LOG_FILE}"; echo "unexpected jit setting: ${jit_setting}" >&2; exit 1; }
+
+  jit_provider="$(psql_scalar "${PACKAGE_DIR}/bin/psql.exe" 127.0.0.1 "${PORT}" base_test "SHOW jit_provider")" \
+    || { show_log "${LOG_FILE}"; exit 1; }
+  [[ "$jit_provider" == "llvmjit" ]] \
+    || { show_log "${LOG_FILE}"; echo "unexpected jit_provider: ${jit_provider}" >&2; exit 1; }
+
+  jit_available="$(psql_scalar "${PACKAGE_DIR}/bin/psql.exe" 127.0.0.1 "${PORT}" base_test "SELECT pg_jit_available()")" \
+    || { show_log "${LOG_FILE}"; exit 1; }
+  [[ "$jit_available" == "t" ]] \
+    || { show_log "${LOG_FILE}"; echo "pg_jit_available() returned: ${jit_available}" >&2; exit 1; }
+
+  jit_sum="$("${PACKAGE_DIR}/bin/psql.exe" -h 127.0.0.1 -p "${PORT}" -U postgres -d base_test -v ON_ERROR_STOP=1 -Atq <<'SQL'
+SET jit = on;
+SET jit_above_cost = 0;
+SET jit_inline_above_cost = 0;
+SET jit_optimize_above_cost = 0;
+SELECT sum((i::bigint * i::bigint)) FROM generate_series(1, 10000) AS g(i);
+SQL
+)" || { show_log "${LOG_FILE}"; exit 1; }
+  [[ "$jit_sum" == "333383335000" ]] \
+    || { show_log "${LOG_FILE}"; echo "JIT query returned unexpected result: ${jit_sum}" >&2; exit 1; }
 }
 
 if [[ -n "${ARCHIVE}" ]]; then
@@ -254,6 +303,8 @@ if [[ -f "${PACKAGE_DIR}/share/extension/pltcl.control" ]]; then
   [[ "$(psql_scalar "${PACKAGE_DIR}/bin/psql.exe" 127.0.0.1 "${PORT}" base_test "SELECT codex_pltcl_repeat('pg', 3)")" == "pgpgpg" ]] \
     || { show_log "${LOG_FILE}"; echo "pltcl function returned unexpected result" >&2; exit 1; }
 fi
+
+run_postgresql_jit_test
 
 "${PACKAGE_DIR}/bin/pg_ctl.exe" -D "${DATA_DIR}" -m fast stop >/dev/null
 trap - EXIT

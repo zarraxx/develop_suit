@@ -306,7 +306,7 @@ jobs:
           exit 1
 
       - name: Download LLVM SDK archive
-        if: ${{ matrix.build_kind != 'mingw64' && matrix.target != 'riscv64' && matrix.target != 'loongarch64' }}
+        if: ${{ matrix.target != 'riscv64' && matrix.target != 'loongarch64' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -347,7 +347,7 @@ jobs:
           }
           llvmsdk_args=()
           llvm_jit_args=()
-          if [[ "${{ matrix.build_kind }}" != "mingw64" && "${{ matrix.target }}" != "riscv64" && "${{ matrix.target }}" != "loongarch64" ]]; then
+          if [[ "${{ matrix.target }}" != "riscv64" && "${{ matrix.target }}" != "loongarch64" ]]; then
             [[ -f "${llvmsdk_archive}" ]] || {
               echo "missing downloaded LLVM SDK archive: ${llvmsdk_archive}" >&2
               exit 1
@@ -476,6 +476,8 @@ jobs:
       - name: Test PostgreSQL package on Windows
         if: ${{ matrix.test_mode == 'mingw-native' }}
         shell: msys2 {0}
+        env:
+          POSTGRESQL_EXPECT_LLVM_JIT: "1"
         run: |
           set -euo pipefail
           archive_path="artifacts/postgresql-${{ env.POSTGRESQL_PACKAGE_VERSION }}-${{ matrix.triple }}.tar.xz"
