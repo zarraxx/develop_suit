@@ -1,0 +1,151 @@
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+set "PACKAGE_ROOT=%~dp0"
+if "%PACKAGE_ROOT:~-1%"=="\" set "PACKAGE_ROOT=%PACKAGE_ROOT:~0,-1%"
+
+if "%~1"=="" (
+  set "SERVICE_NAME=nginx"
+) else (
+  set "SERVICE_NAME=%~1"
+)
+
+if "%WINSW_URL%"=="" (
+  set "WINSW_URL=https://github.com/winsw/winsw/releases/latest/download/WinSW-x64.exe"
+)
+
+set "SERVICE_DIR=%PACKAGE_ROOT%\service\%SERVICE_NAME%"
+set "WINSW_EXE=%SERVICE_DIR%\winsw.exe"
+set "WINSW_XML=%SERVICE_DIR%\winsw.xml"
+
+echo(!SERVICE_NAME!| findstr /R /C:"^[A-Za-z0-9_.@-][A-Za-z0-9_.@-]*$" >nul
+if errorlevel 1 (
+  echo error: invalid service name: !SERVICE_NAME!
+  exit /b 1
+)
+
+echo(!PACKAGE_ROOT!| findstr /R /C:"[&<>]" >nul
+if not errorlevel 1 (
+  echo error: package path contains a character unsupported by this cmd installer: !PACKAGE_ROOT!
+  exit /b 1
+)
+
+if "%~1"=="" (
+  echo Install nginx Windows service?
+  echo.
+  echo Package root: !PACKAGE_ROOT!
+  echo Service name: !SERVICE_NAME!
+  echo WinSW URL: !WINSW_URL!
+  echo.
+  set /p CONFIRM=Continue? [y/N]
+  if /I not "!CONFIRM!"=="Y" (
+    echo Service installation cancelled.
+    exit /b 1
+  )
+)
+
+if not exist "%PACKAGE_ROOT%\sbin\nginx.exe" (
+  echo error: missing nginx.exe: "%PACKAGE_ROOT%\sbin\nginx.exe"
+  exit /b 1
+)
+
+if not exist "%PACKAGE_ROOT%\conf\nginx.conf" (
+  echo error: missing nginx.conf: "%PACKAGE_ROOT%\conf\nginx.conf"
+  exit /b 1
+)
+
+sc query "%SERVICE_NAME%" >nul 2>nul
+if not errorlevel 1 (
+  echo error: service already exists: %SERVICE_NAME%
+  exit /b 1
+)
+
+if not exist "%SERVICE_DIR%" mkdir "%SERVICE_DIR%"
+if errorlevel 1 exit /b 1
+if not exist "%PACKAGE_ROOT%\logs" mkdir "%PACKAGE_ROOT%\logs"
+if not exist "%PACKAGE_ROOT%\run" mkdir "%PACKAGE_ROOT%\run"
+if not exist "%PACKAGE_ROOT%\client_body_temp" mkdir "%PACKAGE_ROOT%\client_body_temp"
+if not exist "%PACKAGE_ROOT%\proxy_temp" mkdir "%PACKAGE_ROOT%\proxy_temp"
+if not exist "%PACKAGE_ROOT%\fastcgi_temp" mkdir "%PACKAGE_ROOT%\fastcgi_temp"
+if not exist "%PACKAGE_ROOT%\uwsgi_temp" mkdir "%PACKAGE_ROOT%\uwsgi_temp"
+if not exist "%PACKAGE_ROOT%\scgi_temp" mkdir "%PACKAGE_ROOT%\scgi_temp"
+
+if not exist "%WINSW_EXE%" (
+  call :download_winsw
+  if errorlevel 1 exit /b 1
+)
+
+(
+  echo ^<service^>
+  echo   ^<id^>%SERVICE_NAME%^</id^>
+  echo   ^<name^>%SERVICE_NAME%^</name^>
+  echo   ^<description^>nginx from %PACKAGE_ROOT%^</description^>
+  echo   ^<executable^>%PACKAGE_ROOT%\sbin\nginx.exe^</executable^>
+  echo   ^<arguments^>-p ^&quot;%PACKAGE_ROOT%/^&quot; -c ^&quot;conf/nginx.conf^&quot; -e ^&quot;logs/error.log^&quot;^</arguments^>
+  echo   ^<stopexecutable^>%PACKAGE_ROOT%\sbin\nginx.exe^</stopexecutable^>
+  echo   ^<stoparguments^>-p ^&quot;%PACKAGE_ROOT%/^&quot; -c ^&quot;conf/nginx.conf^&quot; -e ^&quot;logs/error.log^&quot; -s quit^</stoparguments^>
+  echo   ^<workingdirectory^>%PACKAGE_ROOT%^</workingdirectory^>
+  echo   ^<logpath^>%PACKAGE_ROOT%\logs^</logpath^>
+  echo   ^<log mode="roll-by-size"^>
+  echo     ^<sizeThreshold^>10485760^</sizeThreshold^>
+  echo     ^<keepFiles^>8^</keepFiles^>
+  echo   ^</log^>
+  echo   ^<startmode^>Automatic^</startmode^>
+  echo   ^<onfailure action="restart" delay="5 sec"/^>
+  echo   ^<stoptimeout^>30 sec^</stoptimeout^>
+  echo ^</service^>
+) > "%WINSW_XML%"
+if errorlevel 1 exit /b 1
+
+"%WINSW_EXE%" install
+if errorlevel 1 exit /b 1
+
+echo Installed Windows service: %SERVICE_NAME%
+echo Package root: %PACKAGE_ROOT%
+echo Start it with: net start %SERVICE_NAME%
+exit /b 0
+
+:download_winsw
+echo Downloading WinSW from %WINSW_URL%
+set "DOWNLOAD_TMP=%WINSW_EXE%.tmp"
+del /f /q "%DOWNLOAD_TMP%" >nul 2>nul
+
+if exist "%PACKAGE_ROOT%\bin\curl_static.exe" (
+  "%PACKAGE_ROOT%\bin\curl_static.exe" -L --fail --retry 3 -o "%DOWNLOAD_TMP%" "%WINSW_URL%"
+  if not errorlevel 1 goto :download_done
+)
+
+if exist "%PACKAGE_ROOT%\bin\curl.exe" (
+  "%PACKAGE_ROOT%\bin\curl.exe" -L --fail --retry 3 -o "%DOWNLOAD_TMP%" "%WINSW_URL%"
+  if not errorlevel 1 goto :download_done
+)
+
+where curl.exe >nul 2>nul
+if not errorlevel 1 (
+  curl.exe -L --fail --retry 3 -o "%DOWNLOAD_TMP%" "%WINSW_URL%"
+  if not errorlevel 1 goto :download_done
+)
+
+where powershell.exe >nul 2>nul
+if not errorlevel 1 (
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '%WINSW_URL%' -OutFile '%DOWNLOAD_TMP%' } catch { Write-Error $_; exit 1 }"
+  if not errorlevel 1 goto :download_done
+)
+
+where certutil.exe >nul 2>nul
+if not errorlevel 1 (
+  certutil.exe -urlcache -f "%WINSW_URL%" "%DOWNLOAD_TMP%"
+  if not errorlevel 1 goto :download_done
+)
+
+echo error: failed to download WinSW; set WINSW_URL or place winsw.exe at "%WINSW_EXE%"
+exit /b 1
+
+:download_done
+if not exist "%DOWNLOAD_TMP%" (
+  echo error: WinSW download did not produce "%DOWNLOAD_TMP%"
+  exit /b 1
+)
+move /Y "%DOWNLOAD_TMP%" "%WINSW_EXE%" >nul
+if errorlevel 1 exit /b 1
+exit /b 0

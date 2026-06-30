@@ -247,6 +247,22 @@ write_package_readme() {
     "PROXY_CONNECT_PATCH=${PROXY_CONNECT_PATCH}"
 }
 
+write_service_installers() {
+  render_template "/work/mount_root/templates/install_service.sh.in" \
+    "${SDK_PREFIX}/install_service.sh"
+  chmod +x "${SDK_PREFIX}/install_service.sh"
+
+  render_template "/work/mount_root/templates/install_service.cmd.in" \
+    "${SDK_PREFIX}/install_service.cmd"
+
+  render_template "/work/mount_root/templates/uninstall_service.sh.in" \
+    "${SDK_PREFIX}/uninstall_service.sh"
+  chmod +x "${SDK_PREFIX}/uninstall_service.sh"
+
+  render_template "/work/mount_root/templates/uninstall_service.cmd.in" \
+    "${SDK_PREFIX}/uninstall_service.cmd"
+}
+
 stage_nginx_static_deps_for_curl() {
   local openssl_prefix="${SOURCE_DIR}/openssl/.openssl"
 
@@ -502,6 +518,7 @@ stage_nginx_static_deps_for_curl
 build_curl_static
 write_default_config
 write_package_readme
+write_service_installers
 
 find "$SDK_PREFIX" -type f \( -name '*.a' -o -name '*.la' \) -delete
 find "$SDK_PREFIX" -type f -name '*.old' -delete
