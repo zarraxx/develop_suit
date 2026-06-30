@@ -90,9 +90,7 @@ set -euo pipefail
 llvm_runtime_root="${POSTGRESQL_LLVM_ROOT}"
 llvm_tool_root="${LLVM_ROOT}"
 llvm_version="${LLVM_VERSION}"
-llvm_major_version="${LLVM_VERSION%%.*}"
 target_triple="${TARGET_TRIPLE}"
-target_kind="${TARGET_KIND}"
 real_tool="${real_tool}"
 
 components="engine debuginfodwarf orcjit passes native perfjitevents"
@@ -101,10 +99,6 @@ system_libs=""
 cppflags="-I\${llvm_runtime_root}/include"
 ldflags="-L\${llvm_runtime_root}/lib"
 cxxflags="-std=c++17"
-
-if [[ "\${target_kind}" == "mingw" ]]; then
-  libs="-lLLVM-\${llvm_major_version}"
-fi
 
 if [[ "\$#" -eq 0 ]]; then
   printf '%s\n' "\${llvm_runtime_root}"
@@ -235,21 +229,11 @@ EOF
 }
 
 llvm_sdk_has_runtime() {
+  [[ "$TARGET_KIND" == "linux" ]] || return 1
   [[ -n "${POSTGRESQL_LLVM_ROOT:-}" ]] || return 1
   [[ -x "${LLVM_ROOT}/bin/clang" ]] || return 1
   [[ -d "${POSTGRESQL_LLVM_ROOT}/include/llvm" ]] || return 1
-  case "$TARGET_KIND" in
-    linux)
-      compgen -G "${POSTGRESQL_LLVM_ROOT}/lib/libLLVM.so*" >/dev/null
-      ;;
-    mingw)
-      compgen -G "${POSTGRESQL_LLVM_ROOT}/lib/libLLVM*.dll.a" >/dev/null \
-        && compgen -G "${POSTGRESQL_LLVM_ROOT}/bin/libLLVM*.dll" >/dev/null
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+  compgen -G "${POSTGRESQL_LLVM_ROOT}/lib/libLLVM.so*" >/dev/null
 }
 
 write_windres_wrapper() {
@@ -454,24 +438,13 @@ copy_llvm_runtime_libraries() {
   local library_name=""
   local library_path=""
 
-  case "$TARGET_KIND" in
-    linux)
-      mkdir -p "${SDK_PREFIX}/lib"
-      for library_name in libLLVM.so* libc++.so* libc++abi.so* libunwind.so*; do
-        while IFS= read -r library_path; do
-          [[ -e "$library_path" ]] || continue
-          cp -a "$library_path" "${SDK_PREFIX}/lib/"
-        done < <(find "${POSTGRESQL_LLVM_ROOT}/lib" -maxdepth 1 -name "$library_name" -print 2>/dev/null | sort)
-      done
-      ;;
-    mingw)
-      mkdir -p "${SDK_PREFIX}/bin"
-      while IFS= read -r library_path; do
-        [[ -e "$library_path" ]] || continue
-        install -m 0755 "$library_path" "${SDK_PREFIX}/bin/"
-      done < <(find "${POSTGRESQL_LLVM_ROOT}/bin" -maxdepth 1 -type f -name '*.dll' -print 2>/dev/null | sort)
-      ;;
-  esac
+  mkdir -p "${SDK_PREFIX}/lib"
+  for library_name in libLLVM.so* libc++.so* libc++abi.so* libunwind.so*; do
+    while IFS= read -r library_path; do
+      [[ -e "$library_path" ]] || continue
+      cp -a "$library_path" "${SDK_PREFIX}/lib/"
+    done < <(find "${POSTGRESQL_LLVM_ROOT}/lib" -maxdepth 1 -name "$library_name" -print 2>/dev/null | sort)
+  done
 }
 
 install_mingw_pgxs_archives() {
@@ -935,7 +908,7 @@ build_postgresql_configure() {
 
   if llvm_sdk_has_runtime; then
     configure_args+=(--with-llvm)
-  else
+  elif [[ "$TARGET_KIND" == "linux" ]]; then
     log "Target LLVM runtime not available for ${TARGET_TRIPLE}; building without JIT"
   fi
 
@@ -1156,7 +1129,7 @@ if [[ "$POSTGRESQL_ENABLE_LLVM_JIT" != "1" ]]; then
   POSTGRESQL_LLVM_ROOT=""
 fi
 
-if [[ "$TARGET_KIND" =~ ^(linux|mingw)$ && -n "$POSTGRESQL_LLVM_ROOT" ]]; then
+if [[ "$TARGET_KIND" == "linux" && -n "$POSTGRESQL_LLVM_ROOT" ]]; then
   [[ -d "$POSTGRESQL_LLVM_ROOT" ]] || die "missing PostgreSQL LLVM root: ${POSTGRESQL_LLVM_ROOT}"
   write_llvm_config_wrapper "$LLVM_CONFIG_QUERY_BIN" "${LLVM_ROOT}/bin/llvm-config"
 fi
