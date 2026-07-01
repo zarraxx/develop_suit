@@ -137,9 +137,9 @@ try {
   }
 
   Write-Host "==> installing vendor runtime clients"
-  Invoke-Logged "cmd.exe" @(
-    "/c",
-    "`"$packageDir\install_external_dependencies.cmd`" --oracle-basic-archive `"$oracleBasicArchive`" --db2-cli-archive `"$db2CliArchive`""
+  Invoke-Logged (Join-Path $packageDir "install_external_dependencies.cmd") @(
+    "--oracle-basic-archive", $oracleBasicArchive,
+    "--db2-cli-archive", $db2CliArchive
   )
 
   Write-Host "==> initializing test cluster"
@@ -162,9 +162,9 @@ try {
   )
 
   Write-Host "==> installing Windows service"
-  Invoke-Logged "cmd.exe" @(
-    "/c",
-    "`"$packageDir\install_service.cmd`" `"$dataDir`" $serviceName"
+  Invoke-Logged (Join-Path $packageDir "install_service.cmd") @(
+    $dataDir,
+    $serviceName
   )
 
   Write-Host "==> starting Windows service"
@@ -196,9 +196,8 @@ SELECT extname FROM pg_extension WHERE extname IN ('oracle_fdw', 'db2_fdw') ORDE
   Write-Host "==> stopping and uninstalling Windows service"
   Invoke-Logged "net.exe" @("stop", $serviceName)
   Start-Sleep -Seconds 3
-  Invoke-Logged "cmd.exe" @(
-    "/c",
-    "`"$packageDir\uninstall_service.cmd`" $serviceName"
+  Invoke-Logged (Join-Path $packageDir "uninstall_service.cmd") @(
+    $serviceName
   )
 
   & sc.exe query $serviceName | Out-Null
