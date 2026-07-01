@@ -1,0 +1,60 @@
+name: debug_qemu_containers
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  PACKAGE_TEST_IMAGE: ghcr.io/zarraxx/develop_suit:llvm-with-mingw64-18.1.8
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qemu-container:
+    name: qemu-${{ matrix.platform }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/arm64
+            arch: arm64
+          - platform: linux/riscv64
+            arch: riscv64
+
+    steps:
+      - name: Host info
+        run: |
+          set -euxo pipefail
+          uname -a
+          docker version
+          docker info
+
+      - name: Install QEMU binfmt
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,riscv64
+
+      - name: Inspect binfmt
+        run: |
+          set -euxo pipefail
+          ls -la /proc/sys/fs/binfmt_misc || true
+          cat /proc/sys/fs/binfmt_misc/qemu-aarch64 || true
+          cat /proc/sys/fs/binfmt_misc/qemu-riscv64 || true
+          docker run --rm --privileged tonistiigi/binfmt:latest --version
+
+      - name: Test public busybox container
+        run: |
+          set -euxo pipefail
+          docker run --rm --platform "${{ matrix.platform }}" busybox:latest uname -m
+          docker run --rm --platform "${{ matrix.platform }}" busybox:latest sh -c 'echo qemu-busybox-ok; true'
+
+      - name: Test develop_suit package image
+        run: |
+          set -euxo pipefail
+          docker pull --platform "${{ matrix.platform }}" "${{ env.PACKAGE_TEST_IMAGE }}"
+          docker inspect "${{ env.PACKAGE_TEST_IMAGE }}"
+          docker run --rm --platform "${{ matrix.platform }}" "${{ env.PACKAGE_TEST_IMAGE }}" /bin/busybox uname -m
+          docker run --rm --platform "${{ matrix.platform }}" "${{ env.PACKAGE_TEST_IMAGE }}" /bin/bash -lc 'echo qemu-develop-suit-ok; uname -m; /bin/busybox true'
