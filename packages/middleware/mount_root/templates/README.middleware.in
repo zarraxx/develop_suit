@@ -1,0 +1,21 @@
+middleware package for @TARGET_TRIPLE@
+
+Components:
+- Redis @REDIS_VERSION@: @REDIS_STATUS@
+- MinIO @MINIO_REF@
+- etcd @ETCD_VERSION@
+
+Toolchain inputs:
+- Go @GO_VERSION@ for MinIO and etcd cross builds
+- clang/LLVM package image for Redis Linux cross builds
+
+Installed layout:
+- bin/redis-server, bin/redis-cli, bin/redis-benchmark on Linux targets
+- bin/minio
+- bin/etcd, bin/etcdctl, bin/etcdutl
+- manifest.env
+
+Redis note:
+The MinGW package does not include Redis because upstream Redis server does not
+support native Windows builds. MinIO and etcd are included for all five package
+targets.
