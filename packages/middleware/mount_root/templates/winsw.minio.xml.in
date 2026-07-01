@@ -2,8 +2,8 @@
   <id>@SERVICE_NAME@</id>
   <name>@SERVICE_NAME@</name>
   <description>MinIO single-node service from @PACKAGE_ROOT@</description>
-  <executable>@PACKAGE_ROOT@\bin\minio.exe</executable>
-  <arguments>server "@MINIO_DATA_DIR@" --address ":9000" --console-address ":9001"</arguments>
+  <executable>@CMD_EXE@</executable>
+  <arguments>/c &quot;@MINIO_WRAPPER_FILE@&quot;</arguments>
   <workingdirectory>@PACKAGE_ROOT@</workingdirectory>
   <env name="MINIO_ROOT_USER" value="@MINIO_ROOT_USER@"/>
   <env name="MINIO_ROOT_PASSWORD" value="@MINIO_ROOT_PASSWORD@"/>

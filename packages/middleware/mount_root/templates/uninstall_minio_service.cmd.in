@@ -24,6 +24,7 @@ if errorlevel 1 (
 if exist "%WINSW_EXE%" (
   pushd "%SERVICE_DIR%" >nul
   "%WINSW_EXE%" stop >nul 2>nul
+  call :wait_stopped
   "%WINSW_EXE%" uninstall
   set "UNINSTALL_RC=%ERRORLEVEL%"
   popd >nul
@@ -37,3 +38,12 @@ if exist "%WINSW_EXE%" (
 if exist "%SERVICE_DIR%" rmdir /S /Q "%SERVICE_DIR%"
 
 echo Uninstalled MinIO Windows service: %SERVICE_NAME%
+exit /b 0
+
+:wait_stopped
+for /L %%I in (1,1,20) do (
+  sc query "%SERVICE_NAME%" | findstr /C:"STOPPED" >nul 2>nul
+  if not errorlevel 1 exit /b 0
+  timeout /t 1 /nobreak >nul 2>nul
+)
+exit /b 0

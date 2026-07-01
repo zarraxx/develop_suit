@@ -73,11 +73,23 @@ function Dump-ServiceLogs {
     $serviceDir = Join-Path $packageRoot "service/$serviceName"
     if (Test-Path $serviceDir) {
       Write-Host "-- service dir: $serviceDir"
-      Get-ChildItem -Path $serviceDir -File -ErrorAction SilentlyContinue | ForEach-Object {
+      Get-ChildItem -Path $serviceDir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in @(".conf", ".err", ".log", ".out", ".xml", ".cmd") } |
+        ForEach-Object {
+          Write-Host "-- $($_.FullName)"
+          Get-Content -Path $_.FullName -Tail 120 -ErrorAction SilentlyContinue | Write-Host
+        }
+    }
+  }
+
+  $logDir = Join-Path $packageRoot "logs"
+  if (Test-Path $logDir) {
+    Get-ChildItem -Path $logDir -File -ErrorAction SilentlyContinue |
+      Where-Object { $_.Extension -in @(".err", ".log", ".out", ".xml") } |
+      ForEach-Object {
         Write-Host "-- $($_.FullName)"
         Get-Content -Path $_.FullName -Tail 120 -ErrorAction SilentlyContinue | Write-Host
       }
-    }
   }
 }
 

@@ -13,7 +13,9 @@ if "%WINSW_URL%"=="" set "WINSW_URL=https://github.com/winsw/winsw/releases/late
 set "SERVICE_DIR=%PACKAGE_ROOT%\service\%SERVICE_NAME%"
 set "WINSW_EXE=%SERVICE_DIR%\winsw.exe"
 set "WINSW_XML=%SERVICE_DIR%\winsw.xml"
+set "MINIO_WRAPPER_FILE=%SERVICE_DIR%\minio-service.cmd"
 set "WINSW_TEMPLATE=%PACKAGE_ROOT%\conf\winsw.minio.xml.template"
+set "CMD_EXE=%SystemRoot%\System32\cmd.exe"
 
 echo(!SERVICE_NAME!| findstr /R /C:"^[A-Za-z0-9_.@-][A-Za-z0-9_.@-]*$" >nul
 if errorlevel 1 (
@@ -58,7 +60,15 @@ if exist "%PACKAGE_ROOT%\bin\winsw.exe" (
   if errorlevel 1 exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $x=Get-Content -Raw $env:WINSW_TEMPLATE; $x=$x.Replace('@SERVICE_NAME@',$env:SERVICE_NAME).Replace('@PACKAGE_ROOT@',$env:PACKAGE_ROOT).Replace('@MINIO_DATA_DIR@',$env:MINIO_DATA_DIR).Replace('@MINIO_ROOT_USER@',$env:MINIO_ROOT_USER).Replace('@MINIO_ROOT_PASSWORD@',$env:MINIO_ROOT_PASSWORD); Set-Content -Encoding ASCII -Path $env:WINSW_XML -Value $x"
+(
+  echo @echo off
+  echo set "MINIO_ROOT_USER=%MINIO_ROOT_USER%"
+  echo set "MINIO_ROOT_PASSWORD=%MINIO_ROOT_PASSWORD%"
+  echo "%PACKAGE_ROOT%\bin\minio.exe" server "%MINIO_DATA_DIR%" --address ":9000" --console-address ":9001"
+) > "%MINIO_WRAPPER_FILE%"
+if errorlevel 1 exit /b 1
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $x=Get-Content -Raw $env:WINSW_TEMPLATE; $x=$x.Replace('@SERVICE_NAME@',$env:SERVICE_NAME).Replace('@PACKAGE_ROOT@',$env:PACKAGE_ROOT).Replace('@MINIO_DATA_DIR@',$env:MINIO_DATA_DIR).Replace('@MINIO_ROOT_USER@',$env:MINIO_ROOT_USER).Replace('@MINIO_ROOT_PASSWORD@',$env:MINIO_ROOT_PASSWORD).Replace('@CMD_EXE@',$env:CMD_EXE).Replace('@MINIO_WRAPPER_FILE@',$env:MINIO_WRAPPER_FILE); Set-Content -Encoding ASCII -Path $env:WINSW_XML -Value $x"
 if errorlevel 1 exit /b 1
 
 pushd "%SERVICE_DIR%" >nul
