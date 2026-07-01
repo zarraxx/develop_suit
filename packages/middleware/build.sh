@@ -27,6 +27,8 @@ Options:
   --go-version=<ver>                Go toolchain version (default: 1.25.10)
   --minio-ref=<ref>                 MinIO tag/ref (default: RELEASE.2024-06-22T05-26-45Z)
   --etcd-version=<ver>              etcd version (default: 3.6.12)
+  --patchelf-version=<ver>          patchelf version (default: 0.19.0)
+  --winsw-version=<ver>             WinSW version for manifest/docs (default: 2.12.0)
   --runtime=<docker|podman>         Container runtime override
   --image=<image>                   Build image
   --jobs=<n>                        Parallel build jobs inside container (default: 4)
@@ -45,6 +47,8 @@ REDIS_VERSION="7.4.9"
 GO_VERSION="1.25.10"
 MINIO_REF="RELEASE.2024-06-22T05-26-45Z"
 ETCD_VERSION="3.6.12"
+PATCHELF_VERSION="0.19.0"
+WINSW_VERSION="2.12.0"
 BUILD_IMAGE="$PACKAGES_DEFAULT_BUILD_IMAGE"
 REQUESTED_RUNTIME=""
 JOBS="$PACKAGES_DEFAULT_JOBS"
@@ -64,6 +68,10 @@ while [[ $# -gt 0 ]]; do
     --minio-ref) shift; [[ $# -gt 0 ]] || die "--minio-ref requires a value"; MINIO_REF="$1" ;;
     --etcd-version=*) ETCD_VERSION="${1#*=}" ;;
     --etcd-version) shift; [[ $# -gt 0 ]] || die "--etcd-version requires a value"; ETCD_VERSION="$1" ;;
+    --patchelf-version=*) PATCHELF_VERSION="${1#*=}" ;;
+    --patchelf-version) shift; [[ $# -gt 0 ]] || die "--patchelf-version requires a value"; PATCHELF_VERSION="$1" ;;
+    --winsw-version=*) WINSW_VERSION="${1#*=}" ;;
+    --winsw-version) shift; [[ $# -gt 0 ]] || die "--winsw-version requires a value"; WINSW_VERSION="$1" ;;
     --runtime=*) REQUESTED_RUNTIME="${1#*=}" ;;
     --runtime) shift; [[ $# -gt 0 ]] || die "--runtime requires a value"; REQUESTED_RUNTIME="$1" ;;
     --image=*|--linux-image=*) BUILD_IMAGE="${1#*=}" ;;
@@ -150,6 +158,8 @@ echo "-- output: ${OUT_DIR}"
   -e "GO_VERSION=${GO_VERSION}" \
   -e "MINIO_REF=${MINIO_REF}" \
   -e "ETCD_VERSION=${ETCD_VERSION}" \
+  -e "PATCHELF_VERSION=${PATCHELF_VERSION}" \
+  -e "WINSW_VERSION=${WINSW_VERSION}" \
   "$BUILD_IMAGE" \
   /bin/bash /work/mount_root/container_middleware.sh
 

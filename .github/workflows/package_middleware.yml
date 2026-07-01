@@ -6,6 +6,8 @@ env:
   GO_PACKAGE_VERSION: ${{ inputs.go_version || '1.25.10' }}
   MINIO_PACKAGE_REF: ${{ inputs.minio_ref || 'RELEASE.2024-06-22T05-26-45Z' }}
   ETCD_PACKAGE_VERSION: ${{ inputs.etcd_version || '3.6.12' }}
+  PATCHELF_PACKAGE_VERSION: ${{ inputs.patchelf_version || '0.19.0' }}
+  WINSW_PACKAGE_VERSION: ${{ inputs.winsw_version || '2.12.0' }}
   PACKAGE_TEST_IMAGE: ghcr.io/zarraxx/develop_suit:llvm-with-mingw64-18.1.8
 
 on:
@@ -31,6 +33,16 @@ on:
         required: false
         type: string
         default: "3.6.12"
+      patchelf_version:
+        description: "patchelf version to build for Linux targets"
+        required: false
+        type: string
+        default: "0.19.0"
+      winsw_version:
+        description: "WinSW version to build for the MinGW package"
+        required: false
+        type: string
+        default: "2.12.0"
       publish_release:
         description: "Create or update a GitHub Release after building"
         required: true
@@ -67,6 +79,8 @@ jobs:
           INPUT_GO_VERSION: ${{ inputs.go_version }}
           INPUT_MINIO_REF: ${{ inputs.minio_ref }}
           INPUT_ETCD_VERSION: ${{ inputs.etcd_version }}
+          INPUT_PATCHELF_VERSION: ${{ inputs.patchelf_version }}
+          INPUT_WINSW_VERSION: ${{ inputs.winsw_version }}
           INPUT_RELEASE_NAME: ${{ inputs.release_name }}
         run: |
           set -euo pipefail
@@ -75,6 +89,8 @@ jobs:
           go_version="${INPUT_GO_VERSION:-1.25.10}"
           minio_ref="${INPUT_MINIO_REF:-RELEASE.2024-06-22T05-26-45Z}"
           etcd_version="${INPUT_ETCD_VERSION:-3.6.12}"
+          patchelf_version="${INPUT_PATCHELF_VERSION:-0.19.0}"
+          winsw_version="${INPUT_WINSW_VERSION:-2.12.0}"
           release_date="$(date -u +%F)"
           release_tag="middleware-${release_date}"
 
@@ -90,7 +106,7 @@ jobs:
             echo "asset_prefix=middleware"
           } >> "${GITHUB_OUTPUT}"
 
-          echo "Redis ${redis_version}, Go ${go_version}, MinIO ${minio_ref}, etcd ${etcd_version}"
+          echo "Redis ${redis_version}, Go ${go_version}, MinIO ${minio_ref}, etcd ${etcd_version}, patchelf ${patchelf_version}, WinSW ${winsw_version}"
 
   build-middleware:
     name: middleware-${{ matrix.target }}
@@ -134,7 +150,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: cache
-          key: ${{ runner.os }}-package-middleware-cache-v1-${{ env.REDIS_PACKAGE_VERSION }}-${{ env.GO_PACKAGE_VERSION }}-${{ env.MINIO_PACKAGE_REF }}-${{ env.ETCD_PACKAGE_VERSION }}
+          key: ${{ runner.os }}-package-middleware-cache-v2-${{ env.REDIS_PACKAGE_VERSION }}-${{ env.GO_PACKAGE_VERSION }}-${{ env.MINIO_PACKAGE_REF }}-${{ env.ETCD_PACKAGE_VERSION }}-${{ env.PATCHELF_PACKAGE_VERSION }}
           restore-keys: |
             ${{ runner.os }}-package-middleware-cache-
             ${{ runner.os }}-package-nginx-cache-
@@ -157,6 +173,8 @@ jobs:
             --go-version="${{ env.GO_PACKAGE_VERSION }}" \
             --minio-ref="${{ env.MINIO_PACKAGE_REF }}" \
             --etcd-version="${{ env.ETCD_PACKAGE_VERSION }}" \
+            --patchelf-version="${{ env.PATCHELF_PACKAGE_VERSION }}" \
+            --winsw-version="${{ env.WINSW_PACKAGE_VERSION }}" \
             --package-name="${package_name}" \
             --clean \
             --pull \
@@ -232,6 +250,39 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-winsw-mingw64:
+    name: winsw-msvc
+    runs-on: windows-latest
+    needs: resolve-meta
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Build WinSW with MSVC toolchain
+        shell: pwsh
+        run: |
+          ./packages/middleware/build_winsw_msvc.ps1 `
+            -WinSWVersion "${{ env.WINSW_PACKAGE_VERSION }}" `
+            -OutDir "${PWD}/winsw-msvc"
+
+      - name: Upload WinSW artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: internal-winsw-msvc
+          path: winsw-msvc
+          if-no-files-found: error
+          retention-days: 14
+
   assemble-mingw64:
     name: assemble-mingw64
     runs-on: ubuntu-24.04
@@ -239,6 +290,7 @@ jobs:
       - resolve-meta
       - build-middleware
       - build-redis-mingw64
+      - build-winsw-mingw64
     timeout-minutes: 30
 
     steps:
@@ -253,6 +305,12 @@ jobs:
         with:
           name: internal-redis-mingw64-msys2
           path: artifacts/redis
+
+      - name: Download WinSW package
+        uses: actions/download-artifact@v8
+        with:
+          name: internal-winsw-msvc
+          path: artifacts/winsw
 
       - name: Assemble final MinGW package
         env:
@@ -277,9 +335,13 @@ jobs:
           install -d "${work_dir}/${package_name}/bin" "${work_dir}/${package_name}/conf"
           cp -a artifacts/redis/bin/. "${work_dir}/${package_name}/bin/"
           cp -a artifacts/redis/conf/. "${work_dir}/${package_name}/conf/"
+          cp -a artifacts/winsw/bin/. "${work_dir}/${package_name}/bin/"
+          cp -a artifacts/winsw/conf/. "${work_dir}/${package_name}/conf/"
 
           sed -i 's/^REDIS_STATUS=.*/REDIS_STATUS=enabled-msys2/' "${work_dir}/${package_name}/manifest.env"
+          sed -i 's/^WINSW_STATUS=.*/WINSW_STATUS=enabled-msvc/' "${work_dir}/${package_name}/manifest.env"
           sed -i 's/Redis .*: disabled.*/Redis ${{ env.REDIS_PACKAGE_VERSION }}: enabled via redis-windows MSYS2 build/' "${work_dir}/${package_name}/README.middleware"
+          sed -i 's/WinSW .*: disabled.*/WinSW ${{ env.WINSW_PACKAGE_VERSION }}: enabled via Windows .NET and MSBuild build/' "${work_dir}/${package_name}/README.middleware"
 
           find "${work_dir}/${package_name}" -type d -exec chmod 755 {} +
           find "${work_dir}/${package_name}/bin" -type f -exec chmod 755 {} +
@@ -436,6 +498,8 @@ jobs:
           - Redis: ${{ env.REDIS_PACKAGE_VERSION }} (Linux cross builds, Windows MSYS2 build)
           - MinIO: ${{ env.MINIO_PACKAGE_REF }}
           - etcd: ${{ env.ETCD_PACKAGE_VERSION }}
+          - patchelf: ${{ env.PATCHELF_PACKAGE_VERSION }} (Linux packages)
+          - WinSW: ${{ env.WINSW_PACKAGE_VERSION }} (Windows package)
           - Go: ${{ env.GO_PACKAGE_VERSION }}
 
           Artifacts:

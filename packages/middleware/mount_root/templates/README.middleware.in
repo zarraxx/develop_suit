@@ -4,6 +4,8 @@ Components:
 - Redis @REDIS_VERSION@: @REDIS_STATUS@
 - MinIO @MINIO_REF@
 - etcd @ETCD_VERSION@
+- patchelf @PATCHELF_VERSION@: @PATCHELF_STATUS@
+- WinSW @WINSW_VERSION@: @WINSW_STATUS@
 
 Toolchain inputs:
 - Go @GO_VERSION@ for MinIO and etcd cross builds
@@ -14,9 +16,16 @@ Installed layout:
 - bin/redis-server.exe, bin/redis-cli.exe, bin/redis-benchmark.exe on MinGW workflow packages
 - bin/minio
 - bin/etcd, bin/etcdctl, bin/etcdutl
+- bin/patchelf on Linux targets
+- bin/winsw.exe and bin/winsw.xml on MinGW workflow packages
+- conf/winsw.sample.xml on MinGW workflow packages
 - manifest.env
 
 Redis note:
 MinGW workflow packages include Redis built with MSYS2, following the
 redis-windows project build settings. Direct local build.sh MinGW builds stage
 MinIO and etcd first; the workflow injects the MSYS2 Redis build before upload.
+
+Utility note:
+Linux packages include patchelf. MinGW workflow packages include WinSW built on
+the Windows runner with the .NET/MSBuild toolchain before upload.

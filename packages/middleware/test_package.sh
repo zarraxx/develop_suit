@@ -33,12 +33,15 @@ fi
 
 PACKAGE_DIR="$(cd "$PACKAGE_DIR" && pwd)"
 PACKAGE_TARGET_TRIPLE=""
+PATCHELF_STATUS=""
+WINSW_STATUS=""
 if [[ -f "${PACKAGE_DIR}/manifest.env" ]]; then
   while IFS='=' read -r manifest_key manifest_value; do
-    if [[ "$manifest_key" == "TARGET_TRIPLE" ]]; then
-      PACKAGE_TARGET_TRIPLE="$manifest_value"
-      break
-    fi
+    case "$manifest_key" in
+      TARGET_TRIPLE) PACKAGE_TARGET_TRIPLE="$manifest_value" ;;
+      PATCHELF_STATUS) PATCHELF_STATUS="$manifest_value" ;;
+      WINSW_STATUS) WINSW_STATUS="$manifest_value" ;;
+    esac
   done <"${PACKAGE_DIR}/manifest.env"
 fi
 
@@ -81,6 +84,8 @@ MINIO_BIN="${PACKAGE_DIR}/bin/minio${EXEEXT}"
 ETCD_BIN="${PACKAGE_DIR}/bin/etcd${EXEEXT}"
 ETCDCTL_BIN="${PACKAGE_DIR}/bin/etcdctl${EXEEXT}"
 ETCDUTL_BIN="${PACKAGE_DIR}/bin/etcdutl${EXEEXT}"
+PATCHELF_BIN="${PACKAGE_DIR}/bin/patchelf"
+WINSW_BIN="${PACKAGE_DIR}/bin/winsw.exe"
 TEST_DIR="${PACKAGE_DIR}/test-runtime"
 MINIO_DATA="${TEST_DIR}/minio-data"
 ETCD_DATA="${TEST_DIR}/etcd-data"
@@ -96,6 +101,13 @@ REDIS_EXTRA_ARGS=()
 [[ -x "$ETCD_BIN" ]] || die "missing etcd binary: ${ETCD_BIN}"
 [[ -x "$ETCDCTL_BIN" ]] || die "missing etcdctl binary: ${ETCDCTL_BIN}"
 [[ -x "$ETCDUTL_BIN" ]] || die "missing etcdutl binary: ${ETCDUTL_BIN}"
+if [[ "$PATCHELF_STATUS" == "enabled" ]]; then
+  [[ -x "$PATCHELF_BIN" ]] || die "missing patchelf binary: ${PATCHELF_BIN}"
+fi
+if [[ "$WINSW_STATUS" == enabled* ]]; then
+  [[ -x "$WINSW_BIN" ]] || die "missing WinSW binary: ${WINSW_BIN}"
+  [[ -f "${PACKAGE_DIR}/bin/winsw.xml" ]] || die "missing WinSW smoke-test config: ${PACKAGE_DIR}/bin/winsw.xml"
+fi
 
 if [[ "$PACKAGE_TARGET_TRIPLE" == "aarch64-unknown-linux-gnu" ]]; then
   REDIS_EXTRA_ARGS=(--ignore-warnings ARM64-COW-BUG)
@@ -144,6 +156,16 @@ echo "-- etcd version"
 run_cmd "$ETCD_BIN" --version
 run_cmd "$ETCDCTL_BIN" version
 run_cmd "$ETCDUTL_BIN" version
+
+if [[ "$PATCHELF_STATUS" == "enabled" ]]; then
+  echo "-- patchelf version"
+  "$PATCHELF_BIN" --version
+fi
+
+if [[ "$WINSW_STATUS" == enabled* ]]; then
+  echo "-- winsw version"
+  run_cmd "$WINSW_BIN" version
+fi
 
 if [[ -x "$REDIS_SERVER" && -x "$REDIS_CLI" ]]; then
   echo "-- redis version"

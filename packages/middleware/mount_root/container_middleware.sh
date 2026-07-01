@@ -172,6 +172,7 @@ host_env() {
     NM="$NM" \
     STRIP="$STRIP" \
     CFLAGS="${COMMON_CFLAGS} ${CFLAGS:-}" \
+    CXXFLAGS="${COMMON_CFLAGS} ${CXXFLAGS:-}" \
     LDFLAGS="${COMMON_LDFLAGS} ${LDFLAGS:-}" \
     "$@"
 }
@@ -285,11 +286,44 @@ build_etcd() {
   )
 }
 
+build_patchelf() {
+  local source_dir="${SOURCE_DIR}/patchelf"
+  local build_dir="${BUILD_DIR}/patchelf-build"
+  local patchelf_ldflags='-Wl,-rpath,\$$ORIGIN/../lib'
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    log "Skipping patchelf for MinGW: patchelf is an ELF utility"
+    return 0
+  fi
+
+  rm -rf "$build_dir"
+  mkdir -p "$build_dir"
+
+  log "Building patchelf ${PATCHELF_VERSION}"
+  (
+    cd "$build_dir"
+    LDFLAGS="${patchelf_ldflags} ${LDFLAGS:-}" host_env "${source_dir}/configure" \
+      --host="${TARGET_TRIPLE}" \
+      --prefix="${SDK_PREFIX}" \
+      --disable-dependency-tracking
+    LDFLAGS="${patchelf_ldflags} ${LDFLAGS:-}" host_env make -j "$JOBS"
+    LDFLAGS="${patchelf_ldflags} ${LDFLAGS:-}" host_env make install
+  )
+
+  install -d "${SDK_PREFIX}/lib"
+  cp -a "${LLVM_ROOT}/lib/${TARGET_TRIPLE}/libc++.so"* "${SDK_PREFIX}/lib/"
+  cp -a "${LLVM_ROOT}/lib/${TARGET_TRIPLE}/libc++abi.so"* "${SDK_PREFIX}/lib/"
+  cp -a "${LLVM_ROOT}/lib/${TARGET_TRIPLE}/libunwind.so"* "${SDK_PREFIX}/lib/"
+}
+
 write_package_readme() {
   local redis_status="enabled"
+  local patchelf_status="enabled"
+  local winsw_status="disabled"
 
   if [[ "$TARGET_KIND" == "mingw" ]]; then
     redis_status="disabled: upstream Redis server does not support native Windows builds"
+    patchelf_status="disabled: patchelf is an ELF utility"
   fi
 
   render_template \
@@ -300,14 +334,21 @@ write_package_readme() {
     "GO_VERSION=${GO_VERSION}" \
     "MINIO_REF=${MINIO_REF}" \
     "ETCD_VERSION=${ETCD_VERSION}" \
-    "REDIS_STATUS=${redis_status}"
+    "PATCHELF_VERSION=${PATCHELF_VERSION}" \
+    "WINSW_VERSION=${WINSW_VERSION}" \
+    "REDIS_STATUS=${redis_status}" \
+    "PATCHELF_STATUS=${patchelf_status}" \
+    "WINSW_STATUS=${winsw_status}"
 }
 
 write_manifest() {
   local redis_status="enabled"
+  local patchelf_status="enabled"
+  local winsw_status="disabled"
 
   if [[ "$TARGET_KIND" == "mingw" ]]; then
     redis_status="disabled"
+    patchelf_status="disabled"
   fi
 
   cat >"${SDK_PREFIX}/manifest.env" <<EOF
@@ -317,6 +358,10 @@ REDIS_STATUS=${redis_status}
 GO_VERSION=${GO_VERSION}
 MINIO_REF=${MINIO_REF}
 ETCD_VERSION=${ETCD_VERSION}
+PATCHELF_VERSION=${PATCHELF_VERSION}
+PATCHELF_STATUS=${patchelf_status}
+WINSW_VERSION=${WINSW_VERSION}
+WINSW_STATUS=${winsw_status}
 EOF
 }
 
@@ -332,6 +377,8 @@ REDIS_VERSION="${REDIS_VERSION:-7.4.9}"
 GO_VERSION="${GO_VERSION:-1.25.10}"
 MINIO_REF="${MINIO_REF:-RELEASE.2024-06-22T05-26-45Z}"
 ETCD_VERSION="${ETCD_VERSION:-3.6.12}"
+PATCHELF_VERSION="${PATCHELF_VERSION:-0.19.0}"
+WINSW_VERSION="${WINSW_VERSION:-2.12.0}"
 
 LLVM_ROOT="${LLVM_ROOT:-/opt/llvm-18.1.8}"
 CROSS_PREFIX="$(target_cross_cc_prefix)"
@@ -365,15 +412,18 @@ download_archive "https://download.redis.io/releases/redis-${REDIS_VERSION}.tar.
 download_archive "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" "go${GO_VERSION}.linux-amd64.tar.gz"
 download_archive "https://github.com/minio/minio/archive/refs/tags/${MINIO_REF}.tar.gz" "minio-${MINIO_REF}.tar.gz"
 download_archive "https://github.com/etcd-io/etcd/archive/refs/tags/v${ETCD_VERSION}.tar.gz" "etcd-${ETCD_VERSION}.tar.gz"
+download_archive "https://github.com/NixOS/patchelf/releases/download/${PATCHELF_VERSION}/patchelf-${PATCHELF_VERSION}.tar.bz2" "patchelf-${PATCHELF_VERSION}.tar.bz2"
 
 extract_source "${SOURCE_DIR}/redis" "redis-${REDIS_VERSION}.tar.gz" "src/server.c"
 extract_source "${SOURCE_DIR}/minio" "minio-${MINIO_REF}.tar.gz" "go.mod"
 extract_source "${SOURCE_DIR}/etcd" "etcd-${ETCD_VERSION}.tar.gz" "go.mod"
+extract_source "${SOURCE_DIR}/patchelf" "patchelf-${PATCHELF_VERSION}.tar.bz2" "src/patchelf.cc"
 install_go_toolchain
 
 build_redis
 build_minio
 build_etcd
+build_patchelf
 write_package_readme
 write_manifest
 

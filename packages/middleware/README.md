@@ -9,11 +9,12 @@ targets used by this repository:
 - `loongarch64-unknown-linux-gnu`
 - `x86_64-w64-windows-gnu`
 
-The bundle contains Redis, MinIO, and etcd. Redis is built with the package
-cross toolchain for the four Linux targets. The workflow also builds Redis for
-the MinGW package on `windows-latest` with MSYS2, following the
-`redis-windows` build settings, then injects those files into the final MinGW
-tarball. MinIO and etcd are built for all five targets.
+The bundle contains Redis, MinIO, etcd, and small utility binaries. Redis is
+built with the package cross toolchain for the four Linux targets. Linux targets
+also include patchelf. The workflow builds Redis for the MinGW package on
+`windows-latest` with MSYS2, following the `redis-windows` build settings, and
+builds WinSW with the Windows .NET/MSBuild toolchain, then injects those files
+into the final MinGW tarball. MinIO and etcd are built for all five targets.
 
 ## Inputs
 
@@ -21,6 +22,8 @@ tarball. MinIO and etcd are built for all five targets.
 - Go toolchain: `go1.25.10.linux-amd64.tar.gz`
 - MinIO: `https://github.com/minio/minio/archive/refs/tags/RELEASE.2024-06-22T05-26-45Z.tar.gz`
 - etcd: `https://github.com/etcd-io/etcd/archive/refs/tags/v3.6.12.tar.gz`
+- patchelf: `https://github.com/NixOS/patchelf/releases/download/0.19.0/patchelf-0.19.0.tar.bz2`
+- WinSW: `https://github.com/winsw/winsw/archive/refs/tags/v2.12.0.zip`
 - Default image: `ghcr.io/zarraxx/develop_suit:llvm-with-mingw64-18.1.8`
 
 ## Build
@@ -42,6 +45,8 @@ Common knobs:
 - `--go-version=<ver>`
 - `--minio-ref=<ref>`
 - `--etcd-version=<ver>`
+- `--patchelf-version=<ver>`
+- `--winsw-version=<ver>`
 - `--package-name=<name>`
 - `--runtime=<docker|podman>`
 - `--image=<image>`
@@ -61,6 +66,9 @@ Package layout:
 - `conf/redis.conf`, `conf/sentinel.conf` on the MinGW workflow package
 - `bin/minio`
 - `bin/etcd`, `bin/etcdctl`, `bin/etcdutl`
+- `bin/patchelf` on Linux targets
+- `bin/winsw.exe`, `bin/winsw.xml`, and `conf/winsw.sample.xml` on the MinGW
+  workflow package
 - `README.middleware`
 - `manifest.env`
 
@@ -104,9 +112,26 @@ GOOS=<target-os> GOARCH=<target-arch> CGO_ENABLED=0 \
   (cd etcdutl && go build -trimpath -ldflags "-s -w" -o "$SDK_PREFIX/bin/etcdutl" .)
 ```
 
+patchelf Linux:
+
+```bash
+./configure --host="$TARGET_TRIPLE" --prefix="$SDK_PREFIX" --disable-dependency-tracking
+make -j "$JOBS"
+make install
+```
+
+WinSW MinGW workflow build:
+
+```powershell
+dotnet publish src/WinSW/WinSW.csproj -c Release -f net6.0-windows -r win-x64 `
+  --self-contained true -p:PlatformTarget=x64 -p:PublishSingleFile=true
+install winsw.exe, winsw.xml, and conf/winsw.sample.xml
+```
+
 Validation:
 
-- `test_package.sh` checks binary versions.
+- `test_package.sh` checks binary versions, including patchelf on Linux and
+  WinSW on the MinGW workflow package.
 - On Linux targets it starts Redis, MinIO, and etcd and performs basic health
   checks.
 - On MinGW it runs native Windows Redis, MinIO, and etcd checks.
