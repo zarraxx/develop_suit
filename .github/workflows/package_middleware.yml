@@ -56,6 +56,7 @@ jobs:
     outputs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
       release_name: ${{ steps.meta.outputs.release_name }}
+      release_date: ${{ steps.meta.outputs.release_date }}
       asset_prefix: ${{ steps.meta.outputs.asset_prefix }}
 
     steps:
@@ -63,6 +64,7 @@ jobs:
         id: meta
         env:
           INPUT_REDIS_VERSION: ${{ inputs.redis_version }}
+          INPUT_GO_VERSION: ${{ inputs.go_version }}
           INPUT_MINIO_REF: ${{ inputs.minio_ref }}
           INPUT_ETCD_VERSION: ${{ inputs.etcd_version }}
           INPUT_RELEASE_NAME: ${{ inputs.release_name }}
@@ -70,21 +72,25 @@ jobs:
           set -euo pipefail
 
           redis_version="${INPUT_REDIS_VERSION:-7.4.9}"
+          go_version="${INPUT_GO_VERSION:-1.25.10}"
           minio_ref="${INPUT_MINIO_REF:-RELEASE.2024-06-22T05-26-45Z}"
           etcd_version="${INPUT_ETCD_VERSION:-3.6.12}"
-          minio_slug="${minio_ref//[^A-Za-z0-9._-]/-}"
-          release_tag="middleware-redis-${redis_version}-minio-${minio_slug}-etcd-${etcd_version}"
+          release_date="$(date -u +%F)"
+          release_tag="middleware-${release_date}"
 
           release_name="${INPUT_RELEASE_NAME}"
           if [[ -z "${release_name}" ]]; then
-            release_name="${release_tag}"
+            release_name="middleware ${release_date}"
           fi
 
           {
             echo "release_tag=${release_tag}"
             echo "release_name=${release_name}"
-            echo "asset_prefix=${release_tag}"
+            echo "release_date=${release_date}"
+            echo "asset_prefix=middleware"
           } >> "${GITHUB_OUTPUT}"
+
+          echo "Redis ${redis_version}, Go ${go_version}, MinIO ${minio_ref}, etcd ${etcd_version}"
 
   build-middleware:
     name: middleware-${{ matrix.target }}
@@ -134,10 +140,11 @@ jobs:
       - name: Build middleware package
         env:
           ASSET_PREFIX: ${{ needs.resolve-meta.outputs.asset_prefix }}
+          RELEASE_DATE: ${{ needs.resolve-meta.outputs.release_date }}
         run: |
           set -euo pipefail
 
-          package_name="${ASSET_PREFIX}-${{ matrix.triple }}"
+          package_name="${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}"
 
           bash ./packages/middleware/build.sh \
             --target="${{ matrix.target }}" \
@@ -153,10 +160,11 @@ jobs:
       - name: Verify package permissions
         env:
           ASSET_PREFIX: ${{ needs.resolve-meta.outputs.asset_prefix }}
+          RELEASE_DATE: ${{ needs.resolve-meta.outputs.release_date }}
         run: |
           set -euo pipefail
 
-          package_name="${ASSET_PREFIX}-${{ matrix.triple }}"
+          package_name="${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}"
           archive_path="packages/middleware/build/dist/${package_name}.tar.xz"
           tmp_dir="$(mktemp -d)"
           trap 'rm -rf "${tmp_dir}"' EXIT
@@ -180,7 +188,7 @@ jobs:
         with:
           name: middleware-${{ matrix.target }}
           path: |
-            packages/middleware/build/dist/${{ needs.resolve-meta.outputs.asset_prefix }}-${{ matrix.triple }}.tar.xz
+            packages/middleware/build/dist/${{ needs.resolve-meta.outputs.asset_prefix }}-${{ matrix.triple }}-${{ needs.resolve-meta.outputs.release_date }}.tar.xz
           if-no-files-found: error
           retention-days: 14
 
@@ -238,12 +246,13 @@ jobs:
         if: ${{ matrix.test_mode == 'linux-docker' }}
         env:
           ASSET_PREFIX: ${{ needs.resolve-meta.outputs.asset_prefix }}
+          RELEASE_DATE: ${{ needs.resolve-meta.outputs.release_date }}
         run: |
           set -euo pipefail
 
-          archive_name="${ASSET_PREFIX}-${{ matrix.triple }}.tar.xz"
+          archive_name="${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}.tar.xz"
           archive_path="${GITHUB_WORKSPACE}/artifacts/${archive_name}"
-          package_dir="/tmp/${ASSET_PREFIX}-${{ matrix.triple }}"
+          package_dir="/tmp/${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}"
 
           [[ -f "${archive_path}" ]] || {
             echo "missing package artifact: ${archive_path}" >&2
@@ -272,12 +281,13 @@ jobs:
         shell: msys2 {0}
         env:
           ASSET_PREFIX: ${{ needs.resolve-meta.outputs.asset_prefix }}
+          RELEASE_DATE: ${{ needs.resolve-meta.outputs.release_date }}
         run: |
           set -euo pipefail
 
-          archive_name="${ASSET_PREFIX}-${{ matrix.triple }}.tar.xz"
+          archive_name="${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}.tar.xz"
           archive_path="artifacts/${archive_name}"
-          package_dir="${PWD}/${ASSET_PREFIX}-${{ matrix.triple }}"
+          package_dir="${PWD}/${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}"
 
           [[ -f "${archive_path}" ]] || {
             echo "missing package artifact: ${archive_path}" >&2
@@ -310,9 +320,27 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.resolve-meta.outputs.release_tag }}
           RELEASE_NAME: ${{ needs.resolve-meta.outputs.release_name }}
+          RELEASE_DATE: ${{ needs.resolve-meta.outputs.release_date }}
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
           set -euo pipefail
+
+          cat >release-notes.md <<EOF
+          # Middleware ${RELEASE_DATE}
+
+          Projects:
+          - Redis: ${{ env.REDIS_PACKAGE_VERSION }} (Linux targets only)
+          - MinIO: ${{ env.MINIO_PACKAGE_REF }}
+          - etcd: ${{ env.ETCD_PACKAGE_VERSION }}
+          - Go: ${{ env.GO_PACKAGE_VERSION }}
+
+          Artifacts:
+          - middleware-x86_64-unknown-linux-gnu-${RELEASE_DATE}.tar.xz
+          - middleware-aarch64-unknown-linux-gnu-${RELEASE_DATE}.tar.xz
+          - middleware-riscv64-unknown-linux-gnu-${RELEASE_DATE}.tar.xz
+          - middleware-loongarch64-unknown-linux-gnu-${RELEASE_DATE}.tar.xz
+          - middleware-x86_64-w64-windows-gnu-${RELEASE_DATE}.tar.xz
+          EOF
 
           prerelease_flag=()
           if [[ "${PRERELEASE}" == "true" ]]; then
@@ -323,13 +351,14 @@ jobs:
             gh release edit "${RELEASE_TAG}" \
               --repo "${GH_REPO}" \
               --title "${RELEASE_NAME}" \
+              --notes-file release-notes.md \
               "${prerelease_flag[@]}"
           else
             gh release create "${RELEASE_TAG}" \
               --repo "${GH_REPO}" \
               --title "${RELEASE_NAME}" \
               "${prerelease_flag[@]}" \
-              --notes "Middleware packages with Redis ${{ env.REDIS_PACKAGE_VERSION }}, MinIO ${{ env.MINIO_PACKAGE_REF }}, and etcd ${{ env.ETCD_PACKAGE_VERSION }}."
+              --notes-file release-notes.md
           fi
 
           gh release upload "${RELEASE_TAG}" --repo "${GH_REPO}" artifacts/*.tar.xz --clobber
