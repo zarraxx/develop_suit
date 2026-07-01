@@ -1,0 +1,82 @@
+name: debug_middleware_qemu_artifacts
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  PACKAGE_TEST_IMAGE: ghcr.io/zarraxx/develop_suit:llvm-with-mingw64-18.1.8
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "package_middleware run id to download artifacts from"
+        required: true
+        type: string
+      release_date:
+        description: "Artifact date suffix, for example 2026-07-01"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  test-artifact:
+    name: artifact-${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64
+            triple: aarch64-unknown-linux-gnu
+            platform: linux/arm64
+          - target: riscv64
+            triple: riscv64-unknown-linux-gnu
+            platform: linux/riscv64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download middleware artifact
+        uses: actions/download-artifact@v8
+        with:
+          run-id: ${{ inputs.run_id }}
+          name: middleware-${{ matrix.target }}
+          path: artifacts
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install QEMU binfmt
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,riscv64
+
+      - name: Reproduce middleware Docker test
+        env:
+          RELEASE_DATE: ${{ inputs.release_date }}
+        run: |
+          set -euxo pipefail
+
+          archive_name="middleware-${{ matrix.triple }}-${RELEASE_DATE}.tar.xz"
+          archive_path="${GITHUB_WORKSPACE}/artifacts/${archive_name}"
+          package_dir="/tmp/middleware-${{ matrix.triple }}-${RELEASE_DATE}"
+
+          ls -la artifacts
+          test -f "${archive_path}"
+
+          docker pull --platform "${{ matrix.platform }}" "${{ env.PACKAGE_TEST_IMAGE }}"
+
+          docker run --rm \
+            --platform "${{ matrix.platform }}" \
+            "${{ env.PACKAGE_TEST_IMAGE }}" \
+            /bin/bash -lc 'set -euxo pipefail; uname -m; /bin/bash --version | head -1; /bin/tar --version | head -1 || true'
+
+          docker run --rm \
+            --platform "${{ matrix.platform }}" \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -w /work \
+            -e HOME=/tmp \
+            "${{ env.PACKAGE_TEST_IMAGE }}" \
+            /bin/bash -lc "set -euxo pipefail; ls -la /work/artifacts; rm -rf '${package_dir}'; tar -C /tmp -xf '/work/artifacts/${archive_name}'; find '${package_dir}' -maxdepth 2 -type f | sort; bash -x ./packages/middleware/test_package.sh '${package_dir}'"
