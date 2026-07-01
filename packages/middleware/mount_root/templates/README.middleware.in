@@ -11,11 +11,12 @@ Toolchain inputs:
 
 Installed layout:
 - bin/redis-server, bin/redis-cli, bin/redis-benchmark on Linux targets
+- bin/redis-server.exe, bin/redis-cli.exe, bin/redis-benchmark.exe on MinGW workflow packages
 - bin/minio
 - bin/etcd, bin/etcdctl, bin/etcdutl
 - manifest.env
 
 Redis note:
-The MinGW package does not include Redis because upstream Redis server does not
-support native Windows builds. MinIO and etcd are included for all five package
-targets.
+MinGW workflow packages include Redis built with MSYS2, following the
+redis-windows project build settings. Direct local build.sh MinGW builds stage
+MinIO and etcd first; the workflow injects the MSYS2 Redis build before upload.

@@ -32,6 +32,20 @@ if [[ -z "$PACKAGE_DIR" || "$PACKAGE_DIR" == "-h" || "$PACKAGE_DIR" == "--help" 
 fi
 
 PACKAGE_DIR="$(cd "$PACKAGE_DIR" && pwd)"
+PACKAGE_TARGET_TRIPLE=""
+if [[ -f "${PACKAGE_DIR}/manifest.env" ]]; then
+  PACKAGE_TARGET_TRIPLE="$(awk -F= '$1 == "TARGET_TRIPLE" { print $2; exit }' "${PACKAGE_DIR}/manifest.env")"
+fi
+
+case "$PACKAGE_TARGET_TRIPLE" in
+  riscv64-unknown-linux-gnu)
+    export ETCD_UNSUPPORTED_ARCH=riscv64
+    ;;
+  loongarch64-unknown-linux-gnu)
+    export ETCD_UNSUPPORTED_ARCH=loong64
+    ;;
+esac
+
 EXEEXT=""
 if [[ -x "${PACKAGE_DIR}/bin/minio.exe" ]]; then
   EXEEXT=".exe"
