@@ -1,0 +1,13 @@
+bind 0.0.0.0
+port 6379
+protected-mode yes
+dir "@REDIS_DATA_DIR@"
+daemonize no
+pidfile "redis.pid"
+logfile ""
+save 900 1
+save 300 10
+save 60 10000
+appendonly yes
+appendfilename "appendonly.aof"
+@REDIS_REQUIREPASS_LINE@

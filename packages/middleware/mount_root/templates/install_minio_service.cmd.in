@@ -1,0 +1,109 @@
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+set "PACKAGE_ROOT=%~dp0"
+if "%PACKAGE_ROOT:~-1%"=="\" set "PACKAGE_ROOT=%PACKAGE_ROOT:~0,-1%"
+
+if "%~1"=="" (set "SERVICE_NAME=minio") else (set "SERVICE_NAME=%~1")
+if "%~2"=="" (set "MINIO_DATA_DIR=%PACKAGE_ROOT%\data\minio") else (set "MINIO_DATA_DIR=%~2")
+if "%~3"=="" (set "MINIO_ROOT_USER=minioadmin") else (set "MINIO_ROOT_USER=%~3")
+if "%~4"=="" (set "MINIO_ROOT_PASSWORD=minioadmin") else (set "MINIO_ROOT_PASSWORD=%~4")
+if "%WINSW_URL%"=="" set "WINSW_URL=https://github.com/winsw/winsw/releases/latest/download/WinSW-x64.exe"
+
+set "SERVICE_DIR=%PACKAGE_ROOT%\service\%SERVICE_NAME%"
+set "WINSW_EXE=%SERVICE_DIR%\winsw.exe"
+set "WINSW_XML=%SERVICE_DIR%\winsw.xml"
+set "WINSW_TEMPLATE=%PACKAGE_ROOT%\conf\winsw.minio.xml.template"
+
+echo(!SERVICE_NAME!| findstr /R /C:"^[A-Za-z0-9_.@-][A-Za-z0-9_.@-]*$" >nul
+if errorlevel 1 (
+  echo error: invalid service name: !SERVICE_NAME!
+  exit /b 1
+)
+
+echo(!PACKAGE_ROOT!!MINIO_DATA_DIR!!MINIO_ROOT_USER!!MINIO_ROOT_PASSWORD!| findstr /R /C:"[&<>^|]" >nul
+if not errorlevel 1 (
+  echo error: package path, data path, user, or password contains a character unsupported by this cmd installer.
+  exit /b 1
+)
+
+if not exist "%PACKAGE_ROOT%\bin\minio.exe" (
+  echo error: missing minio.exe: "%PACKAGE_ROOT%\bin\minio.exe"
+  exit /b 1
+)
+if not exist "%PACKAGE_ROOT%\bin\winsw.exe" (
+  echo warning: missing package WinSW; download fallback will be used.
+)
+if not exist "%WINSW_TEMPLATE%" (
+  echo error: missing WinSW MinIO template: "%WINSW_TEMPLATE%"
+  exit /b 1
+)
+
+sc query "%SERVICE_NAME%" >nul 2>nul
+if not errorlevel 1 (
+  echo error: service already exists: %SERVICE_NAME%
+  exit /b 1
+)
+
+if not exist "%SERVICE_DIR%" mkdir "%SERVICE_DIR%"
+if errorlevel 1 exit /b 1
+if not exist "%MINIO_DATA_DIR%" mkdir "%MINIO_DATA_DIR%"
+if errorlevel 1 exit /b 1
+if not exist "%PACKAGE_ROOT%\logs" mkdir "%PACKAGE_ROOT%\logs"
+
+if exist "%PACKAGE_ROOT%\bin\winsw.exe" (
+  copy /Y "%PACKAGE_ROOT%\bin\winsw.exe" "%WINSW_EXE%" >nul
+) else (
+  call :download_winsw
+  if errorlevel 1 exit /b 1
+)
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $x=Get-Content -Raw $env:WINSW_TEMPLATE; $x=$x.Replace('@SERVICE_NAME@',$env:SERVICE_NAME).Replace('@PACKAGE_ROOT@',$env:PACKAGE_ROOT).Replace('@MINIO_DATA_DIR@',$env:MINIO_DATA_DIR).Replace('@MINIO_ROOT_USER@',$env:MINIO_ROOT_USER).Replace('@MINIO_ROOT_PASSWORD@',$env:MINIO_ROOT_PASSWORD); Set-Content -Encoding ASCII -Path $env:WINSW_XML -Value $x"
+if errorlevel 1 exit /b 1
+
+pushd "%SERVICE_DIR%" >nul
+"%WINSW_EXE%" install
+set "INSTALL_RC=%ERRORLEVEL%"
+popd >nul
+if not "%INSTALL_RC%"=="0" exit /b %INSTALL_RC%
+
+echo Installed MinIO Windows service: %SERVICE_NAME%
+echo Data dir: %MINIO_DATA_DIR%
+echo Start it with: net start %SERVICE_NAME%
+exit /b 0
+
+:download_winsw
+echo Downloading WinSW from %WINSW_URL%
+set "DOWNLOAD_TMP=%WINSW_EXE%.tmp"
+del /f /q "%DOWNLOAD_TMP%" >nul 2>nul
+
+if exist "%PACKAGE_ROOT%\bin\curl_static.exe" (
+  "%PACKAGE_ROOT%\bin\curl_static.exe" -L --fail --retry 3 -o "%DOWNLOAD_TMP%" "%WINSW_URL%"
+  if not errorlevel 1 goto :download_done
+)
+if exist "%PACKAGE_ROOT%\bin\curl.exe" (
+  "%PACKAGE_ROOT%\bin\curl.exe" -L --fail --retry 3 -o "%DOWNLOAD_TMP%" "%WINSW_URL%"
+  if not errorlevel 1 goto :download_done
+)
+where curl.exe >nul 2>nul
+if not errorlevel 1 (
+  curl.exe -L --fail --retry 3 -o "%DOWNLOAD_TMP%" "%WINSW_URL%"
+  if not errorlevel 1 goto :download_done
+)
+where powershell.exe >nul 2>nul
+if not errorlevel 1 (
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '%WINSW_URL%' -OutFile '%DOWNLOAD_TMP%' } catch { Write-Error $_; exit 1 }"
+  if not errorlevel 1 goto :download_done
+)
+
+echo error: failed to download WinSW
+exit /b 1
+
+:download_done
+if not exist "%DOWNLOAD_TMP%" (
+  echo error: WinSW download did not produce "%DOWNLOAD_TMP%"
+  exit /b 1
+)
+move /Y "%DOWNLOAD_TMP%" "%WINSW_EXE%" >nul
+if errorlevel 1 exit /b 1
+exit /b 0

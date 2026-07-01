@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+package_root="$script_dir"
+service_name="${1:-redis}"
+data_dir="${2:-${REDIS_DATA_DIR:-${package_root}/data/redis}}"
+redis_password="${3:-${REDIS_PASSWORD:-}}"
+service_user="${4:-${SERVICE_RUN_USER:-redis}}"
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+quote_systemd_value() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
+render_template_file() {
+  local template_path="$1"
+  local output_path="$2"
+  local content=""
+  local assignment=""
+  local key=""
+  local value=""
+
+  content="$(<"$template_path")"
+  shift 2
+  for assignment in "$@"; do
+    key="${assignment%%=*}"
+    value="${assignment#*=}"
+    content="${content//"@${key}@"/$value}"
+  done
+  printf '%s\n' "$content" >"$output_path"
+}
+
+choose_nologin_shell() {
+  if [[ -x /usr/sbin/nologin ]]; then
+    printf '%s\n' /usr/sbin/nologin
+  elif [[ -x /sbin/nologin ]]; then
+    printf '%s\n' /sbin/nologin
+  else
+    printf '%s\n' /bin/false
+  fi
+}
+
+ensure_service_user() {
+  local nologin_shell=""
+
+  if [[ "$service_user" == "root" ]] || id "$service_user" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  nologin_shell="$(choose_nologin_shell)"
+  if command -v useradd >/dev/null 2>&1; then
+    useradd --system --home-dir "$package_root" --shell "$nologin_shell" --no-create-home "$service_user"
+  elif command -v adduser >/dev/null 2>&1; then
+    adduser --system --home "$package_root" --shell "$nologin_shell" --no-create-home "$service_user"
+  else
+    die "useradd or adduser is required to create service user: ${service_user}"
+  fi
+}
+
+run_as_service_user() {
+  if [[ "$(id -u)" -eq 0 && "$service_user" != "root" ]]; then
+    if command -v runuser >/dev/null 2>&1; then
+      runuser -u "$service_user" -- "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+      sudo -u "$service_user" "$@"
+    else
+      die "runuser or sudo is required to check package access as ${service_user}"
+    fi
+  else
+    "$@"
+  fi
+}
+
+service_user_can_execute() {
+  run_as_service_user test -x "${package_root}/bin/redis-server" >/dev/null 2>&1
+}
+
+grant_parent_traverse_acl() {
+  local target_path="$1"
+  local parent_dir=""
+
+  command -v setfacl >/dev/null 2>&1 || return 1
+  parent_dir="$(dirname "$target_path")"
+  while [[ "$parent_dir" != "/" && -n "$parent_dir" ]]; do
+    setfacl -m "u:${service_user}:--x" "$parent_dir" || return 1
+    parent_dir="$(dirname "$parent_dir")"
+  done
+}
+
+ensure_package_access() {
+  if service_user_can_execute; then
+    return 0
+  fi
+
+  if command -v setfacl >/dev/null 2>&1; then
+    if setfacl -R -m "u:${service_user}:rX" "$package_root" && \
+      grant_parent_traverse_acl "$package_root" && \
+      service_user_can_execute; then
+      return 0
+    fi
+  fi
+
+  die "service user ${service_user} cannot execute ${package_root}/bin/redis-server"
+}
+
+[[ -x "${package_root}/bin/redis-server" ]] || die "missing redis-server: ${package_root}/bin/redis-server"
+[[ -x "${package_root}/bin/redis-cli" ]] || die "missing redis-cli: ${package_root}/bin/redis-cli"
+[[ -f "${package_root}/conf/redis.conf.template" ]] || die "missing redis config template"
+[[ -f "${package_root}/conf/systemd.redis.service.template" ]] || die "missing redis systemd template"
+command -v systemctl >/dev/null 2>&1 || die "systemctl is required"
+[[ "$service_name" =~ ^[A-Za-z0-9_.@-]+$ ]] || die "invalid service name: ${service_name}"
+[[ "$service_user" =~ ^[A-Za-z0-9_.@-]+$ ]] || die "invalid service user: ${service_user}"
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || die "root privileges or sudo are required"
+  exec sudo env SERVICE_RUN_USER="$service_user" "$0" "$service_name" "$data_dir" "$redis_password" "$service_user"
+fi
+
+ensure_service_user
+ensure_package_access
+
+run_dir="${package_root}/run/${service_name}"
+config_file="${package_root}/conf/${service_name}.redis.conf"
+env_file="/etc/default/${service_name}"
+service_file="/etc/systemd/system/${service_name}.service"
+requirepass_line=""
+
+if [[ -n "$redis_password" ]]; then
+  requirepass_line="requirepass ${redis_password}"
+fi
+
+mkdir -p "$data_dir" "$run_dir" "${package_root}/logs"
+chown -R "$service_user" "$data_dir" "$run_dir" "${package_root}/logs"
+chmod 755 "$data_dir" "$run_dir" "${package_root}/logs"
+
+render_template_file "${package_root}/conf/redis.conf.template" "$config_file" \
+  "REDIS_DATA_DIR=${data_dir}" \
+  "REDIS_RUN_DIR=${run_dir}" \
+  "REDIS_REQUIREPASS_LINE=${requirepass_line}"
+
+cat >"$env_file" <<EOF
+MIDDLEWARE_PACKAGE_ROOT=$(quote_systemd_value "$package_root")
+REDIS_DATA_DIR=$(quote_systemd_value "$data_dir")
+REDIS_RUN_DIR=$(quote_systemd_value "$run_dir")
+REDIS_CONFIG_FILE=$(quote_systemd_value "$config_file")
+REDIS_PASSWORD=$(quote_systemd_value "$redis_password")
+PATH=$(quote_systemd_value "${package_root}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+LD_LIBRARY_PATH=$(quote_systemd_value "${package_root}/lib:${package_root}/lib64")
+EOF
+
+render_template_file "${package_root}/conf/systemd.redis.service.template" "$service_file" \
+  "SERVICE_NAME=${service_name}" \
+  "SERVICE_USER=${service_user}" \
+  "ENV_FILE=${env_file}"
+
+systemctl daemon-reload
+systemctl enable "$service_name"
+
+echo "Installed Redis systemd service: ${service_name}"
+echo "Data dir: ${data_dir}"
+echo "Config: ${config_file}"
+echo "Start it with: systemctl start ${service_name}"

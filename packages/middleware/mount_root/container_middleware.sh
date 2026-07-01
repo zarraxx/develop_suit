@@ -238,6 +238,7 @@ build_redis() {
     host_env make -j "$JOBS" \
       BUILD_TLS=no \
       MALLOC=libc \
+      USE_SYSTEMD=no \
       CC="$CC" \
       AR="$AR" \
       RANLIB="$RANLIB" \
@@ -314,6 +315,52 @@ build_patchelf() {
   cp -a "${LLVM_ROOT}/lib/${TARGET_TRIPLE}/libc++.so"* "${SDK_PREFIX}/lib/"
   cp -a "${LLVM_ROOT}/lib/${TARGET_TRIPLE}/libc++abi.so"* "${SDK_PREFIX}/lib/"
   cp -a "${LLVM_ROOT}/lib/${TARGET_TRIPLE}/libunwind.so"* "${SDK_PREFIX}/lib/"
+}
+
+write_service_files() {
+  install -d "${SDK_PREFIX}/conf"
+
+  if [[ "$TARGET_KIND" == "linux" ]]; then
+    install -m 644 /work/mount_root/templates/redis.conf.in \
+      "${SDK_PREFIX}/conf/redis.conf.template"
+    install -m 644 /work/mount_root/templates/minio.env.in \
+      "${SDK_PREFIX}/conf/minio.env.template"
+    install -m 644 /work/mount_root/templates/systemd.redis.service.in \
+      "${SDK_PREFIX}/conf/systemd.redis.service.template"
+    install -m 644 /work/mount_root/templates/systemd.minio.service.in \
+      "${SDK_PREFIX}/conf/systemd.minio.service.template"
+
+    render_template /work/mount_root/templates/install_redis_service.sh.in \
+      "${SDK_PREFIX}/install_redis_service.sh"
+    chmod +x "${SDK_PREFIX}/install_redis_service.sh"
+    render_template /work/mount_root/templates/uninstall_redis_service.sh.in \
+      "${SDK_PREFIX}/uninstall_redis_service.sh"
+    chmod +x "${SDK_PREFIX}/uninstall_redis_service.sh"
+    render_template /work/mount_root/templates/install_minio_service.sh.in \
+      "${SDK_PREFIX}/install_minio_service.sh"
+    chmod +x "${SDK_PREFIX}/install_minio_service.sh"
+    render_template /work/mount_root/templates/uninstall_minio_service.sh.in \
+      "${SDK_PREFIX}/uninstall_minio_service.sh"
+    chmod +x "${SDK_PREFIX}/uninstall_minio_service.sh"
+  else
+    install -m 644 /work/mount_root/templates/redis.windows.conf.in \
+      "${SDK_PREFIX}/conf/redis.windows.conf.template"
+    install -m 644 /work/mount_root/templates/winsw.redis.xml.in \
+      "${SDK_PREFIX}/conf/winsw.redis.xml.template"
+    install -m 644 /work/mount_root/templates/winsw.minio.xml.in \
+      "${SDK_PREFIX}/conf/winsw.minio.xml.template"
+    install -m 644 /work/mount_root/templates/minio.env.in \
+      "${SDK_PREFIX}/conf/minio.env.template"
+
+    render_template /work/mount_root/templates/install_redis_service.cmd.in \
+      "${SDK_PREFIX}/install_redis_service.cmd"
+    render_template /work/mount_root/templates/uninstall_redis_service.cmd.in \
+      "${SDK_PREFIX}/uninstall_redis_service.cmd"
+    render_template /work/mount_root/templates/install_minio_service.cmd.in \
+      "${SDK_PREFIX}/install_minio_service.cmd"
+    render_template /work/mount_root/templates/uninstall_minio_service.cmd.in \
+      "${SDK_PREFIX}/uninstall_minio_service.cmd"
+  fi
 }
 
 write_package_readme() {
@@ -424,6 +471,7 @@ build_redis
 build_minio
 build_etcd
 build_patchelf
+write_service_files
 write_package_readme
 write_manifest
 

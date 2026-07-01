@@ -69,16 +69,60 @@ Package layout:
 - `bin/patchelf` on Linux targets
 - `bin/winsw.exe`, `bin/winsw.xml`, and `conf/winsw.sample.xml` on the MinGW
   workflow package
+- Linux systemd templates and service scripts:
+  `install_redis_service.sh`, `uninstall_redis_service.sh`,
+  `install_minio_service.sh`, `uninstall_minio_service.sh`,
+  `conf/redis.conf.template`, `conf/minio.env.template`,
+  `conf/systemd.redis.service.template`, `conf/systemd.minio.service.template`
+- Windows WinSW templates and service scripts:
+  `install_redis_service.cmd`, `uninstall_redis_service.cmd`,
+  `install_minio_service.cmd`, `uninstall_minio_service.cmd`,
+  `conf/redis.windows.conf.template`, `conf/winsw.redis.xml.template`,
+  `conf/winsw.minio.xml.template`
 - `README.middleware`
 - `manifest.env`
+
+## Service Helpers
+
+Linux Redis uses a single-node `systemd` service with Redis bound to
+`0.0.0.0:6379`. The configuration template variable inputs are the data
+directory and optional password:
+
+```bash
+sudo ./install_redis_service.sh redis /var/lib/redis strong-password redis
+sudo systemctl start redis
+sudo ./uninstall_redis_service.sh redis
+```
+
+Linux MinIO uses a single-node `systemd` service with three default environment
+values: data path, root user, and root password:
+
+```bash
+sudo ./install_minio_service.sh minio /var/lib/minio minioadmin minioadmin minio
+sudo systemctl start minio
+sudo ./uninstall_minio_service.sh minio
+```
+
+Windows packages use WinSW wrappers. Redis and MinIO install scripts generate a
+service-local `winsw.xml` from the package templates:
+
+```cmd
+install_redis_service.cmd redis C:\middleware-data\redis strong-password
+net start redis
+uninstall_redis_service.cmd redis
+
+install_minio_service.cmd minio C:\middleware-data\minio minioadmin minioadmin
+net start minio
+uninstall_minio_service.cmd minio
+```
 
 ## Upstream Build Commands
 
 Redis Linux:
 
 ```bash
-make -j "$JOBS" BUILD_TLS=no MALLOC=libc CC="$CC" AR="$AR" RANLIB="$RANLIB" \
-  redis-server redis-cli redis-benchmark
+make -j "$JOBS" BUILD_TLS=no MALLOC=libc USE_SYSTEMD=no \
+  CC="$CC" AR="$AR" RANLIB="$RANLIB" redis-server redis-cli redis-benchmark
 install -m 755 src/redis-server src/redis-cli src/redis-benchmark "$SDK_PREFIX/bin/"
 ```
 

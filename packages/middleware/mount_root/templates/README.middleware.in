@@ -19,7 +19,19 @@ Installed layout:
 - bin/patchelf on Linux targets
 - bin/winsw.exe and bin/winsw.xml on MinGW workflow packages
 - conf/winsw.sample.xml on MinGW workflow packages
+- Linux service helpers: install_redis_service.sh, uninstall_redis_service.sh,
+  install_minio_service.sh, uninstall_minio_service.sh, and systemd templates
+- Windows service helpers: install_redis_service.cmd, uninstall_redis_service.cmd,
+  install_minio_service.cmd, uninstall_minio_service.cmd, and WinSW templates
 - manifest.env
+
+Service defaults:
+- Redis is configured as a single-node service on 0.0.0.0:6379. The install
+  script accepts service name, data directory, optional password, and service
+  user.
+- MinIO is configured as a single-node service on :9000 with console on :9001.
+  The install script accepts service name, data directory, root user, root
+  password, and service user on Linux.
 
 Redis note:
 MinGW workflow packages include Redis built with MSYS2, following the

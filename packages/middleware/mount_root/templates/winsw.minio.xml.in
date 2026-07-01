@@ -1,0 +1,18 @@
+<service>
+  <id>@SERVICE_NAME@</id>
+  <name>@SERVICE_NAME@</name>
+  <description>MinIO single-node service from @PACKAGE_ROOT@</description>
+  <executable>@PACKAGE_ROOT@\bin\minio.exe</executable>
+  <arguments>server "@MINIO_DATA_DIR@" --address ":9000" --console-address ":9001"</arguments>
+  <workingdirectory>@PACKAGE_ROOT@</workingdirectory>
+  <env name="MINIO_ROOT_USER" value="@MINIO_ROOT_USER@"/>
+  <env name="MINIO_ROOT_PASSWORD" value="@MINIO_ROOT_PASSWORD@"/>
+  <logpath>@PACKAGE_ROOT@\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10485760</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="5 sec"/>
+  <stoptimeout>30 sec</stoptimeout>
+</service>

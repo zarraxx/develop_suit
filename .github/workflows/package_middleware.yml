@@ -464,12 +464,90 @@ jobs:
           tar -C "${PWD}" -xf "${archive_path}"
           bash ./packages/middleware/test_package.sh "${package_dir}"
 
+  test-middleware-services:
+    name: test-middleware-services-${{ matrix.target }}
+    needs:
+      - resolve-meta
+      - test-middleware
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            artifact_name: middleware-x86_64
+            triple: x86_64-unknown-linux-gnu
+            runs_on: ubuntu-24.04
+            test_mode: linux-systemd
+          - target: mingw64-windows
+            artifact_name: middleware-mingw64
+            triple: x86_64-w64-windows-gnu
+            runs_on: windows-latest
+            test_mode: windows-winsw
+    runs-on: ${{ matrix.runs_on }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download middleware artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: artifacts
+
+      - name: Test Linux systemd service scripts
+        if: ${{ matrix.test_mode == 'linux-systemd' }}
+        env:
+          ASSET_PREFIX: ${{ needs.resolve-meta.outputs.asset_prefix }}
+          RELEASE_DATE: ${{ needs.resolve-meta.outputs.release_date }}
+        run: |
+          set -euo pipefail
+
+          archive_name="${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}.tar.xz"
+          archive_path="${GITHUB_WORKSPACE}/artifacts/${archive_name}"
+          package_name="${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}"
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "${tmp_dir}"' EXIT
+
+          [[ -f "${archive_path}" ]] || {
+            echo "missing package artifact: ${archive_path}" >&2
+            exit 1
+          }
+
+          tar -C "${tmp_dir}" -xf "${archive_path}"
+          sudo rm -rf /opt/middleware-service-ci
+          sudo mv "${tmp_dir}/${package_name}" /opt/middleware-service-ci
+          sudo bash ./packages/middleware/test_service_linux.sh /opt/middleware-service-ci
+
+      - name: Test Windows WinSW service scripts
+        if: ${{ matrix.test_mode == 'windows-winsw' }}
+        shell: pwsh
+        env:
+          ASSET_PREFIX: ${{ needs.resolve-meta.outputs.asset_prefix }}
+          RELEASE_DATE: ${{ needs.resolve-meta.outputs.release_date }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $archiveName = "${env:ASSET_PREFIX}-${{ matrix.triple }}-${env:RELEASE_DATE}.tar.xz"
+          $archivePath = Join-Path $env:GITHUB_WORKSPACE "artifacts/$archiveName"
+          $packageName = "${env:ASSET_PREFIX}-${{ matrix.triple }}-${env:RELEASE_DATE}"
+          $packageDir = Join-Path $env:GITHUB_WORKSPACE $packageName
+
+          if (-not (Test-Path $archivePath)) {
+            throw "missing package artifact: ${archivePath}"
+          }
+
+          Remove-Item -Recurse -Force $packageDir -ErrorAction SilentlyContinue
+          tar -C $env:GITHUB_WORKSPACE -xf $archivePath
+          ./packages/middleware/test_service_windows.ps1 -PackageDir $packageDir
+
   publish-release:
     name: publish-release
     runs-on: ubuntu-latest
     needs:
       - resolve-meta
-      - test-middleware
+      - test-middleware-services
     if: ${{ inputs.publish_release }}
 
     steps:

@@ -113,6 +113,27 @@ if [[ "$PACKAGE_TARGET_TRIPLE" == "aarch64-unknown-linux-gnu" ]]; then
   REDIS_EXTRA_ARGS=(--ignore-warnings ARM64-COW-BUG)
 fi
 
+if [[ "$PACKAGE_TARGET_TRIPLE" == *-unknown-linux-gnu ]]; then
+  [[ -x "${PACKAGE_DIR}/install_redis_service.sh" ]] || die "missing Redis systemd installer"
+  [[ -x "${PACKAGE_DIR}/uninstall_redis_service.sh" ]] || die "missing Redis systemd uninstaller"
+  [[ -x "${PACKAGE_DIR}/install_minio_service.sh" ]] || die "missing MinIO systemd installer"
+  [[ -x "${PACKAGE_DIR}/uninstall_minio_service.sh" ]] || die "missing MinIO systemd uninstaller"
+  [[ -f "${PACKAGE_DIR}/conf/redis.conf.template" ]] || die "missing Redis config template"
+  [[ -f "${PACKAGE_DIR}/conf/minio.env.template" ]] || die "missing MinIO env template"
+  [[ -f "${PACKAGE_DIR}/conf/systemd.redis.service.template" ]] || die "missing Redis systemd template"
+  [[ -f "${PACKAGE_DIR}/conf/systemd.minio.service.template" ]] || die "missing MinIO systemd template"
+fi
+
+if [[ "$PACKAGE_TARGET_TRIPLE" == "x86_64-w64-windows-gnu" ]]; then
+  [[ -f "${PACKAGE_DIR}/install_redis_service.cmd" ]] || die "missing Redis WinSW installer"
+  [[ -f "${PACKAGE_DIR}/uninstall_redis_service.cmd" ]] || die "missing Redis WinSW uninstaller"
+  [[ -f "${PACKAGE_DIR}/install_minio_service.cmd" ]] || die "missing MinIO WinSW installer"
+  [[ -f "${PACKAGE_DIR}/uninstall_minio_service.cmd" ]] || die "missing MinIO WinSW uninstaller"
+  [[ -f "${PACKAGE_DIR}/conf/redis.windows.conf.template" ]] || die "missing Redis Windows config template"
+  [[ -f "${PACKAGE_DIR}/conf/winsw.redis.xml.template" ]] || die "missing Redis WinSW template"
+  [[ -f "${PACKAGE_DIR}/conf/winsw.minio.xml.template" ]] || die "missing MinIO WinSW template"
+fi
+
 rm -rf "$TEST_DIR"
 mkdir -p "$MINIO_DATA" "$ETCD_DATA"
 
