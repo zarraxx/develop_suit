@@ -256,9 +256,22 @@ jobs:
           download_url() {
             local url="$1"
             local output_path="$2"
-            curl -fL --retry 8 --retry-delay 5 --retry-all-errors \
-              -o "${output_path}" \
-              "${url}"
+            local attempt=""
+            local rc=0
+            rm -f "${output_path}" "${output_path}.tmp"
+            for attempt in $(seq 1 8); do
+              if curl -fL --connect-timeout 30 --max-time 600 \
+                -o "${output_path}.tmp" \
+                "${url}"; then
+                mv "${output_path}.tmp" "${output_path}"
+                return 0
+              fi
+              rc="$?"
+              rm -f "${output_path}.tmp"
+              echo "download failed: ${url} (attempt ${attempt}/8, exit ${rc})" >&2
+              sleep 5
+            done
+            return "${rc}"
           }
 
           if [[ "${WITH_ORACLE}" == "true" ]]; then
@@ -501,9 +514,22 @@ jobs:
           download_url() {
             local url="$1"
             local output_path="$2"
-            curl -fL --retry 8 --retry-delay 5 --retry-all-errors \
-              -o "${output_path}" \
-              "${url}"
+            local attempt=""
+            local rc=0
+            rm -f "${output_path}" "${output_path}.tmp"
+            for attempt in $(seq 1 8); do
+              if curl -fL --connect-timeout 30 --max-time 600 \
+                -o "${output_path}.tmp" \
+                "${url}"; then
+                mv "${output_path}.tmp" "${output_path}"
+                return 0
+              fi
+              rc="$?"
+              rm -f "${output_path}.tmp"
+              echo "download failed: ${url} (attempt ${attempt}/8, exit ${rc})" >&2
+              sleep 5
+            done
+            return "${rc}"
           }
 
           download_url "${ORACLE_BASIC_URL}" "artifacts/vendor/$(basename "${ORACLE_BASIC_URL}")"
