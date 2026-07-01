@@ -9,6 +9,8 @@ if "%~2"=="" (set "MINIO_DATA_DIR=%PACKAGE_ROOT%\data\minio") else (set "MINIO_D
 if "%~3"=="" (set "MINIO_ROOT_USER=minioadmin") else (set "MINIO_ROOT_USER=%~3")
 if "%~4"=="" (set "MINIO_ROOT_PASSWORD=minioadmin") else (set "MINIO_ROOT_PASSWORD=%~4")
 if "%WINSW_URL%"=="" set "WINSW_URL=https://github.com/winsw/winsw/releases/latest/download/WinSW-x64.exe"
+if "%MINIO_ADDRESS%"=="" set "MINIO_ADDRESS=:9000"
+if "%MINIO_CONSOLE_ADDRESS%"=="" set "MINIO_CONSOLE_ADDRESS=:9001"
 
 set "SERVICE_DIR=%PACKAGE_ROOT%\service\%SERVICE_NAME%"
 set "WINSW_EXE=%SERVICE_DIR%\winsw.exe"
@@ -52,6 +54,7 @@ if errorlevel 1 exit /b 1
 if not exist "%MINIO_DATA_DIR%" mkdir "%MINIO_DATA_DIR%"
 if errorlevel 1 exit /b 1
 if not exist "%PACKAGE_ROOT%\logs" mkdir "%PACKAGE_ROOT%\logs"
+if not exist "%PACKAGE_ROOT%\logs\%SERVICE_NAME%" mkdir "%PACKAGE_ROOT%\logs\%SERVICE_NAME%"
 
 if exist "%PACKAGE_ROOT%\bin\winsw.exe" (
   copy /Y "%PACKAGE_ROOT%\bin\winsw.exe" "%WINSW_EXE%" >nul
@@ -64,7 +67,7 @@ if exist "%PACKAGE_ROOT%\bin\winsw.exe" (
   echo @echo off
   echo set "MINIO_ROOT_USER=%MINIO_ROOT_USER%"
   echo set "MINIO_ROOT_PASSWORD=%MINIO_ROOT_PASSWORD%"
-  echo "%PACKAGE_ROOT%\bin\minio.exe" server "%MINIO_DATA_DIR%" --address ":9000" --console-address ":9001"
+  echo "%PACKAGE_ROOT%\bin\minio.exe" server "%MINIO_DATA_DIR%" --address "%MINIO_ADDRESS%" --console-address "%MINIO_CONSOLE_ADDRESS%"
 ) > "%MINIO_WRAPPER_FILE%"
 if errorlevel 1 exit /b 1
 

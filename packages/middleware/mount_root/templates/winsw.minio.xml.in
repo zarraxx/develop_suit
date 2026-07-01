@@ -7,7 +7,7 @@
   <workingdirectory>@PACKAGE_ROOT@</workingdirectory>
   <env name="MINIO_ROOT_USER" value="@MINIO_ROOT_USER@"/>
   <env name="MINIO_ROOT_PASSWORD" value="@MINIO_ROOT_PASSWORD@"/>
-  <logpath>@PACKAGE_ROOT@\logs</logpath>
+  <logpath>@PACKAGE_ROOT@\logs\@SERVICE_NAME@</logpath>
   <log mode="roll-by-size">
     <sizeThreshold>10485760</sizeThreshold>
     <keepFiles>8</keepFiles>

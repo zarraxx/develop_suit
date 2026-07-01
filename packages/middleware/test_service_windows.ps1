@@ -13,6 +13,8 @@ $minioDataDir = Join-Path $packageRoot "data/minio"
 $redisPassword = "middleware-ci-secret"
 $minioRootUser = "minioadmin"
 $minioRootPassword = "minioadmin"
+$minioPort = "19000"
+$minioConsolePort = "19001"
 
 function Invoke-Logged {
   param(
@@ -57,7 +59,7 @@ function Wait-Redis {
 function Wait-Minio {
   for ($i = 0; $i -lt 90; $i++) {
     try {
-      curl.exe --connect-timeout 2 --max-time 5 -fsS "http://127.0.0.1:9000/minio/health/live" | Out-Null
+      curl.exe --connect-timeout 2 --max-time 5 -fsS "http://127.0.0.1:${minioPort}/minio/health/live" | Out-Null
       if ($LASTEXITCODE -eq 0) {
         return
       }
@@ -84,7 +86,7 @@ function Dump-ServiceLogs {
 
   $logDir = Join-Path $packageRoot "logs"
   if (Test-Path $logDir) {
-    Get-ChildItem -Path $logDir -File -ErrorAction SilentlyContinue |
+    Get-ChildItem -Path $logDir -Recurse -File -ErrorAction SilentlyContinue |
       Where-Object { $_.Extension -in @(".err", ".log", ".out", ".xml") } |
       ForEach-Object {
         Write-Host "-- $($_.FullName)"
@@ -132,10 +134,12 @@ try {
   Invoke-Logged "cmd.exe" @("/c", "`"$uninstallRedis`" $redisService")
 
   Write-Host "-- installing MinIO service"
+  $env:MINIO_ADDRESS = "127.0.0.1:${minioPort}"
+  $env:MINIO_CONSOLE_ADDRESS = "127.0.0.1:${minioConsolePort}"
   Invoke-Logged "cmd.exe" @("/c", "`"$installMinio`" $minioService")
   Invoke-Logged "net.exe" @("start", $minioService)
   Wait-Minio
-  curl.exe --connect-timeout 5 --max-time 10 -fsS "http://127.0.0.1:9000/minio/health/live" | Out-Null
+  curl.exe --connect-timeout 5 --max-time 10 -fsS "http://127.0.0.1:${minioPort}/minio/health/live" | Out-Null
   if ($LASTEXITCODE -ne 0) {
     throw "MinIO health check failed"
   }

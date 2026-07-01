@@ -5,7 +5,7 @@
   <executable>@PACKAGE_ROOT@\bin\redis-server.exe</executable>
   <arguments>"@REDIS_CONFIG_FILE@"</arguments>
   <workingdirectory>@PACKAGE_ROOT@</workingdirectory>
-  <logpath>@PACKAGE_ROOT@\logs</logpath>
+  <logpath>@PACKAGE_ROOT@\logs\@SERVICE_NAME@</logpath>
   <log mode="roll-by-size">
     <sizeThreshold>10485760</sizeThreshold>
     <keepFiles>8</keepFiles>

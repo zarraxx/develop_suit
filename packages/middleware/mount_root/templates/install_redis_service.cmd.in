@@ -61,6 +61,7 @@ if errorlevel 1 exit /b 1
 if not exist "%REDIS_DATA_DIR%" mkdir "%REDIS_DATA_DIR%"
 if errorlevel 1 exit /b 1
 if not exist "%PACKAGE_ROOT%\logs" mkdir "%PACKAGE_ROOT%\logs"
+if not exist "%PACKAGE_ROOT%\logs\%SERVICE_NAME%" mkdir "%PACKAGE_ROOT%\logs\%SERVICE_NAME%"
 
 if exist "%PACKAGE_ROOT%\bin\winsw.exe" (
   copy /Y "%PACKAGE_ROOT%\bin\winsw.exe" "%WINSW_EXE%" >nul
