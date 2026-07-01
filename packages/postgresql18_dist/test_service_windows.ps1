@@ -98,6 +98,8 @@ if (-not [string]::IsNullOrWhiteSpace($archive)) {
   tar -xf $archive `
     --exclude '*/lib/terminfo' `
     --exclude '*/lib/terminfo/*' `
+    --exclude '*/share/terminfo' `
+    --exclude '*/share/terminfo/*' `
     -C $testRoot
   if ($LASTEXITCODE -ne 0) {
     throw "failed to extract archive: $archive"

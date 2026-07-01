@@ -517,6 +517,11 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y acl unzip libaio1t64 || sudo apt-get install -y acl unzip libaio1
+          aio_t64="$(find /usr/lib -name libaio.so.1t64 -print -quit || true)"
+          if [[ -n "${aio_t64}" && ! -e "${aio_t64%t64}" ]]; then
+            sudo ln -sf "$(basename "${aio_t64}")" "${aio_t64%t64}"
+            sudo ldconfig
+          fi
 
       - name: Test Linux native PostgreSQL service and FDWs
         if: ${{ matrix.test_mode == 'linux-native' }}
