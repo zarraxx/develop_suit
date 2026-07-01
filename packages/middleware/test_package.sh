@@ -65,6 +65,12 @@ run_cmd() {
         wine "$binary" "$@"
         ;;
     esac
+  elif [[ -n "${PACKAGE_QEMU:-}" ]]; then
+    if [[ -n "${PACKAGE_QEMU_LD_PREFIX:-}" ]]; then
+      "$PACKAGE_QEMU" -L "$PACKAGE_QEMU_LD_PREFIX" "$binary" "$@"
+    else
+      "$PACKAGE_QEMU" "$binary" "$@"
+    fi
   else
     "$binary" "$@"
   fi
