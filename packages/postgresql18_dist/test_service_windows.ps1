@@ -83,6 +83,28 @@ function Invoke-Psql {
   }
 }
 
+function Invoke-PsqlFile {
+  param([string]$Sql)
+
+  [System.IO.File]::WriteAllText($sqlFile, $Sql)
+  Invoke-Logged (Join-Path $packageDir "bin\psql.exe") @(
+    "-h", "127.0.0.1",
+    "-p", "$port",
+    "-U", "postgres",
+    "-d", "postgres",
+    "-v", "ON_ERROR_STOP=1",
+    "-f", $sqlFile
+  )
+}
+
+function Restart-PostgreSQL {
+  Write-Host "==> restarting Windows service"
+  Invoke-Logged "net.exe" @("stop", $serviceName)
+  Start-Sleep -Seconds 3
+  Invoke-Logged "net.exe" @("start", $serviceName)
+  Wait-PostgreSQL
+}
+
 $archive = Get-ArgValue -ArgsList $args -Name "archive"
 $packageDir = Get-ArgValue -ArgsList $args -Name "package-dir"
 $oracleBasicArchive = Get-ArgValue -ArgsList $args -Name "oracle-basic-archive"
@@ -194,26 +216,35 @@ try {
   Invoke-Logged "net.exe" @("start", $serviceName)
   Wait-PostgreSQL
 
-  $sql = @"
-CREATE DATABASE dist_service_test;
-\connect dist_service_test
+  Write-Host "==> testing oracle_fdw"
+  Invoke-PsqlFile @"
+CREATE DATABASE oracle_fdw_service_test;
+\connect oracle_fdw_service_test
 CREATE EXTENSION oracle_fdw;
-CREATE EXTENSION db2_fdw;
-SELECT extname FROM pg_extension WHERE extname IN ('oracle_fdw', 'db2_fdw') ORDER BY extname;
+SELECT extname FROM pg_extension WHERE extname = 'oracle_fdw';
+DROP EXTENSION oracle_fdw;
+\connect postgres
+DROP DATABASE oracle_fdw_service_test;
 "@
-  [System.IO.File]::WriteAllText($sqlFile, $sql)
-  Invoke-Logged (Join-Path $packageDir "bin\psql.exe") @(
-    "-h", "127.0.0.1",
-    "-p", "$port",
-    "-U", "postgres",
-    "-d", "postgres",
-    "-v", "ON_ERROR_STOP=1",
-    "-f", $sqlFile
-  )
 
-  $extensionCount = & (Join-Path $packageDir "bin\psql.exe") -h 127.0.0.1 -p $port -U postgres -d dist_service_test -Atqc "SELECT count(*) FROM pg_extension WHERE extname IN ('oracle_fdw', 'db2_fdw');"
-  if ($extensionCount.Trim() -ne "2") {
-    throw "oracle_fdw/db2_fdw were not both activated; count=$extensionCount"
+  $oracleExtensionCount = & (Join-Path $packageDir "bin\psql.exe") -h 127.0.0.1 -p $port -U postgres -d postgres -Atqc "SELECT count(*) FROM pg_database WHERE datname = 'oracle_fdw_service_test';"
+  if ($oracleExtensionCount.Trim() -ne "0") {
+    throw "oracle_fdw test database was not removed; count=$oracleExtensionCount"
+  }
+
+  Restart-PostgreSQL
+
+  Write-Host "==> testing db2_fdw"
+  Invoke-PsqlFile @"
+CREATE DATABASE db2_fdw_service_test;
+\connect db2_fdw_service_test
+CREATE EXTENSION db2_fdw;
+SELECT extname FROM pg_extension WHERE extname = 'db2_fdw';
+"@
+
+  $db2ExtensionCount = & (Join-Path $packageDir "bin\psql.exe") -h 127.0.0.1 -p $port -U postgres -d db2_fdw_service_test -Atqc "SELECT count(*) FROM pg_extension WHERE extname = 'db2_fdw';"
+  if ($db2ExtensionCount.Trim() -ne "1") {
+    throw "db2_fdw was not activated; count=$db2ExtensionCount"
   }
 
   Write-Host "==> stopping and uninstalling Windows service"
