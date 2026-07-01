@@ -104,18 +104,23 @@ jobs:
           - target: x86_64
             triple: x86_64-unknown-linux-gnu
             jobs: 8
+            artifact_name: middleware-x86_64
           - target: aarch64
             triple: aarch64-unknown-linux-gnu
             jobs: 8
+            artifact_name: middleware-aarch64
           - target: riscv64
             triple: riscv64-unknown-linux-gnu
             jobs: 8
+            artifact_name: middleware-riscv64
           - target: loongarch64
             triple: loongarch64-unknown-linux-gnu
             jobs: 8
+            artifact_name: middleware-loongarch64
           - target: mingw64
             triple: x86_64-w64-windows-gnu
             jobs: 8
+            artifact_name: internal-middleware-mingw64-base
 
     steps:
       - name: Checkout
@@ -186,9 +191,107 @@ jobs:
       - name: Upload middleware artifact
         uses: actions/upload-artifact@v7
         with:
-          name: middleware-${{ matrix.target }}
+          name: ${{ matrix.artifact_name }}
           path: |
             packages/middleware/build/dist/${{ needs.resolve-meta.outputs.asset_prefix }}-${{ matrix.triple }}-${{ needs.resolve-meta.outputs.release_date }}.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  build-redis-mingw64:
+    name: redis-mingw64-msys2
+    runs-on: windows-latest
+    needs: resolve-meta
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: gcc make pkg-config libopenssl openssl-devel tar curl
+
+      - name: Build Redis with MSYS2
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+
+          bash ./packages/middleware/build_redis_mingw64_msys2.sh \
+            --redis-version="${{ env.REDIS_PACKAGE_VERSION }}" \
+            --out-dir="${PWD}/redis-mingw64-msys2" \
+            --jobs=8
+
+      - name: Upload Redis MSYS2 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: internal-redis-mingw64-msys2
+          path: redis-mingw64-msys2
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble-mingw64:
+    name: assemble-mingw64
+    runs-on: ubuntu-24.04
+    needs:
+      - resolve-meta
+      - build-middleware
+      - build-redis-mingw64
+    timeout-minutes: 30
+
+    steps:
+      - name: Download MinGW base package
+        uses: actions/download-artifact@v8
+        with:
+          name: internal-middleware-mingw64-base
+          path: artifacts/base
+
+      - name: Download Redis MSYS2 package
+        uses: actions/download-artifact@v8
+        with:
+          name: internal-redis-mingw64-msys2
+          path: artifacts/redis
+
+      - name: Assemble final MinGW package
+        env:
+          ASSET_PREFIX: ${{ needs.resolve-meta.outputs.asset_prefix }}
+          RELEASE_DATE: ${{ needs.resolve-meta.outputs.release_date }}
+        run: |
+          set -euo pipefail
+
+          triple="x86_64-w64-windows-gnu"
+          package_name="${ASSET_PREFIX}-${triple}-${RELEASE_DATE}"
+          archive_name="${package_name}.tar.xz"
+          base_archive="artifacts/base/${archive_name}"
+          work_dir="$(mktemp -d)"
+          trap 'rm -rf "${work_dir}"' EXIT
+
+          [[ -f "${base_archive}" ]] || {
+            echo "missing base MinGW package: ${base_archive}" >&2
+            exit 1
+          }
+
+          tar -C "${work_dir}" -xf "${base_archive}"
+          install -d "${work_dir}/${package_name}/bin" "${work_dir}/${package_name}/conf"
+          cp -a artifacts/redis/bin/. "${work_dir}/${package_name}/bin/"
+          cp -a artifacts/redis/conf/. "${work_dir}/${package_name}/conf/"
+
+          sed -i 's/^REDIS_STATUS=.*/REDIS_STATUS=enabled-msys2/' "${work_dir}/${package_name}/manifest.env"
+          sed -i 's/Redis .*: disabled.*/Redis ${{ env.REDIS_PACKAGE_VERSION }}: enabled via redis-windows MSYS2 build/' "${work_dir}/${package_name}/README.middleware"
+
+          find "${work_dir}/${package_name}" -type d -exec chmod 755 {} +
+          find "${work_dir}/${package_name}/bin" -type f -exec chmod 755 {} +
+          find "${work_dir}/${package_name}" -type f ! -path "${work_dir}/${package_name}/bin/*" -exec chmod 644 {} +
+
+          tar -C "${work_dir}" -cJf "${archive_name}" "${package_name}"
+
+      - name: Upload final MinGW artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: middleware-mingw64
+          path: middleware-x86_64-w64-windows-gnu-${{ needs.resolve-meta.outputs.release_date }}.tar.xz
           if-no-files-found: error
           retention-days: 14
 
@@ -197,6 +300,7 @@ jobs:
     needs:
       - resolve-meta
       - build-middleware
+      - assemble-mingw64
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -329,7 +433,7 @@ jobs:
           # Middleware ${RELEASE_DATE}
 
           Projects:
-          - Redis: ${{ env.REDIS_PACKAGE_VERSION }} (Linux targets only)
+          - Redis: ${{ env.REDIS_PACKAGE_VERSION }} (Linux cross builds, Windows MSYS2 build)
           - MinIO: ${{ env.MINIO_PACKAGE_REF }}
           - etcd: ${{ env.ETCD_PACKAGE_VERSION }}
           - Go: ${{ env.GO_PACKAGE_VERSION }}

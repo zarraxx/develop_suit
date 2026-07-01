@@ -9,10 +9,11 @@ targets used by this repository:
 - `loongarch64-unknown-linux-gnu`
 - `x86_64-w64-windows-gnu`
 
-The bundle contains Redis, MinIO, and etcd where the upstream project supports
-the target. Redis is built for the four Linux targets. The MinGW package skips
-Redis because upstream Redis server does not support native Windows builds;
-MinIO and etcd are still built for all five targets.
+The bundle contains Redis, MinIO, and etcd. Redis is built with the package
+cross toolchain for the four Linux targets. The workflow also builds Redis for
+the MinGW package on `windows-latest` with MSYS2, following the
+`redis-windows` build settings, then injects those files into the final MinGW
+tarball. MinIO and etcd are built for all five targets.
 
 ## Inputs
 
@@ -55,6 +56,9 @@ Archives are written under `packages/middleware/build/dist/`:
 Package layout:
 
 - `bin/redis-server`, `bin/redis-cli`, `bin/redis-benchmark` on Linux targets
+- `bin/redis-server.exe`, `bin/redis-cli.exe`, `bin/redis-benchmark.exe`, and
+  required MSYS2 runtime DLLs on the MinGW workflow package
+- `conf/redis.conf`, `conf/sentinel.conf` on the MinGW workflow package
 - `bin/minio`
 - `bin/etcd`, `bin/etcdctl`, `bin/etcdutl`
 - `README.middleware`
@@ -68,6 +72,15 @@ Redis Linux:
 make -j "$JOBS" BUILD_TLS=no MALLOC=libc CC="$CC" AR="$AR" RANLIB="$RANLIB" \
   redis-server redis-cli redis-benchmark
 install -m 755 src/redis-server src/redis-cli src/redis-benchmark "$SDK_PREFIX/bin/"
+```
+
+Redis MinGW workflow build:
+
+```bash
+msys2/setup-msys2: gcc make pkg-config libopenssl openssl-devel tar curl
+make -j "$JOBS" BUILD_TLS=yes CFLAGS="-Wno-char-subscripts -O0" \
+  redis-server redis-cli redis-benchmark
+install redis-server.exe redis-cli.exe redis-benchmark.exe and runtime DLLs
 ```
 
 MinIO:
@@ -93,4 +106,4 @@ Validation:
 - `test_package.sh` checks binary versions.
 - On Linux targets it starts Redis, MinIO, and etcd and performs basic health
   checks.
-- On MinGW it runs native Windows MinIO/etcd checks and skips Redis.
+- On MinGW it runs native Windows Redis, MinIO, and etcd checks.
