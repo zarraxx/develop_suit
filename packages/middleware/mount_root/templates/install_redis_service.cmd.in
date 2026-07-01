@@ -5,7 +5,8 @@ set "PACKAGE_ROOT=%~dp0"
 if "%PACKAGE_ROOT:~-1%"=="\" set "PACKAGE_ROOT=%PACKAGE_ROOT:~0,-1%"
 
 if "%~1"=="" (set "SERVICE_NAME=redis") else (set "SERVICE_NAME=%~1")
-if "%~2"=="" (set "REDIS_DATA_DIR=%PACKAGE_ROOT%\data\redis") else (set "REDIS_DATA_DIR=%~2")
+set "DEFAULT_REDIS_DATA_DIR=%PACKAGE_ROOT%\data\redis"
+if "%~2"=="" (set "REDIS_DATA_DIR=%DEFAULT_REDIS_DATA_DIR%") else (set "REDIS_DATA_DIR=%~2")
 if "%~3"=="" (set "REDIS_PASSWORD=%REDIS_PASSWORD%") else (set "REDIS_PASSWORD=%~3")
 if "%WINSW_URL%"=="" set "WINSW_URL=https://github.com/winsw/winsw/releases/latest/download/WinSW-x64.exe"
 
@@ -16,6 +17,8 @@ set "REDIS_CONFIG_FILE=%SERVICE_DIR%\redis.conf"
 set "REDIS_CONFIG_TEMPLATE=%PACKAGE_ROOT%\conf\redis.windows.conf.template"
 set "WINSW_TEMPLATE=%PACKAGE_ROOT%\conf\winsw.redis.xml.template"
 set "REDIS_DATA_DIR_CONF=%REDIS_DATA_DIR:\=/%"
+set "REDIS_CONFIG_ARG=service\%SERVICE_NAME%\redis.conf"
+if /I "%REDIS_DATA_DIR%"=="%DEFAULT_REDIS_DATA_DIR%" set "REDIS_DATA_DIR_CONF=data/redis"
 set "REDIS_REQUIREPASS_LINE="
 if not "%REDIS_PASSWORD%"=="" set "REDIS_REQUIREPASS_LINE=requirepass %REDIS_PASSWORD%"
 
@@ -66,7 +69,7 @@ if exist "%PACKAGE_ROOT%\bin\winsw.exe" (
   if errorlevel 1 exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $c=Get-Content -Raw $env:REDIS_CONFIG_TEMPLATE; $c=$c.Replace('@REDIS_DATA_DIR@',$env:REDIS_DATA_DIR_CONF).Replace('@REDIS_REQUIREPASS_LINE@',$env:REDIS_REQUIREPASS_LINE); Set-Content -Encoding ASCII -Path $env:REDIS_CONFIG_FILE -Value $c; $x=Get-Content -Raw $env:WINSW_TEMPLATE; $x=$x.Replace('@SERVICE_NAME@',$env:SERVICE_NAME).Replace('@PACKAGE_ROOT@',$env:PACKAGE_ROOT).Replace('@REDIS_CONFIG_FILE@',$env:REDIS_CONFIG_FILE); Set-Content -Encoding ASCII -Path $env:WINSW_XML -Value $x"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $c=Get-Content -Raw $env:REDIS_CONFIG_TEMPLATE; $c=$c.Replace('@REDIS_DATA_DIR@',$env:REDIS_DATA_DIR_CONF).Replace('@REDIS_REQUIREPASS_LINE@',$env:REDIS_REQUIREPASS_LINE); Set-Content -Encoding ASCII -Path $env:REDIS_CONFIG_FILE -Value $c; $x=Get-Content -Raw $env:WINSW_TEMPLATE; $x=$x.Replace('@SERVICE_NAME@',$env:SERVICE_NAME).Replace('@PACKAGE_ROOT@',$env:PACKAGE_ROOT).Replace('@REDIS_CONFIG_FILE@',$env:REDIS_CONFIG_ARG); Set-Content -Encoding ASCII -Path $env:WINSW_XML -Value $x"
 if errorlevel 1 exit /b 1
 
 pushd "%SERVICE_DIR%" >nul

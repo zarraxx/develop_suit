@@ -8,8 +8,8 @@ $ErrorActionPreference = "Stop"
 $packageRoot = (Resolve-Path $PackageDir).Path
 $redisService = "middleware-redis-ci"
 $minioService = "middleware-minio-ci"
-$redisDataDir = Join-Path $env:TEMP "${redisService}-data"
-$minioDataDir = Join-Path $env:TEMP "${minioService}-data"
+$redisDataDir = Join-Path $packageRoot "data/redis"
+$minioDataDir = Join-Path $packageRoot "data/minio"
 $redisPassword = "middleware-ci-secret"
 $minioRootUser = "minioadmin"
 $minioRootPassword = "minioadmin"
@@ -68,6 +68,19 @@ function Wait-Minio {
   throw "MinIO service did not become ready"
 }
 
+function Dump-ServiceLogs {
+  foreach ($serviceName in @($redisService, $minioService)) {
+    $serviceDir = Join-Path $packageRoot "service/$serviceName"
+    if (Test-Path $serviceDir) {
+      Write-Host "-- service dir: $serviceDir"
+      Get-ChildItem -Path $serviceDir -File -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "-- $($_.FullName)"
+        Get-Content -Path $_.FullName -Tail 120 -ErrorAction SilentlyContinue | Write-Host
+      }
+    }
+  }
+}
+
 $installRedis = Join-Path $packageRoot "install_redis_service.cmd"
 $uninstallRedis = Join-Path $packageRoot "uninstall_redis_service.cmd"
 $installMinio = Join-Path $packageRoot "install_minio_service.cmd"
@@ -95,7 +108,8 @@ try {
   Remove-Item -Recurse -Force $redisDataDir, $minioDataDir -ErrorAction SilentlyContinue
 
   Write-Host "-- installing Redis service"
-  Invoke-Logged "cmd.exe" @("/c", "`"$installRedis`" $redisService `"$redisDataDir`" $redisPassword")
+  $env:REDIS_PASSWORD = $redisPassword
+  Invoke-Logged "cmd.exe" @("/c", "`"$installRedis`" $redisService")
   Invoke-Logged "net.exe" @("start", $redisService)
   Wait-Redis
   Invoke-Logged $redisCli @("-h", "127.0.0.1", "-p", "6379", "-a", $redisPassword, "set", "middleware-service-ci", "ok")
@@ -106,7 +120,7 @@ try {
   Invoke-Logged "cmd.exe" @("/c", "`"$uninstallRedis`" $redisService")
 
   Write-Host "-- installing MinIO service"
-  Invoke-Logged "cmd.exe" @("/c", "`"$installMinio`" $minioService `"$minioDataDir`" $minioRootUser $minioRootPassword")
+  Invoke-Logged "cmd.exe" @("/c", "`"$installMinio`" $minioService")
   Invoke-Logged "net.exe" @("start", $minioService)
   Wait-Minio
   curl.exe --connect-timeout 5 --max-time 10 -fsS "http://127.0.0.1:9000/minio/health/live" | Out-Null
@@ -116,6 +130,9 @@ try {
   Invoke-Logged "cmd.exe" @("/c", "`"$uninstallMinio`" $minioService")
 
   Write-Host "-- middleware Windows service test passed"
+} catch {
+  Dump-ServiceLogs
+  throw
 } finally {
   Cleanup-Service $redisService $uninstallRedis
   Cleanup-Service $minioService $uninstallMinio
