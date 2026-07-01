@@ -254,6 +254,13 @@ if [[ -z "$PACKAGE_NAME" ]]; then
   PACKAGE_NAME="postgresql18_dist-${PACKAGE_TRIPLE}"
 fi
 
+if [[ "$TARGET_KIND" == "mingw" && "$WITH_DB2_FDW" -eq 1 ]]; then
+  echo "-- disabling db2_fdw for ${PACKAGE_TRIPLE}: MinGW64 db2_fdw currently crashes PostgreSQL when loaded"
+  WITH_DB2_FDW=0
+  DB2_CLI_ARCHIVE=""
+  DB2_CLI_DIR=""
+fi
+
 if [[ -z "$POSTGRESQL_ARCHIVE" ]]; then
   POSTGRESQL_ARCHIVE="$(find_local_archive postgresql "postgresql-${POSTGRESQL_VERSION}-${PACKAGE_TRIPLE}.tar.xz")" \
     || die "missing PostgreSQL package archive for ${PACKAGE_TRIPLE}"

@@ -109,6 +109,7 @@ $archive = Get-ArgValue -ArgsList $args -Name "archive"
 $packageDir = Get-ArgValue -ArgsList $args -Name "package-dir"
 $oracleBasicArchive = Get-ArgValue -ArgsList $args -Name "oracle-basic-archive"
 $db2CliArchive = Get-ArgValue -ArgsList $args -Name "db2-cli-archive"
+$withDb2Fdw = -not ($args -contains "--without-db2-fdw")
 
 if ([string]::IsNullOrWhiteSpace($archive) -and [string]::IsNullOrWhiteSpace($packageDir)) {
   throw "--archive or --package-dir is required"
@@ -119,7 +120,7 @@ if (-not [string]::IsNullOrWhiteSpace($archive) -and -not [string]::IsNullOrWhit
 if ([string]::IsNullOrWhiteSpace($oracleBasicArchive)) {
   throw "--oracle-basic-archive is required"
 }
-if ([string]::IsNullOrWhiteSpace($db2CliArchive)) {
+if ($withDb2Fdw -and [string]::IsNullOrWhiteSpace($db2CliArchive)) {
   throw "--db2-cli-archive is required"
 }
 
@@ -154,7 +155,9 @@ if ([string]::IsNullOrWhiteSpace($packageDir)) {
 }
 $packageDir = (Resolve-Path -LiteralPath $packageDir).Path
 $oracleBasicArchive = (Resolve-Path -LiteralPath $oracleBasicArchive).Path
-$db2CliArchive = (Resolve-Path -LiteralPath $db2CliArchive).Path
+if ($withDb2Fdw) {
+  $db2CliArchive = (Resolve-Path -LiteralPath $db2CliArchive).Path
+}
 
 Require-Path (Join-Path $packageDir "bin\postgres.exe")
 Require-Path (Join-Path $packageDir "bin\psql.exe")
@@ -164,7 +167,9 @@ Require-Path (Join-Path $packageDir "install_service.cmd")
 Require-Path (Join-Path $packageDir "uninstall_service.cmd")
 Require-Path (Join-Path $packageDir "install_external_dependencies.cmd")
 Require-Path (Join-Path $packageDir "share\extension\oracle_fdw.control")
-Require-Path (Join-Path $packageDir "share\extension\db2_fdw.control")
+if ($withDb2Fdw) {
+  Require-Path (Join-Path $packageDir "share\extension\db2_fdw.control")
+}
 
 $env:PATH = "$packageDir\bin;$packageDir\lib;$env:PATH"
 
@@ -177,7 +182,11 @@ try {
 
   Write-Host "==> installing vendor runtime clients"
   $env:ORACLE_BASIC_ARCHIVE = $oracleBasicArchive
-  $env:DB2_CLI_ARCHIVE = $db2CliArchive
+  if ($withDb2Fdw) {
+    $env:DB2_CLI_ARCHIVE = $db2CliArchive
+  } else {
+    Remove-Item Env:DB2_CLI_ARCHIVE -ErrorAction SilentlyContinue
+  }
   Invoke-Logged (Join-Path $packageDir "install_external_dependencies.cmd") @()
 
   Write-Host "==> initializing test cluster"
@@ -232,19 +241,23 @@ DROP DATABASE oracle_fdw_service_test;
     throw "oracle_fdw test database was not removed; count=$oracleExtensionCount"
   }
 
-  Restart-PostgreSQL
+  if ($withDb2Fdw) {
+    Restart-PostgreSQL
 
-  Write-Host "==> testing db2_fdw"
-  Invoke-PsqlFile @"
+    Write-Host "==> testing db2_fdw"
+    Invoke-PsqlFile @"
 CREATE DATABASE db2_fdw_service_test;
 \connect db2_fdw_service_test
 CREATE EXTENSION db2_fdw;
 SELECT extname FROM pg_extension WHERE extname = 'db2_fdw';
 "@
 
-  $db2ExtensionCount = & (Join-Path $packageDir "bin\psql.exe") -h 127.0.0.1 -p $port -U postgres -d db2_fdw_service_test -Atqc "SELECT count(*) FROM pg_extension WHERE extname = 'db2_fdw';"
-  if ($db2ExtensionCount.Trim() -ne "1") {
-    throw "db2_fdw was not activated; count=$db2ExtensionCount"
+    $db2ExtensionCount = & (Join-Path $packageDir "bin\psql.exe") -h 127.0.0.1 -p $port -U postgres -d db2_fdw_service_test -Atqc "SELECT count(*) FROM pg_extension WHERE extname = 'db2_fdw';"
+    if ($db2ExtensionCount.Trim() -ne "1") {
+      throw "db2_fdw was not activated; count=$db2ExtensionCount"
+    }
+  } else {
+    Write-Host "==> skipping db2_fdw service test"
   }
 
   Write-Host "==> stopping and uninstalling Windows service"

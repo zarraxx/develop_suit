@@ -161,10 +161,10 @@ jobs:
             build_kind: mingw64
             jobs: 4
             with_oracle: true
-            with_db2: true
+            with_db2: false
             oracle_basic_url: https://download.oracle.com/otn_software/nt/instantclient/2326200/instantclient-basic-windows.x64-23.26.2.0.0.zip
             oracle_sdk_url: https://download.oracle.com/otn_software/nt/instantclient/2326200/instantclient-sdk-windows.x64-23.26.2.0.0.zip
-            db2_cli_url: https://public.dhe.ibm.com/ibmdl/export/pub/software/data/db2/drivers/odbc_cli/v11.5.9/ntx64_odbc_cli.zip
+            db2_cli_url: ""
 
     steps:
       - name: Checkout
@@ -487,9 +487,9 @@ jobs:
             triple: x86_64-w64-windows-gnu
             runs_on: windows-latest
             test_mode: windows-native
-            with_db2: true
+            with_db2: false
             oracle_basic_url: https://download.oracle.com/otn_software/nt/instantclient/2326200/instantclient-basic-windows.x64-23.26.2.0.0.zip
-            db2_cli_url: https://public.dhe.ibm.com/ibmdl/export/pub/software/data/db2/drivers/odbc_cli/v11.5.9/ntx64_odbc_cli.zip
+            db2_cli_url: ""
     runs-on: ${{ matrix.runs_on }}
 
     steps:
@@ -592,26 +592,34 @@ jobs:
         env:
           ORACLE_BASIC_URL: ${{ matrix.oracle_basic_url }}
           DB2_CLI_URL: ${{ matrix.db2_cli_url }}
+          WITH_DB2: ${{ matrix.with_db2 }}
         run: |
           $ErrorActionPreference = "Stop"
 
           $archivePath = "artifacts/postgresql18_dist-${{ matrix.triple }}.tar.xz"
           $oracleArchive = Join-Path "artifacts/vendor" ([System.IO.Path]::GetFileName($env:ORACLE_BASIC_URL))
-          $db2Archive = Join-Path "artifacts/vendor" ([System.IO.Path]::GetFileName($env:DB2_CLI_URL))
           if (-not (Test-Path -LiteralPath $archivePath)) {
             throw "missing package artifact: $archivePath"
           }
           if (-not (Test-Path -LiteralPath $oracleArchive)) {
             throw "missing Oracle archive: $oracleArchive"
           }
-          if (-not (Test-Path -LiteralPath $db2Archive)) {
-            throw "missing DB2 archive: $db2Archive"
+
+          $serviceTestArgs = @(
+            "--archive", $archivePath,
+            "--oracle-basic-archive", $oracleArchive
+          )
+          if ($env:WITH_DB2 -eq "true") {
+            $db2Archive = Join-Path "artifacts/vendor" ([System.IO.Path]::GetFileName($env:DB2_CLI_URL))
+            if (-not (Test-Path -LiteralPath $db2Archive)) {
+              throw "missing DB2 archive: $db2Archive"
+            }
+            $serviceTestArgs += @("--db2-cli-archive", $db2Archive)
+          } else {
+            $serviceTestArgs += "--without-db2-fdw"
           }
 
-          ./packages/postgresql18_dist/test_service_windows.ps1 `
-            --archive $archivePath `
-            --oracle-basic-archive $oracleArchive `
-            --db2-cli-archive $db2Archive
+          ./packages/postgresql18_dist/test_service_windows.ps1 @serviceTestArgs
 
   publish-release:
     name: publish-release

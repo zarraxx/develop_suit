@@ -68,6 +68,8 @@ https://github.com/EnterpriseDB/mongo_fdw/archive/refs/tags/REL-5_5_3.tar.gz
 
 https://github.com/laurenz/oracle_fdw/archive/refs/tags/ORACLE_FDW_2_9_0.tar.gz
 https://github.com/pg-fdw/db2_fdw/releases/download/18.1.2/db2_fdw-18.1.2.zip
+MinGW64 currently skips db2_fdw because the extension crashes PostgreSQL when
+loaded on Windows.
 
 Vendor FDW inputs
 
@@ -79,7 +81,7 @@ Runtime vendor clients can be installed after extracting the package:
 
 - `x86_64-unknown-linux-gnu`: Oracle Instant Client Basic and IBM DB2 CLI/ODBC
 - `aarch64-unknown-linux-gnu`: Oracle Instant Client Basic
-- `x86_64-w64-windows-gnu`: Oracle Instant Client Basic and IBM DB2 CLI/ODBC
+- `x86_64-w64-windows-gnu`: Oracle Instant Client Basic; db2_fdw is disabled
 
 Linux:
 
@@ -94,8 +96,7 @@ MinGW64:
 
 ```cmd
 install_external_dependencies.cmd ^
-  --oracle-basic-archive C:\path\instantclient-basic-windows.x64.zip ^
-  --db2-cli-archive C:\path\ntx64_odbc_cli.zip
+  --oracle-basic-archive C:\path\instantclient-basic-windows.x64.zip
 ```
 
 MinGW64:
@@ -103,8 +104,7 @@ MinGW64:
 ```bash
 ./packages/postgresql18_dist/build.sh --target=mingw64 --runtime=docker --jobs=8 \
   --oracle-sdk-archive=cache/vendor/instantclient-sdk-windows.x64-23.26.2.0.0.zip \
-  --oracle-basic-archive=cache/vendor/instantclient-basic-windows.x64-23.26.2.0.0.zip \
-  --db2-cli-archive=cache/vendor/ntx64_odbc_cli.zip
+  --oracle-basic-archive=cache/vendor/instantclient-basic-windows.x64-23.26.2.0.0.zip
 ```
 
 x86_64 Linux:
