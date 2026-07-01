@@ -137,10 +137,9 @@ try {
   }
 
   Write-Host "==> installing vendor runtime clients"
-  Invoke-Logged (Join-Path $packageDir "install_external_dependencies.cmd") @(
-    "--oracle-basic-archive=$oracleBasicArchive",
-    "--db2-cli-archive=$db2CliArchive"
-  )
+  $env:ORACLE_BASIC_ARCHIVE = $oracleBasicArchive
+  $env:DB2_CLI_ARCHIVE = $db2CliArchive
+  Invoke-Logged (Join-Path $packageDir "install_external_dependencies.cmd") @()
 
   Write-Host "==> initializing test cluster"
   New-Item -ItemType Directory -Path $dataDir -Force | Out-Null

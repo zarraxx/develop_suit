@@ -4,10 +4,14 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "PACKAGE_ROOT=%~dp0"
 if "%PACKAGE_ROOT:~-1%"=="\" set "PACKAGE_ROOT=%PACKAGE_ROOT:~0,-1%"
 set "TARGET_TRIPLE=@TARGET_TRIPLE@"
-set "INSTALL_PREFIX=%PACKAGE_ROOT%\vendor"
-set "ORACLE_BASIC_ARCHIVE="
-set "DB2_CLI_ARCHIVE="
-set "DB2_CLI_DIR="
+if defined POSTGRESQL18_VENDOR_PREFIX (
+  set "INSTALL_PREFIX=%POSTGRESQL18_VENDOR_PREFIX%"
+) else (
+  set "INSTALL_PREFIX=%PACKAGE_ROOT%\vendor"
+)
+if not defined ORACLE_BASIC_ARCHIVE set "ORACLE_BASIC_ARCHIVE="
+if not defined DB2_CLI_ARCHIVE set "DB2_CLI_ARCHIVE="
+if not defined DB2_CLI_DIR set "DB2_CLI_DIR="
 
 :parse_args
 if "%~1"=="" goto after_args
@@ -20,9 +24,9 @@ if /I "%ARG:~0,23%"=="--oracle-basic-archive=" (
   goto parse_args
 )
 if /I "%ARG%"=="--oracle-basic-archive" (
+  if "%~2"=="" goto missing_value
+  set "ORACLE_BASIC_ARCHIVE=%~2"
   shift
-  if "%~1"=="" goto missing_value
-  set "ORACLE_BASIC_ARCHIVE=%~1"
   shift
   goto parse_args
 )
@@ -32,9 +36,9 @@ if /I "%ARG:~0,18%"=="--db2-cli-archive=" (
   goto parse_args
 )
 if /I "%ARG%"=="--db2-cli-archive" (
+  if "%~2"=="" goto missing_value
+  set "DB2_CLI_ARCHIVE=%~2"
   shift
-  if "%~1"=="" goto missing_value
-  set "DB2_CLI_ARCHIVE=%~1"
   shift
   goto parse_args
 )
@@ -44,9 +48,9 @@ if /I "%ARG:~0,14%"=="--db2-cli-dir=" (
   goto parse_args
 )
 if /I "%ARG%"=="--db2-cli-dir" (
+  if "%~2"=="" goto missing_value
+  set "DB2_CLI_DIR=%~2"
   shift
-  if "%~1"=="" goto missing_value
-  set "DB2_CLI_DIR=%~1"
   shift
   goto parse_args
 )
@@ -56,9 +60,9 @@ if /I "%ARG:~0,9%"=="--prefix=" (
   goto parse_args
 )
 if /I "%ARG%"=="--prefix" (
+  if "%~2"=="" goto missing_value
+  set "INSTALL_PREFIX=%~2"
   shift
-  if "%~1"=="" goto missing_value
-  set "INSTALL_PREFIX=%~1"
   shift
   goto parse_args
 )
