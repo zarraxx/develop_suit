@@ -42,6 +42,25 @@ function Require-Path {
   }
 }
 
+function Write-PostgreSQLLogs {
+  if (-not (Test-Path -LiteralPath $logDir)) {
+    Write-Host "==> PostgreSQL log directory does not exist: $logDir"
+    return
+  }
+
+  $logFiles = Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime
+  if ($null -eq $logFiles -or $logFiles.Count -eq 0) {
+    Write-Host "==> PostgreSQL log directory is empty: $logDir"
+    return
+  }
+
+  foreach ($entry in $logFiles) {
+    Write-Host "==> PostgreSQL log: $($entry.FullName)"
+    Get-Content -LiteralPath $entry.FullName -Tail 300 -ErrorAction SilentlyContinue | Write-Host
+  }
+}
+
 function Wait-PostgreSQL {
   for ($i = 0; $i -lt 60; $i++) {
     & (Join-Path $packageDir "bin\psql.exe") -h 127.0.0.1 -p $port -U postgres -d postgres -Atqc "SELECT 1;" | Out-Null
@@ -52,9 +71,7 @@ function Wait-PostgreSQL {
   }
 
   Get-Service -Name $serviceName -ErrorAction SilentlyContinue | Format-List * | Out-String | Write-Host
-  if (Test-Path -LiteralPath $logFile) {
-    Get-Content -LiteralPath $logFile -Tail 200 | Write-Host
-  }
+  Write-PostgreSQLLogs
   throw "PostgreSQL Windows service did not become ready"
 }
 
@@ -88,7 +105,7 @@ $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("postgresql18-dist-serv
 $serviceName = "postgresql18-ci"
 $port = 57432
 $dataDir = Join-Path $testRoot "data"
-$logFile = Join-Path $testRoot "postgresql.log"
+$logDir = Join-Path $testRoot "pg-log"
 $sqlFile = Join-Path $testRoot "fdw.sql"
 
 New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
@@ -151,13 +168,20 @@ try {
     "--no-instructions",
     "-D", $dataDir
   )
+  New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+  $pgLogDir = $logDir.Replace("\", "/").Replace("'", "''")
   Add-Content -LiteralPath (Join-Path $dataDir "postgresql.conf") -Value @(
     "",
     "# postgresql18_dist service test",
     "listen_addresses = '127.0.0.1'",
     "port = $port",
     "log_destination = 'stderr'",
-    "logging_collector = off"
+    "logging_collector = on",
+    "log_directory = '$pgLogDir'",
+    "log_filename = 'postgresql.log'",
+    "log_truncate_on_rotation = on",
+    "log_rotation_age = 0",
+    "log_rotation_size = 0"
   )
 
   Write-Host "==> installing Windows service"
@@ -206,6 +230,8 @@ SELECT extname FROM pg_extension WHERE extname IN ('oracle_fdw', 'db2_fdw') ORDE
 }
 finally {
   & net.exe stop $serviceName | Out-Null
+  Start-Sleep -Seconds 2
+  Write-PostgreSQLLogs
   & (Join-Path $packageDir "uninstall_service.cmd") $serviceName | Out-Null
   Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
