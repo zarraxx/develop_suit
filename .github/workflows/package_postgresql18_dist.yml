@@ -442,12 +442,153 @@ jobs:
             --target="${{ matrix.target }}" \
             --archive="${archive_path}"
 
+  test-postgresql18-dist-services:
+    name: test-postgresql18-dist-services-${{ matrix.target }}
+    needs:
+      - resolve-meta
+      - build-postgresql18-dist
+      - test-postgresql18-dist
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            artifact_target: x86_64
+            triple: x86_64-unknown-linux-gnu
+            runs_on: ubuntu-24.04
+            test_mode: linux-native
+            with_db2: true
+            oracle_basic_url: https://download.oracle.com/otn_software/linux/instantclient/2122000/instantclient-basic-linux.x64-21.22.0.0.0dbru.zip
+            db2_cli_url: https://public.dhe.ibm.com/ibmdl/export/pub/software/data/db2/drivers/odbc_cli/v11.5.9/linuxx64_odbc_cli.tar.gz
+          - target: aarch64-linux
+            artifact_target: aarch64
+            triple: aarch64-unknown-linux-gnu
+            runs_on: ubuntu-24.04-arm
+            test_mode: linux-native
+            with_db2: false
+            oracle_basic_url: https://download.oracle.com/otn_software/linux/instantclient/2326200/instantclient-basic-linux.arm64-23.26.2.0.0.zip
+            db2_cli_url: ""
+          - target: mingw64-windows
+            artifact_target: mingw64
+            triple: x86_64-w64-windows-gnu
+            runs_on: windows-latest
+            test_mode: windows-native
+            with_db2: true
+            oracle_basic_url: https://download.oracle.com/otn_software/nt/instantclient/2326200/instantclient-basic-windows.x64-23.26.2.0.0.zip
+            db2_cli_url: https://public.dhe.ibm.com/ibmdl/export/pub/software/data/db2/drivers/odbc_cli/v11.5.9/ntx64_odbc_cli.zip
+    runs-on: ${{ matrix.runs_on }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download PostgreSQL 18 distribution artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: postgresql18-dist-${{ matrix.artifact_target }}
+          path: artifacts
+
+      - name: Download service vendor archives
+        shell: bash
+        env:
+          ORACLE_BASIC_URL: ${{ matrix.oracle_basic_url }}
+          DB2_CLI_URL: ${{ matrix.db2_cli_url }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p artifacts/vendor
+          download_url() {
+            local url="$1"
+            local output_path="$2"
+            curl -fL --retry 8 --retry-delay 5 --retry-all-errors \
+              -o "${output_path}" \
+              "${url}"
+          }
+
+          download_url "${ORACLE_BASIC_URL}" "artifacts/vendor/$(basename "${ORACLE_BASIC_URL}")"
+          if [[ -n "${DB2_CLI_URL}" ]]; then
+            download_url "${DB2_CLI_URL}" "artifacts/vendor/$(basename "${DB2_CLI_URL}")"
+          fi
+
+      - name: Install Linux service test prerequisites
+        if: ${{ matrix.test_mode == 'linux-native' }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y acl unzip
+
+      - name: Test Linux native PostgreSQL service and FDWs
+        if: ${{ matrix.test_mode == 'linux-native' }}
+        env:
+          ORACLE_BASIC_URL: ${{ matrix.oracle_basic_url }}
+          DB2_CLI_URL: ${{ matrix.db2_cli_url }}
+          WITH_DB2: ${{ matrix.with_db2 }}
+        run: |
+          set -euo pipefail
+
+          archive_path="artifacts/postgresql18_dist-${{ matrix.triple }}.tar.xz"
+          oracle_archive="artifacts/vendor/$(basename "${ORACLE_BASIC_URL}")"
+          [[ -f "${archive_path}" ]] || {
+            echo "missing package artifact: ${archive_path}" >&2
+            exit 1
+          }
+          [[ -f "${oracle_archive}" ]] || {
+            echo "missing Oracle archive: ${oracle_archive}" >&2
+            exit 1
+          }
+
+          service_test_args=(
+            --archive="${archive_path}"
+            --oracle-basic-archive="${oracle_archive}"
+          )
+          if [[ "${WITH_DB2}" == "true" ]]; then
+            db2_archive="artifacts/vendor/$(basename "${DB2_CLI_URL}")"
+            [[ -f "${db2_archive}" ]] || {
+              echo "missing DB2 archive: ${db2_archive}" >&2
+              exit 1
+            }
+            service_test_args+=(--db2-cli-archive="${db2_archive}")
+          else
+            service_test_args+=(--without-db2-fdw)
+          fi
+
+          bash ./packages/postgresql18_dist/test_service_linux.sh "${service_test_args[@]}"
+
+      - name: Test Windows native PostgreSQL service and FDWs
+        if: ${{ matrix.test_mode == 'windows-native' }}
+        shell: pwsh
+        env:
+          ORACLE_BASIC_URL: ${{ matrix.oracle_basic_url }}
+          DB2_CLI_URL: ${{ matrix.db2_cli_url }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $archivePath = "artifacts/postgresql18_dist-${{ matrix.triple }}.tar.xz"
+          $oracleArchive = Join-Path "artifacts/vendor" ([System.IO.Path]::GetFileName($env:ORACLE_BASIC_URL))
+          $db2Archive = Join-Path "artifacts/vendor" ([System.IO.Path]::GetFileName($env:DB2_CLI_URL))
+          if (-not (Test-Path -LiteralPath $archivePath)) {
+            throw "missing package artifact: $archivePath"
+          }
+          if (-not (Test-Path -LiteralPath $oracleArchive)) {
+            throw "missing Oracle archive: $oracleArchive"
+          }
+          if (-not (Test-Path -LiteralPath $db2Archive)) {
+            throw "missing DB2 archive: $db2Archive"
+          }
+
+          ./packages/postgresql18_dist/test_service_windows.ps1 `
+            --archive $archivePath `
+            --oracle-basic-archive $oracleArchive `
+            --db2-cli-archive $db2Archive
+
   publish-release:
     name: publish-release
     runs-on: ubuntu-latest
     needs:
       - resolve-meta
       - test-postgresql18-dist
+      - test-postgresql18-dist-services
     if: ${{ inputs.publish_release }}
 
     steps:
