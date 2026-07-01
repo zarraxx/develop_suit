@@ -90,11 +90,16 @@ REDIS_LOG="${TEST_DIR}/redis.log"
 MINIO_PID=""
 ETCD_PID=""
 REDIS_PID=""
+REDIS_EXTRA_ARGS=()
 
 [[ -x "$MINIO_BIN" ]] || die "missing minio binary: ${MINIO_BIN}"
 [[ -x "$ETCD_BIN" ]] || die "missing etcd binary: ${ETCD_BIN}"
 [[ -x "$ETCDCTL_BIN" ]] || die "missing etcdctl binary: ${ETCDCTL_BIN}"
 [[ -x "$ETCDUTL_BIN" ]] || die "missing etcdutl binary: ${ETCDUTL_BIN}"
+
+if [[ "$PACKAGE_TARGET_TRIPLE" == "aarch64-unknown-linux-gnu" ]]; then
+  REDIS_EXTRA_ARGS=(--ignore-warnings ARM64-COW-BUG)
+fi
 
 rm -rf "$TEST_DIR"
 mkdir -p "$MINIO_DATA" "$ETCD_DATA"
@@ -152,6 +157,7 @@ if [[ -x "$REDIS_SERVER" && -x "$REDIS_CLI" ]]; then
     --save "" \
     --appendonly no \
     --daemonize no \
+    "${REDIS_EXTRA_ARGS[@]}" \
     >"$REDIS_LOG" 2>&1 &
   REDIS_PID="$!"
 
