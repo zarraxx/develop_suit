@@ -98,9 +98,11 @@ cleanup() {
     sudo "${PACKAGE_DIR}/uninstall_service.sh" "$SERVICE_NAME" >/dev/null 2>&1
   fi
   docker rm -f "$ORACLE_CONTAINER" >/dev/null 2>&1
-  rm -rf "$TEST_ROOT"
+  sudo rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT
+
+chmod 755 "$TEST_ROOT"
 
 if [[ -n "$ARCHIVE" ]]; then
   ARCHIVE="$(abs_path "$ARCHIVE")"
@@ -194,9 +196,14 @@ if [[ "$WITH_DB2_FDW" -eq 1 ]]; then
   external_dependency_args+=("--db2-cli-archive=${DB2_CLI_ARCHIVE}")
 fi
 sudo "${PACKAGE_DIR}/install_external_dependencies.sh" "${external_dependency_args[@]}"
+sudo chmod -R a+rX "$VENDOR_DIR"
 
 log "starting PostgreSQL service"
-sudo systemctl start "$SERVICE_NAME"
+if ! sudo systemctl start "$SERVICE_NAME"; then
+  sudo systemctl status "$SERVICE_NAME" --no-pager || true
+  sudo journalctl -u "$SERVICE_NAME" --no-pager -n 200 || true
+  die "failed to start PostgreSQL service: ${SERVICE_NAME}"
+fi
 wait_postgresql
 
 log "waiting for Oracle service"
@@ -268,6 +275,6 @@ fi
 
 trap - EXIT
 docker rm -f "$ORACLE_CONTAINER" >/dev/null 2>&1
-rm -rf "$TEST_ROOT"
+sudo rm -rf "$TEST_ROOT"
 
 echo "PostgreSQL 18 dist Linux service test passed"

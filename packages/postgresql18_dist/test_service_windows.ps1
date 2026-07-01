@@ -95,7 +95,10 @@ New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 
 if (-not [string]::IsNullOrWhiteSpace($archive)) {
   Require-Path $archive
-  tar -xf $archive -C $testRoot
+  tar -xf $archive `
+    --exclude '*/share/terminfo' `
+    --exclude '*/share/terminfo/*' `
+    -C $testRoot
   if ($LASTEXITCODE -ne 0) {
     throw "failed to extract archive: $archive"
   }
