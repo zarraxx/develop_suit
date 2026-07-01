@@ -52,11 +52,29 @@ fi
 
 tar -xzf "$ARCHIVE_PATH" -C "$WORK_DIR"
 
+export CC="${CC:-gcc}"
+export PKG_CONFIG="${PKG_CONFIG:-pkg-config}"
+
+echo "MSYSTEM=${MSYSTEM:-}"
+echo "cc: $(command -v "$CC")"
+"$CC" -dumpmachine
+"$CC" --version | head -n 1
+echo "pkg-config: $(command -v "$PKG_CONFIG")"
+
+redis_make_flags=(
+  BUILD_TLS=yes
+  MALLOC=libc
+  OPTIMIZATION=-O0
+  CFLAGS=-Wno-char-subscripts
+  LDFLAGS=-fno-lto
+  REDIS_CFLAGS=-fno-lto
+  REDIS_LDFLAGS=-fno-lto
+)
+
 (
-  cd "$SOURCE_DIR"
+  cd "$SOURCE_DIR/src"
   make -j "$JOBS" \
-    BUILD_TLS=yes \
-    CFLAGS="-Wno-char-subscripts -O0" \
+    "${redis_make_flags[@]}" \
     redis-server redis-cli redis-benchmark
 )
 

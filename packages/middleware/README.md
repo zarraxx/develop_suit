@@ -78,8 +78,11 @@ Redis MinGW workflow build:
 
 ```bash
 msys2/setup-msys2: gcc make pkg-config libopenssl openssl-devel tar curl
-make -j "$JOBS" BUILD_TLS=yes CFLAGS="-Wno-char-subscripts -O0" \
+(cd src && make -j "$JOBS" BUILD_TLS=yes MALLOC=libc OPTIMIZATION=-O0 \
+  CFLAGS="-Wno-char-subscripts" LDFLAGS="-fno-lto" \
+  REDIS_CFLAGS="-fno-lto" REDIS_LDFLAGS="-fno-lto" \
   redis-server redis-cli redis-benchmark
+)
 install redis-server.exe redis-cli.exe redis-benchmark.exe and runtime DLLs
 ```
 
