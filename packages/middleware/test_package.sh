@@ -110,7 +110,27 @@ cleanup() {
     kill "$ETCD_PID" >/dev/null 2>&1 || true
   fi
 }
-trap cleanup EXIT
+
+dump_logs() {
+  local log_path=""
+
+  for log_path in "$REDIS_LOG" "$MINIO_LOG" "$ETCD_LOG"; do
+    if [[ -s "$log_path" ]]; then
+      echo "-- ${log_path}"
+      tail -200 "$log_path" || true
+    fi
+  done
+}
+
+on_exit() {
+  local status="$?"
+
+  if [[ "$status" -ne 0 ]]; then
+    dump_logs
+  fi
+  cleanup
+}
+trap on_exit EXIT
 
 echo "-- minio version"
 run_cmd "$MINIO_BIN" --version
