@@ -48,9 +48,9 @@ function Write-PostgreSQLLogs {
     return
   }
 
-  $logFiles = Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime
-  if ($null -eq $logFiles -or $logFiles.Count -eq 0) {
+  $logFiles = @(Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime)
+  if ($logFiles.Count -eq 0) {
     Write-Host "==> PostgreSQL log directory is empty: $logDir"
     return
   }
