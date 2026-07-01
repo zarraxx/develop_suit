@@ -34,7 +34,12 @@ fi
 PACKAGE_DIR="$(cd "$PACKAGE_DIR" && pwd)"
 PACKAGE_TARGET_TRIPLE=""
 if [[ -f "${PACKAGE_DIR}/manifest.env" ]]; then
-  PACKAGE_TARGET_TRIPLE="$(awk -F= '$1 == "TARGET_TRIPLE" { print $2; exit }' "${PACKAGE_DIR}/manifest.env")"
+  while IFS='=' read -r manifest_key manifest_value; do
+    if [[ "$manifest_key" == "TARGET_TRIPLE" ]]; then
+      PACKAGE_TARGET_TRIPLE="$manifest_value"
+      break
+    fi
+  done <"${PACKAGE_DIR}/manifest.env"
 fi
 
 case "$PACKAGE_TARGET_TRIPLE" in
