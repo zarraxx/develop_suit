@@ -50,7 +50,7 @@ Common knobs:
 Archives are written under `packages/middleware/build/dist/`:
 
 - `middleware-<triple>.tar.xz` by default
-- workflow artifacts use `middleware-redis-<redis>-minio-<minio-ref>-etcd-<etcd>-<triple>.tar.xz`
+- workflow release artifacts use `middleware-<triple>-yyyy-MM-dd.tar.xz`
 
 Package layout:
 
