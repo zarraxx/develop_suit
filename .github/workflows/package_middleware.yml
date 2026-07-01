@@ -314,11 +314,13 @@ jobs:
           - target: aarch64
             triple: aarch64-unknown-linux-gnu
             runs_on: ubuntu-24.04-arm
-            test_mode: linux-native
+            test_mode: linux-docker
+            docker_platform: linux/arm64
           - target: riscv64
             triple: riscv64-unknown-linux-gnu
             runs_on: ubuntu-24.04
-            test_mode: linux-qemu
+            test_mode: linux-docker
+            docker_platform: linux/riscv64
           - target: loongarch64
             triple: loongarch64-unknown-linux-gnu
             runs_on: ubuntu-24.04
@@ -343,62 +345,6 @@ jobs:
       - name: Install Docker emulation prerequisites
         if: ${{ matrix.test_mode == 'linux-docker' && (matrix.target == 'riscv64' || matrix.target == 'loongarch64') }}
         uses: docker/setup-qemu-action@v3
-
-      - name: Test middleware package on Linux VM
-        if: ${{ matrix.test_mode == 'linux-native' }}
-        env:
-          ASSET_PREFIX: ${{ needs.resolve-meta.outputs.asset_prefix }}
-          RELEASE_DATE: ${{ needs.resolve-meta.outputs.release_date }}
-        run: |
-          set -euo pipefail
-
-          archive_name="${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}.tar.xz"
-          archive_path="${GITHUB_WORKSPACE}/artifacts/${archive_name}"
-          package_dir="${RUNNER_TEMP}/${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}"
-
-          [[ -f "${archive_path}" ]] || {
-            echo "missing package artifact: ${archive_path}" >&2
-            exit 1
-          }
-
-          rm -rf "${package_dir}"
-          tar -C "${RUNNER_TEMP}" -xf "${archive_path}"
-          bash ./packages/middleware/test_package.sh "${package_dir}"
-
-      - name: Test middleware package with host QEMU
-        if: ${{ matrix.test_mode == 'linux-qemu' }}
-        env:
-          ASSET_PREFIX: ${{ needs.resolve-meta.outputs.asset_prefix }}
-          RELEASE_DATE: ${{ needs.resolve-meta.outputs.release_date }}
-        run: |
-          set -euo pipefail
-
-          archive_name="${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}.tar.xz"
-          archive_path="${GITHUB_WORKSPACE}/artifacts/${archive_name}"
-          package_dir="${RUNNER_TEMP}/${ASSET_PREFIX}-${{ matrix.triple }}-${RELEASE_DATE}"
-          sysroot_parent="${RUNNER_TEMP}/sysroot"
-          sysroot_dir="${sysroot_parent}/${{ matrix.triple }}"
-
-          [[ -f "${archive_path}" ]] || {
-            echo "missing package artifact: ${archive_path}" >&2
-            exit 1
-          }
-
-          sudo apt-get update
-          sudo apt-get install -y qemu-user
-
-          docker pull --platform linux/amd64 "${{ env.PACKAGE_TEST_IMAGE }}"
-          container_id="$(docker create --platform linux/amd64 "${{ env.PACKAGE_TEST_IMAGE }}")"
-          trap 'docker rm -f "${container_id}" >/dev/null 2>&1 || true' EXIT
-          mkdir -p "${sysroot_parent}"
-          docker cp "${container_id}:/opt/sysroot/${{ matrix.triple }}" "${sysroot_parent}/"
-
-          rm -rf "${package_dir}"
-          tar -C "${RUNNER_TEMP}" -xf "${archive_path}"
-
-          PACKAGE_QEMU="$(command -v qemu-riscv64)" \
-          PACKAGE_QEMU_LD_PREFIX="${sysroot_dir}" \
-            bash ./packages/middleware/test_package.sh "${package_dir}"
 
       - name: Test middleware package in Docker
         if: ${{ matrix.test_mode == 'linux-docker' }}
