@@ -95,9 +95,53 @@ for path in \
   "${PACKAGE_DIR}/bin/psql.exe" \
   "${PACKAGE_DIR}/bin/initdb.exe" \
   "${PACKAGE_DIR}/bin/pg_ctl.exe" \
+  "${PACKAGE_DIR}/bin/pg_config.exe" \
+  "${PACKAGE_DIR}/bin/pg_config" \
   "${PACKAGE_DIR}/share/extension/plpgsql.control"; do
   [[ -e "${path}" ]] || { echo "missing path: ${path}" >&2; exit 1; }
 done
+
+require_pg_config_path() {
+  local option="$1"
+  local expected_path="$2"
+  local actual_path=""
+
+  actual_path="$("${PACKAGE_DIR}/bin/pg_config" "$option")"
+  [[ "$actual_path" == "$expected_path" ]] \
+    || { echo "${option} returned ${actual_path}, expected ${expected_path}" >&2; exit 1; }
+}
+
+require_pg_config_output_contains() {
+  local option="$1"
+  local expected_text="$2"
+  local actual_output=""
+
+  actual_output="$("${PACKAGE_DIR}/bin/pg_config" "$option")"
+  [[ "$actual_output" == *"$expected_text"* ]] \
+    || { echo "${option} returned ${actual_output}, expected it to contain ${expected_text}" >&2; exit 1; }
+}
+
+require_pg_config_output_has_no_opt_package_prefix() {
+  local option="$1"
+  local actual_output=""
+
+  actual_output="$("${PACKAGE_DIR}/bin/pg_config" "$option")"
+  if [[ "$actual_output" =~ /opt/[^[:space:]]+-x86_64-w64-windows-gnu ]]; then
+    echo "${option} returned build-time package prefix in: ${actual_output}" >&2
+    exit 1
+  fi
+}
+
+[[ -x "${PACKAGE_DIR}/bin/pg_config" ]] || { echo "pg_config shell wrapper is not executable" >&2; exit 1; }
+require_pg_config_path --includedir "${PACKAGE_DIR}/include"
+require_pg_config_path --includedir-server "${PACKAGE_DIR}/include/server"
+require_pg_config_path --libdir "${PACKAGE_DIR}/lib"
+require_pg_config_path --pkglibdir "${PACKAGE_DIR}/lib"
+require_pg_config_path --pgxs "${PACKAGE_DIR}/lib/pgxs/src/makefiles/pgxs.mk"
+require_pg_config_output_contains --cflags "-I${PACKAGE_DIR}/include"
+require_pg_config_output_contains --ldflags "-L${PACKAGE_DIR}/lib"
+require_pg_config_output_has_no_opt_package_prefix --cflags
+require_pg_config_output_has_no_opt_package_prefix --ldflags
 
 export PATH="${PACKAGE_DIR}/bin:${PACKAGE_DIR}/lib:${PATH}"
 

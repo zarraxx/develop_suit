@@ -82,6 +82,7 @@ fi
 
 [[ -n "$PACKAGE_DIR" ]] || die "--package-dir or --archive is required"
 [[ -d "$PACKAGE_DIR" ]] || die "package directory not found: ${PACKAGE_DIR}"
+PACKAGE_DIR="$(cd "$PACKAGE_DIR" && pwd)"
 
 require_file() {
   local path="$1"
@@ -121,6 +122,54 @@ require_configure_flag() {
 
   [[ -n "$configure_output" ]] || return 0
   [[ "$configure_output" == *"$expected_flag"* ]] || die "missing configure flag: ${expected_flag}"
+}
+
+require_pg_config_path() {
+  local pg_config_bin="$1"
+  local option="$2"
+  local expected_path="$3"
+  local actual_path=""
+
+  actual_path="$("$pg_config_bin" "$option")"
+  [[ "$actual_path" == "$expected_path" ]] \
+    || die "${option} returned ${actual_path}, expected ${expected_path}"
+}
+
+require_pg_config_output_contains() {
+  local pg_config_bin="$1"
+  local option="$2"
+  local expected_text="$3"
+  local actual_output=""
+
+  actual_output="$("$pg_config_bin" "$option")"
+  [[ "$actual_output" == *"$expected_text"* ]] \
+    || die "${option} returned ${actual_output}, expected it to contain ${expected_text}"
+}
+
+require_pg_config_output_has_no_opt_package_prefix() {
+  local pg_config_bin="$1"
+  local option="$2"
+  local actual_output=""
+
+  actual_output="$("$pg_config_bin" "$option")"
+  if [[ "$actual_output" =~ /opt/[^[:space:]]+-${PACKAGE_TRIPLE} ]]; then
+    die "${option} returned build-time package prefix in: ${actual_output}"
+  fi
+}
+
+check_relocatable_pg_config() {
+  local pg_config_bin="$1"
+
+  require_executable "$pg_config_bin"
+  require_pg_config_path "$pg_config_bin" --includedir "${PACKAGE_DIR}/include"
+  require_pg_config_path "$pg_config_bin" --includedir-server "${PACKAGE_DIR}/include/server"
+  require_pg_config_path "$pg_config_bin" --libdir "${PACKAGE_DIR}/lib"
+  require_pg_config_path "$pg_config_bin" --pkglibdir "${PACKAGE_DIR}/lib"
+  require_pg_config_path "$pg_config_bin" --pgxs "${PACKAGE_DIR}/lib/pgxs/src/makefiles/pgxs.mk"
+  require_pg_config_output_contains "$pg_config_bin" --cflags "-I${PACKAGE_DIR}/include"
+  require_pg_config_output_contains "$pg_config_bin" --ldflags "-L${PACKAGE_DIR}/lib"
+  require_pg_config_output_has_no_opt_package_prefix "$pg_config_bin" --cflags
+  require_pg_config_output_has_no_opt_package_prefix "$pg_config_bin" --ldflags
 }
 
 package_has_llvm_jit() {
@@ -396,6 +445,7 @@ case "$TARGET_KIND" in
     require_executable "${PYTHON_BIN}"
     require_executable "${PERL_BIN}"
     require_executable "${TCLSH_BIN}"
+    check_relocatable_pg_config "${PG_CONFIG_BIN}"
 
     if [[ "$ARCH" == "x86_64" ]]; then
       echo "Checking PostgreSQL x86_64 runtime metadata"
@@ -464,6 +514,8 @@ TCL
     require_file "${PACKAGE_DIR}/bin/psql.exe"
     require_file "${PACKAGE_DIR}/bin/initdb.exe"
     require_file "${PACKAGE_DIR}/bin/pg_ctl.exe"
+    require_file "${PACKAGE_DIR}/bin/pg_config.exe"
+    check_relocatable_pg_config "${PACKAGE_DIR}/bin/pg_config"
     check_file_target "${PACKAGE_DIR}/bin/postgres.exe" "PE32+"
     ;;
   *)

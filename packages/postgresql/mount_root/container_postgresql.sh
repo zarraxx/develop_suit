@@ -462,6 +462,185 @@ remove_postgresql_docs() {
          "${SDK_PREFIX}/doc"
 }
 
+read_pgxs_makefile_var() {
+  local var_name="$1"
+  local makefile_global="${SDK_PREFIX}/lib/pgxs/src/Makefile.global"
+
+  [[ -f "$makefile_global" ]] || return 0
+  sed -n -E "s/^${var_name}[[:space:]]*=[[:space:]]*//p" "$makefile_global" | head -n 1
+}
+
+shell_single_quote() {
+  local value="$1"
+
+  printf "'"
+  printf '%s' "$value" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
+install_relocatable_pg_config_wrapper() {
+  local wrapper_path="${SDK_PREFIX}/bin/pg_config"
+  local real_pg_config_path="${SDK_PREFIX}/bin/pg_config.real"
+  local pg_config_exe_path="${SDK_PREFIX}/bin/pg_config.exe"
+  local include_flags="-I${SDK_PREFIX}/include"
+  local cflags_sl="-fPIC"
+  local cc=""
+  local cppflags=""
+  local cflags=""
+  local ldflags=""
+  local ldflags_ex=""
+  local ldflags_sl=""
+  local libs=""
+  local configure_args=""
+  local q_build_prefix=""
+  local q_cc=""
+  local q_cppflags=""
+  local q_cflags=""
+  local q_cflags_sl=""
+  local q_ldflags=""
+  local q_ldflags_ex=""
+  local q_ldflags_sl=""
+  local q_libs=""
+  local q_configure_args=""
+  local q_target_triple=""
+
+  if [[ "$TARGET_KIND" == "linux" ]]; then
+    [[ -x "$wrapper_path" ]] || die "missing pg_config before wrapper install"
+    if [[ ! -f "$real_pg_config_path" ]]; then
+      mv "$wrapper_path" "$real_pg_config_path"
+    fi
+    include_flags+=" -I${SDK_PREFIX}/include/ncursesw -I${SDK_PREFIX}/include/libxml2"
+  elif [[ "$TARGET_KIND" == "mingw" ]]; then
+    [[ -x "$pg_config_exe_path" ]] || die "missing pg_config.exe before wrapper install"
+    cflags_sl=""
+    include_flags+=" -I${SDK_PREFIX}/include/libxml2"
+  else
+    die "unsupported TARGET_KIND for pg_config wrapper: ${TARGET_KIND}"
+  fi
+
+  cc="$(read_pgxs_makefile_var CC)"
+  cppflags="$(read_pgxs_makefile_var CPPFLAGS)"
+  cflags="$(read_pgxs_makefile_var CFLAGS)"
+  ldflags="$(read_pgxs_makefile_var LDFLAGS)"
+  ldflags_ex="$(read_pgxs_makefile_var LDFLAGS_EX)"
+  ldflags_sl="$(read_pgxs_makefile_var LDFLAGS_SL)"
+  libs="$(read_pgxs_makefile_var LIBS)"
+
+  [[ -n "$cc" ]] || cc="$CC"
+  [[ -n "$cppflags" ]] || cppflags="$COMMON_CPPFLAGS"
+  [[ -n "$cflags" ]] || cflags="$COMMON_CFLAGS"
+  [[ -n "$ldflags" ]] || ldflags="$COMMON_LDFLAGS"
+  [[ -n "$ldflags_ex" ]] || ldflags_ex="$ldflags"
+  [[ -n "$ldflags_sl" ]] || ldflags_sl="$ldflags"
+
+  ldflags="$(printf '%s\n' "$ldflags" | sed 's/$(LDFLAGS_INTERNAL)//g')"
+  ldflags_ex="$(printf '%s\n' "$ldflags_ex" | sed 's/$(LDFLAGS_INTERNAL)//g')"
+  ldflags_sl="$(printf '%s\n' "$ldflags_sl" | sed 's/$(LDFLAGS_INTERNAL)//g')"
+
+  if [[ "$cppflags" != *"-I${SDK_PREFIX}/include"* ]]; then
+    cppflags="${cppflags} ${include_flags}"
+  fi
+  if [[ "$cflags" != *"-I${SDK_PREFIX}/include"* ]]; then
+    cflags="${cflags} ${include_flags}"
+  fi
+  if [[ "$ldflags" != *"-L${SDK_PREFIX}/lib"* ]]; then
+    ldflags="${ldflags} -L${SDK_PREFIX}/lib"
+  fi
+  if [[ "$ldflags_ex" != *"-L${SDK_PREFIX}/lib"* ]]; then
+    ldflags_ex="${ldflags_ex} -L${SDK_PREFIX}/lib"
+  fi
+  if [[ "$ldflags_sl" != *"-L${SDK_PREFIX}/lib"* ]]; then
+    ldflags_sl="${ldflags_sl} -L${SDK_PREFIX}/lib"
+  fi
+
+  if [[ "$TARGET_KIND" == "mingw" ]]; then
+    configure_args="--prefix=${SDK_PREFIX} --host=${CONFIGURE_HOST_TRIPLE}"
+  fi
+
+  q_build_prefix="$(shell_single_quote "$SDK_PREFIX")"
+  q_cc="$(shell_single_quote "$cc")"
+  q_cppflags="$(shell_single_quote "$cppflags")"
+  q_cflags="$(shell_single_quote "$cflags")"
+  q_cflags_sl="$(shell_single_quote "$cflags_sl")"
+  q_ldflags="$(shell_single_quote "$ldflags")"
+  q_ldflags_ex="$(shell_single_quote "$ldflags_ex")"
+  q_ldflags_sl="$(shell_single_quote "$ldflags_sl")"
+  q_libs="$(shell_single_quote "$libs")"
+  q_configure_args="$(shell_single_quote "$configure_args")"
+  q_target_triple="$(shell_single_quote "$TARGET_TRIPLE")"
+
+  cat >"$wrapper_path" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+prefix="\$(cd "\${script_dir}/.." && pwd)"
+build_prefix=${q_build_prefix}
+cc=${q_cc}
+cppflags=${q_cppflags}
+cflags=${q_cflags}
+cflags_sl=${q_cflags_sl}
+ldflags=${q_ldflags}
+ldflags_ex=${q_ldflags_ex}
+ldflags_sl=${q_ldflags_sl}
+libs=${q_libs}
+configure_args=${q_configure_args}
+target_triple=${q_target_triple}
+
+replace_build_prefix() {
+  local value="\$1"
+  value="\${value//\${build_prefix}/\${prefix}}"
+  if [[ -n "\$target_triple" ]]; then
+    value="\$(printf '%s\n' "\$value" | sed -E "s#/opt/[^[:space:]\"']+-\${target_triple}#\${prefix}#g")"
+  fi
+  printf '%s\n' "\$value"
+}
+
+if [[ "\$#" -eq 0 ]]; then
+  set -- --help
+fi
+
+for option in "\$@"; do
+  case "\$option" in
+    --bindir) printf '%s\n' "\${prefix}/bin" ;;
+    --docdir) printf '%s\n' "\${prefix}/share/doc" ;;
+    --htmldir) printf '%s\n' "\${prefix}/share/doc" ;;
+    --includedir) printf '%s\n' "\${prefix}/include" ;;
+    --pkgincludedir) printf '%s\n' "\${prefix}/include" ;;
+    --includedir-server) printf '%s\n' "\${prefix}/include/server" ;;
+    --libdir) printf '%s\n' "\${prefix}/lib" ;;
+    --pkglibdir) printf '%s\n' "\${prefix}/lib" ;;
+    --localedir) printf '%s\n' "\${prefix}/share/locale" ;;
+    --mandir) printf '%s\n' "\${prefix}/share/man" ;;
+    --sharedir) printf '%s\n' "\${prefix}/share" ;;
+    --sysconfdir) printf '%s\n' "\${prefix}/etc" ;;
+    --pgxs) printf '%s\n' "\${prefix}/lib/pgxs/src/makefiles/pgxs.mk" ;;
+    --cc) replace_build_prefix "\$cc" ;;
+    --cppflags) replace_build_prefix "\$cppflags" ;;
+    --cflags) replace_build_prefix "\$cflags" ;;
+    --cflags_sl) replace_build_prefix "\$cflags_sl" ;;
+    --ldflags) replace_build_prefix "\$ldflags" ;;
+    --ldflags_ex) replace_build_prefix "\$ldflags_ex" ;;
+    --ldflags_sl) replace_build_prefix "\$ldflags_sl" ;;
+    --libs) replace_build_prefix "\$libs" ;;
+    --version) printf '%s\n' "PostgreSQL ${POSTGRESQL_VERSION}" ;;
+    --configure) replace_build_prefix "\$configure_args" ;;
+    --help)
+      cat <<'HELP'
+Usage: pg_config [OPTION]
+Relocatable PostgreSQL package metadata wrapper.
+HELP
+      ;;
+    *)
+      echo "pg_config wrapper: unsupported option: \${option}" >&2
+      exit 1
+      ;;
+  esac
+done
+EOF
+  chmod +x "$wrapper_path"
+}
+
 postgresql_archive_url() {
   printf '%s\n' "${POSTGRESQL_ARCHIVE_URL:-https://ftp.postgresql.org/pub/source/v${POSTGRESQL_VERSION}/${POSTGRESQL_ARCHIVE_NAME}}"
 }
@@ -998,11 +1177,14 @@ validate_postgresql() {
   local psql_bin="${SDK_PREFIX}/bin/psql${EXEEXT}"
   local postgres_bin="${SDK_PREFIX}/bin/postgres${EXEEXT}"
   local pg_config_bin="${SDK_PREFIX}/bin/pg_config${EXEEXT}"
+  local pg_config_wrapper="${SDK_PREFIX}/bin/pg_config"
   local runner_command=""
 
   [[ -x "$psql_bin" ]] || die "missing psql binary"
   [[ -x "$postgres_bin" ]] || die "missing postgres binary"
   [[ -x "$pg_config_bin" ]] || die "missing pg_config"
+  [[ -x "$pg_config_wrapper" ]] || die "missing pg_config wrapper"
+  "$pg_config_wrapper" --includedir >/dev/null
 
   case "$TARGET_KIND:$ARCH" in
     linux:x86_64)
@@ -1017,7 +1199,7 @@ validate_postgresql() {
         log "Running ${TARGET_TRIPLE} PostgreSQL smoke test via target runner"
         runner_command="LD_LIBRARY_PATH='${SDK_PREFIX}/lib:${SYSROOT}/lib:${SYSROOT}/usr/lib:${SYSROOT}/lib64:${SYSROOT}/usr/lib64:${LD_LIBRARY_PATH:-}' ${POSTGRESQL_TARGET_RUNNER}"
         eval "${runner_command} \"${psql_bin}\" --version"
-        eval "${runner_command} \"${pg_config_bin}\" --configure"
+        "$pg_config_bin" --configure
       else
         log "Target runner not configured; skipping runtime smoke test for ${TARGET_TRIPLE}"
       fi
@@ -1196,6 +1378,7 @@ copy_llvm_runtime_libraries
 remove_static_libraries
 remove_postgresql_docs
 rewrite_dependency_prefixes
+install_relocatable_pg_config_wrapper
 patch_linux_elf_rpaths "$SDK_PREFIX" "$TARGET_KIND"
 validate_postgresql
 
