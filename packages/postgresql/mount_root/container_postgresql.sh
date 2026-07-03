@@ -290,12 +290,18 @@ EOF
 
 write_mingw_perl_config_wrapper() {
   local wrapper_path="$1"
+  local perl_archlib_dir="${PERL_ARCHLIB_DIR:-${SDK_PREFIX}/lib}"
+  local perl_privlib_dir="${PERL_PRIVLIB_DIR:-${SDK_PREFIX}/lib}"
+  local perl_core_dir="${PERL_CORE_DIR:-${perl_archlib_dir}/CORE}"
 
   cat >"$wrapper_path" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
 sdk_prefix="${SDK_PREFIX}"
+perl_archlib_dir="${perl_archlib_dir}"
+perl_privlib_dir="${perl_privlib_dir}"
+perl_core_dir="${perl_core_dir}"
 
 case "\${1:-}" in
   -v)
@@ -307,11 +313,11 @@ esac
 if [[ "\${1:-}" == "-MConfig" && "\${2:-}" == "-e" ]]; then
   case "\${3:-}" in
     *'Config{archlibexp}'*)
-      printf '%s' "\${sdk_prefix}/lib"
+      printf '%s' "\${perl_archlib_dir}"
       exit 0
       ;;
     *'Config{privlibexp}'*)
-      printf '%s' "\${sdk_prefix}/lib"
+      printf '%s' "\${perl_privlib_dir}"
       exit 0
       ;;
     *'Config{useshrplib}'*)
@@ -332,8 +338,8 @@ if [[ "\${1:-}" == "-MConfig" && "\${2:-}" == "-e" ]]; then
   esac
 fi
 
-if [[ "\${1:-}" == "-MExtUtils::Embed" && "\${2:-}" == "-e" && "\${3:-}" == "ldopts" ]]; then
-  printf '%s' "-L\${sdk_prefix}/lib/CORE -lperl542"
+if [[ "\${1:-}" == "-MExtUtils::Embed" && "\${2:-}" == "-e" && "\${3:-}" == *"ldopts"* ]]; then
+  printf '%s' "-L\${perl_core_dir} -lperl542"
   exit 0
 fi
 
