@@ -219,6 +219,10 @@ make -f win32/GNUmakefile install
 The MinGW build should be driven from the Linux host with `wine` standing in
 for the Windows runtime whenever `miniperl.exe`, `perl.exe`, or other generated
 Windows executables must run during the `GNUmakefile` build and install steps.
+The package patches Perl's win32 install templates so executables remain in
+`<prefix>/bin`, while Perl-owned modules, `Config.pm`, and `CORE` install under
+`<prefix>/lib/<perl-version>/<archname>` instead of cluttering the top-level
+`lib` directory.
 After install, the package should also copy the Windows clang runtime DLLs that
 `perl.exe` and `perl542.dll` depend on, such as `libc++.dll` and
 `libunwind.dll`, into `<prefix>/bin`.

@@ -1,0 +1,117 @@
+diff --git a/win32/GNUmakefile b/win32/GNUmakefile
+index 3512310..dda6a1a 100644
+--- a/win32/GNUmakefile
++++ b/win32/GNUmakefile
+@@ -537,12 +537,12 @@ HTMLDIR		= .\html
+ # Strip trailing backslash from INST_TOP
+ override INST_TOP := $(INST_TOP:\=)
+ 
+-INST_SCRIPT	= $(INST_TOP)$(INST_VER)\bin
+-INST_BIN	= $(INST_SCRIPT)$(INST_ARCH)
+-INST_LIB	= $(INST_TOP)$(INST_VER)\lib
++INST_SCRIPT	= $(INST_TOP)\bin
++INST_BIN	= $(INST_SCRIPT)
++INST_LIB	= $(INST_TOP)\lib$(INST_VER)
+ INST_ARCHLIB	= $(INST_LIB)$(INST_ARCH)
+ INST_COREDIR	= $(INST_ARCHLIB)\CORE
+-INST_HTML	= $(INST_TOP)$(INST_VER)\html
++INST_HTML	= $(INST_TOP)\html
+ 
+ #
+ # Programs to compile, build .lib files and link
+diff --git a/win32/config.gc b/win32/config.gc
+index 34aa8de..c301586 100644
+--- a/win32/config.gc
++++ b/win32/config.gc
+@@ -22,8 +22,8 @@ api_subversion='~PERL_API_SUBVERSION~'
+ api_version='~PERL_API_VERSION~'
+ api_versionstring='~PERL_API_REVISION~.~PERL_API_VERSION~.~PERL_API_SUBVERSION~'
+ ar='~ARCHPREFIX~ar'
+-archlib='~INST_TOP~~INST_VER~\lib~INST_ARCH~'
+-archlibexp='~INST_TOP~~INST_VER~\lib~INST_ARCH~'
++archlib='~INST_TOP~\lib~INST_VER~~INST_ARCH~'
++archlibexp='~INST_TOP~\lib~INST_VER~~INST_ARCH~'
+ archname64=''
+ archname='MSWin32'
+ archobjs=''
+@@ -31,8 +31,8 @@ asctime_r_proto='0'
+ awk='awk'
+ baserev='5'
+ bash=''
+-bin='~INST_TOP~~INST_VER~\bin~INST_ARCH~'
+-binexp='~INST_TOP~~INST_VER~\bin~INST_ARCH~'
++bin='~INST_TOP~\bin'
++binexp='~INST_TOP~\bin'
+ bison=''
+ bootstrap_charset='undef'
+ byacc='byacc'
+@@ -831,26 +831,26 @@ inc_version_list_init='0'
+ incpath=''
+ inews=''
+ initialinstalllocation=''
+-installarchlib='~INST_TOP~~INST_VER~\lib~INST_ARCH~'
+-installbin='~INST_TOP~~INST_VER~\bin~INST_ARCH~'
++installarchlib='~INST_TOP~\lib~INST_VER~~INST_ARCH~'
++installbin='~INST_TOP~\bin'
+ installhtml1dir=''
+ installhtml3dir=''
+-installhtmldir='~INST_TOP~~INST_VER~\html'
+-installhtmlhelpdir='~INST_TOP~~INST_VER~\htmlhelp'
+-installman1dir='~INST_TOP~~INST_VER~\man\man1'
+-installman3dir='~INST_TOP~~INST_VER~\man\man3'
+-installprefix='~INST_TOP~~INST_VER~'
+-installprefixexp='~INST_TOP~~INST_VER~'
+-installprivlib='~INST_TOP~~INST_VER~\lib'
+-installscript='~INST_TOP~~INST_VER~\bin~INST_ARCH~'
++installhtmldir='~INST_TOP~\html'
++installhtmlhelpdir='~INST_TOP~\htmlhelp'
++installman1dir='~INST_TOP~\man\man1'
++installman3dir='~INST_TOP~\man\man3'
++installprefix='~INST_TOP~'
++installprefixexp='~INST_TOP~'
++installprivlib='~INST_TOP~\lib~INST_VER~'
++installscript='~INST_TOP~\bin'
+ installsitearch='~INST_TOP~\site~INST_VER~\lib~INST_ARCH~'
+-installsitebin='~INST_TOP~~INST_VER~\bin~INST_ARCH~'
++installsitebin='~INST_TOP~\bin'
+ installsitehtml1dir=''
+ installsitehtml3dir=''
+ installsitelib='~INST_TOP~\site~INST_VER~\lib'
+ installsiteman1dir=''
+ installsiteman3dir=''
+-installsitescript='~INST_TOP~~INST_VER~\bin~INST_ARCH~'
++installsitescript='~INST_TOP~\bin'
+ installstyle='lib'
+ installusrbinperl='undef'
+ installvendorarch=''
+@@ -975,7 +975,7 @@ perl_static_inline='static __inline__'
+ perl_thread_local=''
+ perladmin=''
+ perllibs='~libs~'
+-perlpath='~INST_TOP~~INST_VER~\bin~INST_ARCH~\perl.exe'
++perlpath='~INST_TOP~\bin\perl.exe'
+ pg=''
+ phostname='hostname'
+ pidtype='int'
+@@ -984,8 +984,8 @@ pmake=''
+ pr=''
+ prefix='~INST_TOP~'
+ prefixexp='~INST_TOP~'
+-privlib='~INST_TOP~~INST_VER~\lib'
+-privlibexp='~INST_TOP~~INST_VER~\lib'
++privlib='~INST_TOP~\lib~INST_VER~'
++privlibexp='~INST_TOP~\lib~INST_VER~'
+ procselfexe=''
+ prototype='define'
+ ptrsize='4'
+@@ -1023,8 +1023,8 @@ sPRIu64='"lu"'
+ sPRIx64='"lx"'
+ sSCNfldbl='"Lf"'
+ sched_yield=''
+-scriptdir='~INST_TOP~~INST_VER~\bin'
+-scriptdirexp='~INST_TOP~~INST_VER~\bin'
++scriptdir='~INST_TOP~\bin'
++scriptdirexp='~INST_TOP~\bin'
+ sed='sed'
+ seedfunc='Perl_drand48_init'
+ selectminbits='32'

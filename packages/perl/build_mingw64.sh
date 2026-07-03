@@ -113,6 +113,10 @@ apply_mingw_source_patches() {
 
   (
     cd "$SOURCE_DIR"
+    if [[ ! -f .llvmsdk-perl-win32-versioned-lib-layout.patch.applied ]]; then
+      patch -p1 -i "${ROOT_DIR}/mount_root/patch/perl-win32-versioned-lib-layout.patch"
+      touch .llvmsdk-perl-win32-versioned-lib-layout.patch.applied
+    fi
     if [[ ! -f .llvmsdk-perl-win32-coreheaders-xcopy.patch.applied ]]; then
       patch -p1 -i "${ROOT_DIR}/mount_root/patch/perl-win32-coreheaders-xcopy.patch"
       touch .llvmsdk-perl-win32-coreheaders-xcopy.patch.applied
@@ -204,6 +208,9 @@ write_windows_build_prelude() {
 
   printf '@echo off\r\n' >"$build_cmd"
   printf 'setlocal\r\n' >>"$build_cmd"
+  printf 'set LC_ALL=\r\n' >>"$build_cmd"
+  printf 'set LC_CTYPE=\r\n' >>"$build_cmd"
+  printf 'set LANG=\r\n' >>"$build_cmd"
   printf 'set PATH=%s;%s;%%PATH%%\r\n' "$toolchain_bin_win" "$prefix_bin_win" >>"$build_cmd"
   printf 'cd /d %s\r\n' "$source_win32_win" >>"$build_cmd"
 }
@@ -224,10 +231,13 @@ run_mingw_bootstrap() {
   build_cmd="${WORK_ROOT}/bootstrap-perl-mingw64.cmd"
 
   write_windows_build_prelude "$build_cmd" "$toolchain_bin_win" "$prefix_bin_win" "$source_win32_win"
-  printf 'mingw32-make.exe perldll.def CCTYPE=GCC CCHOME=%s INST_TOP=%s INST_VER= INST_ARCH= SKIP_CCHOME_CHECK=define\r\n' "$toolchain_root_win" "$prefix_win" >>"$build_cmd"
+  printf 'mingw32-make.exe perldll.def CCTYPE=GCC CCHOME=%s INST_TOP=%s INST_VER=%s INST_ARCH=%s SKIP_CCHOME_CHECK=define\r\n' "$toolchain_root_win" "$prefix_win" "$PERL_WIN32_INST_VER" "$PERL_WIN32_INST_ARCH" >>"$build_cmd"
   printf 'if errorlevel 1 exit /b %%errorlevel%%\r\n' >>"$build_cmd"
 
   env \
+    LC_ALL= \
+    LC_CTYPE= \
+    LANG= \
     WINEDEBUG=-all \
     WINEPREFIX="$WINE_PREFIX" \
     WINEPATH="${toolchain_bin_win};${prefix_bin_win}" \
@@ -266,12 +276,15 @@ run_mingw_build() {
   build_cmd="${WORK_ROOT}/build-perl-mingw64.cmd"
 
   write_windows_build_prelude "$build_cmd" "$toolchain_bin_win" "$prefix_bin_win" "$source_win32_win"
-  printf 'mingw32-make.exe -j%d CCTYPE=GCC CCHOME=%s INST_TOP=%s INST_VER= INST_ARCH= SKIP_CCHOME_CHECK=define\r\n' "$JOBS" "$toolchain_root_win" "$prefix_win" >>"$build_cmd"
+  printf 'mingw32-make.exe -j%d CCTYPE=GCC CCHOME=%s INST_TOP=%s INST_VER=%s INST_ARCH=%s SKIP_CCHOME_CHECK=define\r\n' "$JOBS" "$toolchain_root_win" "$prefix_win" "$PERL_WIN32_INST_VER" "$PERL_WIN32_INST_ARCH" >>"$build_cmd"
   printf 'if errorlevel 1 exit /b %%errorlevel%%\r\n' >>"$build_cmd"
-  printf 'mingw32-make.exe CCTYPE=GCC CCHOME=%s INST_TOP=%s INST_VER= INST_ARCH= SKIP_CCHOME_CHECK=define install\r\n' "$toolchain_root_win" "$prefix_win" >>"$build_cmd"
+  printf 'mingw32-make.exe CCTYPE=GCC CCHOME=%s INST_TOP=%s INST_VER=%s INST_ARCH=%s SKIP_CCHOME_CHECK=define install\r\n' "$toolchain_root_win" "$prefix_win" "$PERL_WIN32_INST_VER" "$PERL_WIN32_INST_ARCH" >>"$build_cmd"
   printf 'if errorlevel 1 exit /b %%errorlevel%%\r\n' >>"$build_cmd"
 
   env \
+    LC_ALL= \
+    LC_CTYPE= \
+    LANG= \
     WINEDEBUG=-all \
     WINEPREFIX="$WINE_PREFIX" \
     WINEPATH="${toolchain_bin_win};${prefix_bin_win}" \
@@ -299,16 +312,30 @@ sync_mingw_runtime_dlls() {
 
 validate_built_perl() {
   local perl_exe="${OUT_DIR}/bin/perl.exe"
+  local versioned_lib="${OUT_DIR}/lib/${PERL_VERSION}"
+  local arch_lib="${versioned_lib}/${PERL_WIN32_ARCHNAME}"
   local out_bin_win=""
 
   [[ -f "$perl_exe" ]] || die "missing built Perl executable: ${perl_exe}"
+  [[ -d "$versioned_lib" ]] || die "missing versioned Perl lib directory: ${versioned_lib}"
+  [[ -f "${arch_lib}/Config.pm" ]] || die "missing versioned Perl Config.pm: ${arch_lib}/Config.pm"
+  [[ -f "${arch_lib}/Config_heavy.pl" ]] || die "missing versioned Perl Config_heavy.pl: ${arch_lib}/Config_heavy.pl"
+  [[ -d "${arch_lib}/CORE" ]] || die "missing versioned Perl CORE directory: ${arch_lib}/CORE"
+  [[ ! -e "${OUT_DIR}/lib/Config.pm" ]] || die "Perl Config.pm was installed directly under top-level lib"
+  [[ ! -d "${OUT_DIR}/lib/auto" ]] || die "Perl auto directory was installed directly under top-level lib"
+  [[ ! -d "${OUT_DIR}/lib/CORE" ]] || die "Perl CORE directory was installed directly under top-level lib"
+  [[ ! -e "${OUT_DIR}/${PERL_VERSION}/bin/perl.exe" ]] || die "Perl executable was installed under the version directory"
+
   out_bin_win="$(winepath -w "${OUT_DIR}/bin")"
 
   env \
+    LC_ALL= \
+    LC_CTYPE= \
+    LANG= \
     WINEDEBUG=-all \
     WINEPREFIX="$WINE_PREFIX" \
     WINEPATH="${out_bin_win}" \
-    wine "$perl_exe" -e "print qq(perl smoke ok\\n)"
+    wine "$perl_exe" -MConfig -e 'print qq(perl smoke ok\n); print qq($Config::Config{privlib}\n$Config::Config{archlib}\n)'
 }
 
 TARGET_TRIPLE="x86_64-w64-windows-gnu"
@@ -417,6 +444,9 @@ fi
 
 IFS=. read -r PERL_VERSION_MAJOR PERL_VERSION_MINOR _ <<<"$PERL_VERSION"
 PERL_DLL_BASENAME="perl${PERL_VERSION_MAJOR}${PERL_VERSION_MINOR}"
+PERL_WIN32_ARCHNAME="MSWin32-x64-multi-thread"
+PERL_WIN32_INST_VER="\\${PERL_VERSION}"
+PERL_WIN32_INST_ARCH="\\${PERL_WIN32_ARCHNAME}"
 
 LLVM_ARCHIVE_URL="https://github.com/zarraxx/develop_suit/releases/download/clang-18.1.8/clang-18.1.8-x86_64-w64-windows-gnu.tar.xz"
 PYTHON_DEPS_ARCHIVE_URL="https://github.com/zarraxx/develop_suit/releases/download/pyhton_dependencies-3/pyhton_dependencies-3-x86_64-w64-windows-gnu.tar.xz"
