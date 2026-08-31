@@ -13,11 +13,13 @@ on:
         type: choice
         default: "18.1.8"
         options:
+          - "23.1.0"
           - "22.1.8"
           - "22.1.5"
           - "21.1.8"
           - "20.1.8"
           - "18.1.8"
+
       publish_release:
         description: "Create or update a GitHub Release after building"
         required: true
