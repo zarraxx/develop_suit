@@ -4,6 +4,7 @@ set -euo pipefail
 
 SHELL_TOOLS_DIR="${SHELL_TOOLS_DIR:-/work/shell_tools}"
 source "${SHELL_TOOLS_DIR}/tools.sh"
+source "${LIBCXX_OVERLAY_HELPER:-/work/mount_root/libcxx_overlay.sh}"
 
 log() {
   echo "==> $*" >&2
@@ -76,19 +77,7 @@ assemble_sdk_prefix() {
   log "Copying target llvmsdk into final clang prefix"
   copy_prefix "$LLVMSDK_PREFIX" "$SDK_PREFIX"
 
-  overlay_libcxx_runtime_packages
-}
-
-overlay_libcxx_runtime_packages() {
-  local runtime_dir=""
-
-  log "Overlaying libcxx runtime packages"
-  shopt -s nullglob
-  for runtime_dir in "${LIBCXX_INPUT_ROOT}"/*; do
-    [[ -d "$runtime_dir" ]] || continue
-    copy_prefix "$runtime_dir" "$SDK_PREFIX"
-  done
-  shopt -u nullglob
+  overlay_libcxx_runtime_packages "$SDK_PREFIX" "$LIBCXX_INPUT_ROOT"
 }
 
 copy_host_runtime_shared_libraries_to_lib() {
@@ -675,6 +664,10 @@ validate_outputs() {
   if [[ "$TARGET_KIND" == "mingw" ]]; then
     grep -q '_LIBCPP_VERSION' "${SDK_PREFIX}/include/c++/v1/__config" \
       || die "mingw64 libc++ headers are missing or incompatible"
+    if (( LLVM_MAJOR_VERSION >= 23 )); then
+      [[ ! -e "${SDK_PREFIX}/include/c++/v1/ctype.h" ]] \
+        || die "mingw64 libc++ headers contain a pre-LLVM 23 ctype.h wrapper"
+    fi
   fi
 }
 
@@ -783,7 +776,7 @@ build_clang_and_tools
 build_lld
 build_lldb
 copy_mingw64_sysroot_to_prefix
-overlay_libcxx_runtime_packages
+overlay_libcxx_runtime_packages "$SDK_PREFIX" "$LIBCXX_INPUT_ROOT"
 strip_mingw64_crt_debug_sections
 
 if [[ -x "${SDK_PREFIX}/bin/clang" && ! -e "${SDK_PREFIX}/bin/clang++" ]]; then

@@ -100,6 +100,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Test libc++ package overlay
+        run: bash ./packages/clang/tests/test_libcxx_overlay.sh
+
       - name: Cache source archives
         uses: actions/cache@v5
         with:
