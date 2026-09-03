@@ -1,3 +1,33 @@
+diff --git a/Makefile.pre.in b/Makefile.pre.in
+index 734cbcf..d428992 100644
+--- a/Makefile.pre.in
++++ b/Makefile.pre.in
+@@ -1808,7 +1808,7 @@ install: @FRAMEWORKINSTALLFIRST@ commoninstall bininstall maninstall @FRAMEWORKI
+ 			upgrade) ensurepip="--upgrade" ;; \
+ 			install|*) ensurepip="" ;; \
+ 		esac; \
+-		$(RUNSHARED) $(PYTHON_FOR_BUILD) -m ensurepip \
++		$(RUNSHARED) _PYTHON_HOST_PLATFORM=linux-$(shell uname -m) $(PYTHON_FOR_BUILD) -m ensurepip \
+ 			$$ensurepip --root=$(DESTDIR)/ ; \
+ 	fi
+
+@@ -1818,7 +1818,7 @@ altinstall: commoninstall
+ 			upgrade) ensurepip="--altinstall --upgrade" ;; \
+ 			install|*) ensurepip="--altinstall" ;; \
+ 		esac; \
+-		$(RUNSHARED) $(PYTHON_FOR_BUILD) -m ensurepip \
++		$(RUNSHARED) _PYTHON_HOST_PLATFORM=linux-$(shell uname -m) $(PYTHON_FOR_BUILD) -m ensurepip \
+ 			$$ensurepip --root=$(DESTDIR)/ ; \
+ 	fi
+
+@@ -2361,6 +2361,7 @@ endif
+ sharedinstall: all
+ 	MSYS2_ARG_CONV_EXCL="--prefix=;--install-scripts=;--install-platlib=" \
+ 	$(RUNSHARED) $(PYTHON_FOR_BUILD) $(srcdir)/setup.py install \
++		--skip-build \
+ 	   	--prefix=$(prefix) \
+ 		--install-scripts=$(BINDIR) \
+ 		--install-platlib=$(DESTSHARED) \
 diff --git a/Modules/Setup.bootstrap.in b/Modules/Setup.bootstrap.in
 index 6986290..2db445a 100644
 --- a/Modules/Setup.bootstrap.in
