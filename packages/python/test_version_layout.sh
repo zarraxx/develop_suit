@@ -33,4 +33,13 @@ assert_version_layout "3.11.16" "3.11" "311"
 assert_version_layout "3.13.15" "3.13" "313"
 assert_version_layout "3.14.5" "3.14" "314"
 
+[[ "$(python_package_version_for_target "x86_64" "3.13.15" "3.13.11")" == "3.13.15" ]] \
+  || fail "Linux target must use the requested Python version"
+[[ "$(python_package_version_for_target "mingw64" "3.13.15" "3.13.11")" == "3.13.11" ]] \
+  || fail "MinGW target must use the requested MinGW Python version"
+[[ "$(python_package_version_for_target "mingw64" "3.11.16" "3.11.10")" == "3.11.10" ]] \
+  || fail "MinGW target must support an older requested MinGW Python version"
+[[ "$(python_package_version_for_target "mingw64" "3.14.5" "")" == "3.14.5" ]] \
+  || fail "MinGW target must fall back to the requested Python version"
+
 echo "Python version layout tests passed"

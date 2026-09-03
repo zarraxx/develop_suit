@@ -12,6 +12,10 @@ on:
         required: false
         type: string
         default: "3.14.5"
+      mingw_python_version:
+        description: "cpython-mingw version; defaults to python_version"
+        required: false
+        type: string
       publish_release:
         description: "Create or update a GitHub Release after building"
         required: true
@@ -136,31 +140,46 @@ jobs:
           exit 1
 
       - name: Build Python package
+        id: build
+        env:
+          INPUT_PYTHON_VERSION: ${{ env.PYTHON_PACKAGE_VERSION }}
+          INPUT_MINGW_PYTHON_VERSION: ${{ inputs.mingw_python_version }}
+          PACKAGE_TARGET: ${{ matrix.target }}
+          PACKAGE_TRIPLE: ${{ matrix.triple }}
+          DEPENDENCY_ASSET_PREFIX: ${{ inputs.python_dependencies_asset_prefix }}
         run: |
           set -euo pipefail
 
-          package_name="python-${{ env.PYTHON_PACKAGE_VERSION }}-${{ matrix.triple }}"
-          dependency_archive="packages/python/build/inputs/${{ inputs.python_dependencies_asset_prefix }}-${{ matrix.triple }}.tar.xz"
+          source ./packages/python/mount_root/python_version.sh
+          package_version="$(python_package_version_for_target \
+            "${PACKAGE_TARGET}" \
+            "${INPUT_PYTHON_VERSION}" \
+            "${INPUT_MINGW_PYTHON_VERSION}")"
+          package_name="python-${package_version}-${PACKAGE_TRIPLE}"
+          archive_path="packages/python/build/dist/${package_name}.tar.xz"
+          dependency_archive="packages/python/build/inputs/${DEPENDENCY_ASSET_PREFIX}-${PACKAGE_TRIPLE}.tar.xz"
           [[ -f "${dependency_archive}" ]] || {
             echo "missing downloaded python dependency archive: ${dependency_archive}" >&2
             exit 1
           }
 
           bash ./packages/python/build.sh \
-            --target="${{ matrix.target }}" \
-            --python-version="${{ env.PYTHON_PACKAGE_VERSION }}" \
+            --target="${PACKAGE_TARGET}" \
+            --python-version="${package_version}" \
             --python-deps-archive="${dependency_archive}" \
             --package-name="${package_name}" \
             --clean \
             --pull \
             --jobs=4
 
+          echo "archive_path=${archive_path}" >> "${GITHUB_OUTPUT}"
+
       - name: Upload Python artifact
         uses: actions/upload-artifact@v7
         with:
           name: python-${{ matrix.target }}
           path: |
-            packages/python/build/dist/python-${{ env.PYTHON_PACKAGE_VERSION }}-${{ matrix.triple }}.tar.xz
+            ${{ steps.build.outputs.archive_path }}
           if-no-files-found: error
           retention-days: 14
 

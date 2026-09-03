@@ -98,6 +98,13 @@ MSYS2 MinGW CPython branch, regenerates `configure` before the container build,
 uses the Windows GNU sysroot resource headers for `llvm-windres`, keeps MinGW
 `*.dll.a` import libraries, and validates the Windows executable layout.
 
+The GitHub Actions workflow accepts a separate `mingw_python_version` input
+because `cpython-mingw` branches do not necessarily track every official
+CPython patch release. When it is set, Linux targets use `python_version` and
+the MinGW target uses `mingw_python_version`; each archive is named with the
+version it actually contains. When it is empty, MinGW falls back to
+`python_version`.
+
 ## SWIG Configure
 
 Source:

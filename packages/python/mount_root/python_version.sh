@@ -17,3 +17,16 @@ python_abi_version() {
   major_minor="$(python_major_minor_version "$1")" || return 1
   printf '%s\n' "${major_minor//./}"
 }
+
+python_package_version_for_target() {
+  local target="$1"
+  local python_version="$2"
+  local mingw_python_version="$3"
+
+  if [[ "$target" == "mingw64" && -n "$mingw_python_version" ]]; then
+    printf '%s\n' "$mingw_python_version"
+    return 0
+  fi
+
+  printf '%s\n' "$python_version"
+}
