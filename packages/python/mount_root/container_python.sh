@@ -286,6 +286,7 @@ build_target_python() {
   (
     cd "$TARGET_BUILD_DIR"
     export PATH="${BUILD_TOOLS}:${LLVM_ROOT}/bin:${PATH}"
+    export CC CXX
     env \
       CONFIG_SITE="$CONFIG_SITE" \
       HOSTRUNNER="${HOSTRUNNER:-}" \

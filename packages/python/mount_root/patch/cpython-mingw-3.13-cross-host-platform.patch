@@ -92,32 +92,30 @@ index a1433e5..1999a77 100644
  #include "pycore_initconfig.h"    // _PyStatus_OK()
  #include "pycore_interp.h"        // _Py_RunGC()
 diff --git a/Python/pylifecycle.c b/Python/pylifecycle.c
-index 65b4444..cf66c80 100644
+index 65b4444..601767e 100644
 --- a/Python/pylifecycle.c
 +++ b/Python/pylifecycle.c
-@@ -1,6 +1,10 @@
+@@ -1,6 +1,9 @@
  /* Python interpreter top-level routines, including init/exit */
- 
+
  #include "Python.h"
 +#ifdef __MINGW32__
 +#  include <windows.h>
 +#endif
-+
- 
+
  #include "pycore_call.h"          // _PyObject_CallMethod()
  #include "pycore_ceval.h"         // _PyEval_FiniGIL()
 diff --git a/Python/traceback.c b/Python/traceback.c
-index b7d16f7..7eaf334 100644
+index b7d16f7..a7995c2 100644
 --- a/Python/traceback.c
 +++ b/Python/traceback.c
-@@ -2,6 +2,10 @@
+@@ -2,6 +2,9 @@
  /* Traceback implementation */
- 
+
  #include "Python.h"
 +#ifdef __MINGW32__
 +#  include <windows.h>
 +#endif
-+
- 
+
  #include "pycore_ast.h"           // asdl_seq_GET()
  #include "pycore_call.h"          // _PyObject_CallMethodFormat()

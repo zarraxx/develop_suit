@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERSION_HELPER="${ROOT_DIR}/mount_root/python_version.sh"
+CONTAINER_SCRIPT="${ROOT_DIR}/mount_root/container_python.sh"
 
 fail() {
   echo "error: $*" >&2
@@ -48,5 +49,8 @@ assert_version_layout "3.14.5" "3.14" "314"
   || fail "Python 3.13 must use its version-specific MinGW patch"
 [[ "$(python_mingw_patch_for_version "3.14.5")" == "cpython-mingw-3.14-cross-host-platform.patch" ]] \
   || fail "Python 3.14 must use its version-specific MinGW patch"
+
+grep -Eq '^[[:space:]]+export CC CXX$' "$CONTAINER_SCRIPT" \
+  || fail "target compiler variables must be exported for Python 3.11 distutils"
 
 echo "Python version layout tests passed"
