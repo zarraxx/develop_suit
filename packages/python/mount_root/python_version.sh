@@ -30,3 +30,10 @@ python_package_version_for_target() {
 
   printf '%s\n' "$python_version"
 }
+
+python_mingw_patch_for_version() {
+  local major_minor=""
+
+  major_minor="$(python_major_minor_version "$1")" || return 1
+  printf 'cpython-mingw-%s-cross-host-platform.patch\n' "$major_minor"
+}

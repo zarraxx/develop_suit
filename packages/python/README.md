@@ -103,7 +103,9 @@ because `cpython-mingw` branches do not necessarily track every official
 CPython patch release. When it is set, Linux targets use `python_version` and
 the MinGW target uses `mingw_python_version`; each archive is named with the
 version it actually contains. When it is empty, MinGW falls back to
-`python_version`.
+`python_version`. MinGW cross-build patches are selected by Python major/minor
+version; adding support for a new series requires a matching patch under
+`mount_root/patch/`.
 
 ## SWIG Configure
 

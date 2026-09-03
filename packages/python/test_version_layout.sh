@@ -42,4 +42,11 @@ assert_version_layout "3.14.5" "3.14" "314"
 [[ "$(python_package_version_for_target "mingw64" "3.14.5" "")" == "3.14.5" ]] \
   || fail "MinGW target must fall back to the requested Python version"
 
+[[ "$(python_mingw_patch_for_version "3.11.10")" == "cpython-mingw-3.11-cross-host-platform.patch" ]] \
+  || fail "Python 3.11 must use its version-specific MinGW patch"
+[[ "$(python_mingw_patch_for_version "3.13.11")" == "cpython-mingw-3.13-cross-host-platform.patch" ]] \
+  || fail "Python 3.13 must use its version-specific MinGW patch"
+[[ "$(python_mingw_patch_for_version "3.14.5")" == "cpython-mingw-3.14-cross-host-platform.patch" ]] \
+  || fail "Python 3.14 must use its version-specific MinGW patch"
+
 echo "Python version layout tests passed"

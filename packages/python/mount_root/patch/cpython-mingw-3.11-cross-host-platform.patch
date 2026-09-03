@@ -1,0 +1,40 @@
+diff --git a/Modules/Setup.bootstrap.in b/Modules/Setup.bootstrap.in
+index 6986290..2db445a 100644
+--- a/Modules/Setup.bootstrap.in
++++ b/Modules/Setup.bootstrap.in
+@@ -8,7 +8,7 @@
+ # module C APIs are used in core
+ atexit atexitmodule.c
+ faulthandler faulthandler.c
+-@INITSYS@ posixmodule.c
++nt posixmodule.c
+ _signal signalmodule.c -lws2_32
+ _tracemalloc _tracemalloc.c
+ 
+@@ -32,9 +32,9 @@ _stat _stat.c
+ _symtable symtablemodule.c
+ 
+ # for systems without $HOME env, used by site._getuserbase()
+-@MODULE_PWD_TRUE@pwd pwdmodule.c
++#pwd pwdmodule.c
+ 
+ # build-in modules for windows platform:
+-@USE_WIN32_MODULE@winreg ../PC/winreg.c
+-@MODULE_MSVCRT_TRUE@msvcrt -DPy_BUILD_CORE ../PC/msvcrtmodule.c
+-@MODULE__WINAPI_TRUE@_winapi _winapi.c
++winreg ../PC/winreg.c
++msvcrt -DPy_BUILD_CORE ../PC/msvcrtmodule.c
++_winapi _winapi.c
+diff --git a/PC/errmap.h b/PC/errmap.h
+index a7489ab..fba7170 100644
+--- a/PC/errmap.h
++++ b/PC/errmap.h
+@@ -1,3 +1,8 @@
++#ifdef __MINGW32__
++#  include <winsock2.h>
++#  include <windows.h>
++#endif
++
+ int
+ winerror_to_errno(int winerror)
+ {

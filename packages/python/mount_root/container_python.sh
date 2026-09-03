@@ -193,11 +193,19 @@ EOF
 apply_mingw_patches() {
   [[ "$TARGET_KIND" == "mingw" ]] || return 0
 
+  local patch_name=""
+  local patch_path=""
+
   require_command patch
-  log "Applying cpython-mingw generated configure patches"
+  patch_name="$(python_mingw_patch_for_version "$PYTHON_VERSION")" \
+    || die "unsupported MinGW Python version: ${PYTHON_VERSION}"
+  patch_path="/work/mount_root/patch/${patch_name}"
+  [[ -f "$patch_path" ]] || die "missing MinGW Python patch: ${patch_path}"
+
+  log "Applying cpython-mingw ${PYTHON_MAJOR_MINOR} cross-build patch"
   (
     cd "$PYTHON_SOURCE_DIR"
-    patch -Np1 -i /work/mount_root/patch/cpython-mingw-configure-cross-host-platform.patch
+    patch -Np1 -i "$patch_path"
   )
 }
 
