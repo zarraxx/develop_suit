@@ -5,6 +5,9 @@ set -euo pipefail
 SHELL_TOOLS_DIR="${SHELL_TOOLS_DIR:-/work/shell_tools}"
 source "${SHELL_TOOLS_DIR}/tools.sh"
 
+CONTAINER_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${CONTAINER_SCRIPT_DIR}/python_version.sh"
+
 log() {
   echo "==> $*" >&2
 }
@@ -418,20 +421,23 @@ EOF
 }
 
 validate_python() {
-  local python_bin="${SDK_PREFIX}/bin/python3.14"
+  local python_bin="${SDK_PREFIX}/bin/python${PYTHON_MAJOR_MINOR}"
 
   if [[ "$TARGET_KIND" == "mingw" ]]; then
-    python_bin="${SDK_PREFIX}/bin/python3.14.exe"
+    python_bin="${SDK_PREFIX}/bin/python${PYTHON_MAJOR_MINOR}.exe"
     [[ -f "$python_bin" ]] || die "missing Python executable: ${python_bin}"
-    [[ -f "${SDK_PREFIX}/bin/libpython3.14.dll" || -f "${SDK_PREFIX}/bin/libpython314.dll" ]] \
+    [[ -f "${SDK_PREFIX}/bin/libpython${PYTHON_MAJOR_MINOR}.dll" \
+        || -f "${SDK_PREFIX}/bin/libpython${PYTHON_ABI_VERSION}.dll" ]] \
       || die "missing MinGW Python DLL"
-    [[ -f "${SDK_PREFIX}/lib/libpython3.14.dll.a" || -f "${SDK_PREFIX}/lib/libpython314.dll.a" ]] \
+    [[ -f "${SDK_PREFIX}/lib/libpython${PYTHON_MAJOR_MINOR}.dll.a" \
+        || -f "${SDK_PREFIX}/lib/libpython${PYTHON_ABI_VERSION}.dll.a" ]] \
       || die "missing MinGW Python import library"
     return 0
   fi
 
   [[ -x "$python_bin" ]] || die "missing Python executable: ${python_bin}"
-  [[ -f "${SDK_PREFIX}/lib/libpython3.14.so" ]] || die "missing libpython3.14.so"
+  [[ -f "${SDK_PREFIX}/lib/libpython${PYTHON_MAJOR_MINOR}.so" ]] \
+    || die "missing libpython${PYTHON_MAJOR_MINOR}.so"
 
   if [[ "$TARGET_KIND" == "linux" && "$ARCH" == "x86_64" ]]; then
     log "Running x86_64 Python smoke test"
@@ -478,6 +484,10 @@ TARGET_KIND="${TARGET_KIND:-linux}"
 TARGET_TRIPLE="${TARGET_TRIPLE:-}"
 LLVM_VERSION="${LLVM_VERSION:-18.1.8}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.14.5}"
+PYTHON_MAJOR_MINOR="$(python_major_minor_version "$PYTHON_VERSION")" \
+  || die "unsupported Python version: ${PYTHON_VERSION}"
+PYTHON_ABI_VERSION="$(python_abi_version "$PYTHON_VERSION")" \
+  || die "unsupported Python version: ${PYTHON_VERSION}"
 SWIG_VERSION="${SWIG_VERSION:-4.4.1}"
 JOBS="${JOBS:-4}"
 SDK_PREFIX="${SDK_PREFIX:-/opt/python-${PYTHON_VERSION}-${TARGET_TRIPLE}}"
