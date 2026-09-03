@@ -1,5 +1,5 @@
 diff --git a/Makefile.pre.in b/Makefile.pre.in
-index 734cbcf..d428992 100644
+index 734cbcf..498d875 100644
 --- a/Makefile.pre.in
 +++ b/Makefile.pre.in
 @@ -1808,7 +1808,7 @@ install: @FRAMEWORKINSTALLFIRST@ commoninstall bininstall maninstall @FRAMEWORKI
@@ -7,7 +7,7 @@ index 734cbcf..d428992 100644
  			install|*) ensurepip="" ;; \
  		esac; \
 -		$(RUNSHARED) $(PYTHON_FOR_BUILD) -m ensurepip \
-+		$(RUNSHARED) _PYTHON_HOST_PLATFORM=linux-$(shell uname -m) $(PYTHON_FOR_BUILD) -m ensurepip \
++		$(RUNSHARED) $(subst _PYTHON_HOST_PLATFORM=$(_PYTHON_HOST_PLATFORM),_PYTHON_HOST_PLATFORM=linux-$(shell uname -m),$(PYTHON_FOR_BUILD)) -m ensurepip \
  			$$ensurepip --root=$(DESTDIR)/ ; \
  	fi
 
@@ -16,7 +16,7 @@ index 734cbcf..d428992 100644
  			install|*) ensurepip="--altinstall" ;; \
  		esac; \
 -		$(RUNSHARED) $(PYTHON_FOR_BUILD) -m ensurepip \
-+		$(RUNSHARED) _PYTHON_HOST_PLATFORM=linux-$(shell uname -m) $(PYTHON_FOR_BUILD) -m ensurepip \
++		$(RUNSHARED) $(subst _PYTHON_HOST_PLATFORM=$(_PYTHON_HOST_PLATFORM),_PYTHON_HOST_PLATFORM=linux-$(shell uname -m),$(PYTHON_FOR_BUILD)) -m ensurepip \
  			$$ensurepip --root=$(DESTDIR)/ ; \
  	fi
 

@@ -52,5 +52,10 @@ assert_version_layout "3.14.5" "3.14" "314"
 
 grep -Eq '^[[:space:]]+export CC CXX$' "$CONTAINER_SCRIPT" \
   || fail "target compiler variables must be exported for Python 3.11 distutils"
+grep -Fq -- '-I${PYTHON_SOURCE_DIR}/Include/internal' "$CONTAINER_SCRIPT" \
+  || fail "MinGW extension builds must include CPython internal headers"
+grep -Fq -- '$(subst _PYTHON_HOST_PLATFORM=$(_PYTHON_HOST_PLATFORM),_PYTHON_HOST_PLATFORM=linux-$(shell uname -m),$(PYTHON_FOR_BUILD))' \
+  "${ROOT_DIR}/mount_root/patch/cpython-mingw-3.11-cross-host-platform.patch" \
+  || fail "Python 3.11 ensurepip must run with the build host platform"
 
 echo "Python version layout tests passed"

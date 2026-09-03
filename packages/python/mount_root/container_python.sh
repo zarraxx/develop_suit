@@ -601,7 +601,7 @@ COMMON_LIBS="${COMMON_LIBS:-}"
 if [[ "$TARGET_KIND" == "linux" ]]; then
   COMMON_LDFLAGS="${COMMON_LDFLAGS} -Wl,-rpath-link,${SDK_PREFIX}/lib -Wl,-rpath-link,${SYSROOT}/usr/lib -Wl,-rpath-link,${SYSROOT}/usr/lib64 -Wl,-rpath-link,${SYSROOT}/lib -Wl,-rpath-link,${SYSROOT}/lib64"
 else
-  COMMON_CPPFLAGS="-I${PYTHON_SOURCE_DIR}/PC ${COMMON_CPPFLAGS}"
+  COMMON_CPPFLAGS="-I${PYTHON_SOURCE_DIR}/PC -I${PYTHON_SOURCE_DIR}/Include/internal ${COMMON_CPPFLAGS}"
   COMMON_CFLAGS="${COMMON_CFLAGS} -DNT_THREADS"
   COMMON_CXXFLAGS="${COMMON_CXXFLAGS} -DNT_THREADS"
   COMMON_LIBS="${COMMON_LIBS} -lpthread"
